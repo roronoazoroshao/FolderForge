@@ -32,7 +32,17 @@ function sha(input: string): string {
   return createHash('sha256').update(input).digest('hex');
 }
 
+/** Windows Node does not provide directory fsync (EPERM). File fsync and the
+ * exclusive lock still apply there, but crash/power-loss durability is NOT
+ * claimed: Trusted Host operator grants are explicitly unsupported on Windows.
+ * Never suppress a directory durability error on qualified macOS/Linux.
+ */
+export function supportsDirectoryFsync(platform: string): boolean {
+  return platform !== 'win32';
+}
+
 function syncDir(directory: string): void {
+  if (!supportsDirectoryFsync(process.platform)) return;
   const fd = openSync(directory, constants.O_RDONLY | constants.O_NOFOLLOW);
   try { fsyncSync(fd); } finally { closeSync(fd); }
 }

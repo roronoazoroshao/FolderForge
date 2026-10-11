@@ -3,7 +3,7 @@ import { lstatSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, w
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FleetManager } from '../../src/provisioner/fleet-manager.js';
-import { FleetProfileTransaction } from '../../src/provisioner/fleet-profile-transaction.js';
+import { FleetProfileTransaction, supportsDirectoryFsync } from '../../src/provisioner/fleet-profile-transaction.js';
 import type { FleetProfileTuple } from '../../src/operator/trusted-host-scope.js';
 
 const tuple: FleetProfileTuple = { toolsPreset: 'full', policyMode: 'danger', terminalExecution: 'trusted-host' };
@@ -27,6 +27,12 @@ function fixture(phase?: 'prepared' | 'yaml-renamed' | 'state-renamed' | 'commit
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
 describe('crash-consistent Fleet profile transaction', () => {
+  it('documents and gates platform directory fsync without weakening macOS/APFS', () => {
+    expect(supportsDirectoryFsync('win32')).toBe(false);
+    expect(supportsDirectoryFsync('darwin')).toBe(true);
+    expect(supportsDirectoryFsync('linux')).toBe(true);
+  });
+
   it('rejects a stale legacy Fleet writer after a committed profile transaction', () => {
     const h = fixture();
     const stale = new FleetManager(h.root);
