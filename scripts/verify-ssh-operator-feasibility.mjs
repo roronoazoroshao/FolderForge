@@ -23,6 +23,8 @@ const users = [];
 let daemon;
 let forwarded;
 let liveHelper;
+let resultProof;
+let sshdListeningPort;
 const command = (bin, args, options = {}) => execFileSync(bin, args, {
   encoding: 'utf8',
   // Shared Linux test runners can delay NSS/passwd locking during account setup.
@@ -82,6 +84,7 @@ try {
 
   sudo(['mkdir', '-p', '/run/sshd']);
   const sshPort = await port();
+  sshdListeningPort = sshPort;
   const forwardPort = await port();
   const config = join(tmp, 'sshd_config');
   writeFileSync(config, [
@@ -198,8 +201,8 @@ try {
       typeof v === 'boolean' && v !== true)) {
     throw new Error('SSH_PROBE_INVARIANT_FAILED ' + JSON.stringify(observation));
   }
-  // cleanupVerified is finalized after the finally block below.
-  process.stdout.write(JSON.stringify({ ...observation, cleanupVerified: true }) + '\n');
+  // Never report cleanup success until accounts and the daemon actually disappear.
+  resultProof = observation;
 } finally {
   if (liveHelper && liveHelper.exitCode === null) {
     safeRun(() => liveHelper.stdin.end());
@@ -215,3 +218,9 @@ try {
   for (const user of users.reverse()) safeRun(() => sudo(['userdel', '-r', user]));
   rmSync(tmp, { recursive: true, force: true });
 }
+
+if (!resultProof) throw new Error('SSH_EVIDENCE_UNAVAILABLE');
+const accountsGone = users.every(user => spawnSync('getent', ['passwd', user], { encoding: 'utf8' }).status !== 0);
+const daemonNotListening = !spawnSync('ss', ['-ltn'], { encoding: 'utf8' }).stdout.includes('127.0.0.1:' + sshdListeningPort);
+if (!accountsGone || !daemonNotListening) throw new Error('SSH_FIXTURE_CLEANUP_NOT_VERIFIED');
+process.stdout.write(JSON.stringify({ ...resultProof, cleanupVerified: true }) + '\n');
