@@ -66,8 +66,14 @@ export async function startSshOperatorIpcServer(
     }
   } catch (e) {
     for (const socket of sockets) socket.destroy();
-    if (server.listening) server.close();
-    if (existsSync(path)) unlinkSync(path);
+    // If another Dashboard wins the EADDRINUSE race, its Unix socket belongs
+    // to that other listener. NEVER remove it from this failed startup.
+    // Only a listener that successfully bound this path may clean it up.
+    const boundHere = server.listening;
+    if (boundHere) {
+      server.close();
+      if (existsSync(path)) unlinkSync(path);
+    }
     throw e;
   }
 
