@@ -333,14 +333,14 @@ old log was historically untampered. See [ADR-0006](adr-0006-audit-durability.md
 for durability and [ADR-0007](adr-0007-evidence-store-v2.md) for integrity,
 signatures, migration, and threat-model limits.
 
-### Fleet Trusted Host: per-instance macOS operator-consent qualification (not released)
+### Fleet Trusted Host: macOS/Linux operator-consent qualification (not released)
 
 The per-instance Trusted Host flow is a **high-privilege, opt-in** capability.
 An authenticated Mission Control Bearer request may create a short-lived,
 instance-and-profile-bound **intent**, but neither a remote Dashboard request,
 a URL query token, nor an MCP `provision_update` call may approve host shell
 execution. The approval is performed only by an operator invoking
-`folderforge operator trusted-host approve <request-id>` on the macOS host in
+`folderforge operator trusted-host approve <request-id>` on the Linux or macOS host in
 an interactive terminal. A TTY validates the interaction channel, **not**
 physical presence, resistance to SSH forwarding, or isolation from malicious
 processes with the same OS UID. The operator must verify the displayed
@@ -357,12 +357,16 @@ On revocation, future elevated starts are denied immediately. A live child
 cannot be called stopped until PID termination has been positively verified;
 ambiguous revocation is shown as `REVOKED_EXECUTION_UNCERTAIN`.
 
-**No automatic platform promotion:** macOS is the initial proposed platform;
-Linux remains unqualified, Windows unsupported. An existing **explicit**
+**Linux requires independent host qualification:** Linux now has the same
+per-instance consent path, using a root-owned sticky `/var/tmp` parent and
+owner-private `/var/tmp/folderforge-operator-consent-<UID>` state outside
+agent workspaces. A missing/unsafe parent or overlapping workspace fails
+closed. Loss of operator state invalidates grants; the machine's tmpfiles
+policy and `PrivateTmp` namespace must be considered. Windows remains unsupported. An existing **explicit**
 operator-controlled parent startup opt-in is a separate legacy compatibility
 path, not something the Dashboard can enable remotely. The per-instance
-feature must not merge into a release before a real macOS owner/operator
-interactive acceptance transcript **and APFS crash/power-loss durability
-evidence** exist. CI filesystem primitive checks and synthetic TTY fixtures
+feature must not merge into a release before real macOS **and/or Linux**
+owner/operator acceptance on each advertised target and the relevant
+APFS/Linux crash-recovery durability evidence exist. CI filesystem primitive checks and synthetic TTY fixtures
 are not sufficient. If they cannot be obtained, record `NOT_RUN`; do not
 replace the gate with a simulation or weaken the approved spec.
