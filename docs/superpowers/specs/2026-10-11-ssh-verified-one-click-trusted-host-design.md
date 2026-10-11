@@ -162,7 +162,7 @@ Verification requires unit/TDD RED → GREEN, source integration tests using a f
 4. Fleet UI Save & Apply, credential Connect workflow and accessibility/mobile checks.
 5. Independent security review, real SSH acceptance, full CI and release decisions **only after explicit owner approvals**.
 
-**Feature gate:** Off by default until SSH launcher + independent verification passes. No silent migration or trusted-host grants for pre-existing plain HTTP clients. Existing `v3.0.2` remains immutable; ship under a new version after separate release qualification. Emergency rollback disables **new** SSH-session grants, invalidates live elevated sessions, and preserves/reconciles existing approved Fleet grants and running PIDs honestly; do not relabel live host processes as stopped.
+**Feature gate:** Off by default while unqualified. After the SSH launcher and independent security review pass, enable One-Click only for verified launcher sessions; never silently activate it for plain `ssh -L`, generic HTTP, Cloudflare, or legacy browser sessions. No silent migration or trusted-host grants for pre-existing plain HTTP clients. Existing `v3.0.2` remains immutable; ship under a new version after separate release qualification. Emergency rollback disables **new** SSH-session grants, invalidates live elevated sessions, and preserves/reconciles existing approved Fleet grants and running PIDs honestly; do not relabel live host processes as stopped.
 
 ## 10. Acceptance and review decision
 
