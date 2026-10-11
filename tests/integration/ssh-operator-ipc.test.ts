@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { lstatSync, mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, lstatSync, mkdtempSync, rmSync } from 'node:fs';
+import { createServer } from 'node:net';
 import { PassThrough } from 'node:stream';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -86,6 +87,24 @@ describe('real Unix-socket SSH host broker transport', () => {
         catch { return true; }
       });
     } finally { await server.close(); }
+  });
+
+  it('fails closed if a protected IPC peer accepts but stalls its bootstrap handshake', async () => {
+    const h = harness();
+    const silentPeer = createServer(() => { /* Deliberately never send bootstrap proof. */ });
+    await new Promise<void>((resolve, reject) => {
+      silentPeer.once('error', reject);
+      silentPeer.listen(h.socketPath, resolve);
+    });
+    chmodSync(h.socketPath, 0o600);
+    try {
+      await expect(openSshOperatorIpcClient(h.socketPath, h.uid, { handshakeTimeoutMs: 75 }))
+        .rejects.toThrow('SSH_OPERATOR_IPC_TIMEOUT');
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        silentPeer.close(error => error ? reject(error) : resolve());
+      });
+    }
   });
 
   it('removes its protected socket on shutdown and refuses an occupied socket path', async () => {
