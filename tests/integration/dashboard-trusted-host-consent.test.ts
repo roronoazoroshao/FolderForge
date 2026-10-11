@@ -19,7 +19,7 @@ afterEach(async () => {
   roots.splice(0).forEach(r => rmSync(r, { recursive: true, force: true }));
 });
 
-async function harness() {
+async function harness(auth: { token?: string; requireAuth?: boolean } = { token: 'dev-host-token', requireAuth: false }) {
   const root = mkdtempSync(join(tmpdir(), 'ff-host-api-'));
   roots.push(root);
   const config = defaultConfig(root);
@@ -36,7 +36,7 @@ async function harness() {
   });
   vi.spyOn(container, 'trustedHostConsentService').mockReturnValue(service);
   const server = startDashboard(container, buildRegistry(container), {
-    host: '127.0.0.1', port: 0, token: 'dev-host-token', requireAuth: false,
+    host: '127.0.0.1', port: 0, ...auth,
   });
   servers.push(server);
   if (!server.listening) await once(server, 'listening');
@@ -87,6 +87,31 @@ describe('sensitive Fleet profile-intents API', () => {
     expect((await fetch(url, {
       method: 'POST', headers: { origin, authorization: 'Bearer dev-host-token' },
     })).status).toBe(405);
+  });
+
+  it('allows an unauthenticated loopback Control Panel to stage consent, but never grant host execution by HTTP', async () => {
+    const h = await harness({ token: undefined, requireAuth: false });
+    const headers = { origin: h.base, 'sec-fetch-site': 'same-origin' };
+    const created = await h.request(headers);
+    expect(created.status).toBe(202);
+    const { requestId } = await created.json() as { requestId: string };
+    expect(h.store.readPending(requestId)).not.toBeNull();
+    expect(h.container.fleet.get(h.instance.id).terminalExecution).not.toBe('trusted-host');
+    expect((await fetch(`${h.base}${h.path}/${requestId}`, { headers })).status).toBe(200);
+    const apply = await fetch(`${h.base}${h.path}/${requestId}/apply`, { method: 'POST', headers });
+    expect(apply.status).toBe(409);
+    expect(h.container.fleet.get(h.instance.id).terminalExecution).not.toBe('trusted-host');
+    const noOrigin = await h.request({});
+    expect(noOrigin.status).toBe(403);
+    const crossOrigin = await h.request({ origin: 'https://attacker.example' });
+    expect(crossOrigin.status).toBe(403);
+  });
+
+  it('keeps credential enforcement when token is configured, even if the dashboard is bound to localhost', async () => {
+    const h = await harness();
+    expect((await h.request({ origin: h.base })).status).toBe(401);
+    const valid = await h.request({ origin: h.base, authorization: 'Bearer dev-host-token' });
+    expect(valid.status).toBe(202);
   });
 
   it('creates one pending intent with bearer admin and never grants host execution over HTTP', async () => {
