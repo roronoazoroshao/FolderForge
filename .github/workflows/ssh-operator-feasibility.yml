@@ -44,4 +44,4 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run build:adapter-godot
       - name: Verify helper TDD contract
-        run: npx vitest run tests/integration/ssh-session-helper.test.ts tests/unit/ssh-session-broker.test.ts tests/integration/ssh-operator-ipc.test.ts tests/integration/dashboard-ssh-session.test.ts --reporter=verbose
+        run: npx vitest run tests/integration/ssh-session-helper.test.ts tests/unit/ssh-session-broker.test.ts tests/integration/ssh-operator-ipc.test.ts tests/integration/ssh-session-runtime.test.ts tests/integration/dashboard-ssh-session.test.ts --reporter=verbose
