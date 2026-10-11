@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { lstatSync, readFileSync, rmSync } from 'node:fs';
+import { lstatSync, readFileSync } from 'node:fs';
 import {
   buildSshDashboardArgv,
   createSshBrowserInvitation,
@@ -28,8 +28,8 @@ describe('nontechnical one-login SSH dashboard launcher', () => {
     expect(args).toContain('ForwardAgent=no');
     expect(args).toContain('ExitOnForwardFailure=yes');
     expect(args).toContain('127.0.0.1:49432:127.0.0.1:7332');
-    expect(args.slice(-5)).toEqual([
-      'owner@box', 'folderforge', 'operator', 'dashboard-session', 'serve --stdio',
+    expect(args.slice(-6)).toEqual([
+      'owner@box', 'folderforge', 'operator', 'dashboard-session', 'serve', '--stdio',
     ]);
     expect(args).not.toContain('-A');
     expect(args).not.toContain('StrictHostKeyChecking=no');
