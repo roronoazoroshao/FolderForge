@@ -92,7 +92,15 @@ export async function startSshOperatorIpcServer(
 export async function openSshOperatorIpcClient(
   socketPath: string,
   expectedUid: number,
+  opts: { handshakeTimeoutMs?: number } = {},
 ): Promise<SshHelperBroker> {
+  // The broker must return its bootstrap proof within a bounded interval.
+  // Never let a stalled host-owned IPC service hang the SSH launcher indefinitely.
+  const handshakeTimeoutMs = opts.handshakeTimeoutMs ?? 5_000;
+  if (!Number.isSafeInteger(handshakeTimeoutMs) ||
+      handshakeTimeoutMs < 1 || handshakeTimeoutMs > 10_000) {
+    throw new Error('INVALID_SSH_OPERATOR_IPC_TIMEOUT');
+  }
   if (typeof process.getuid !== 'function' || process.getuid() !== expectedUid) {
     throw new Error('WRONG_OPERATOR_UID');
   }
@@ -118,6 +126,7 @@ export async function openSshOperatorIpcClient(
     };
     socket.once('error', fail);
     socket.once('close', () => fail(new Error('SSH_OPERATOR_IPC_CLOSED')));
+    socket.setTimeout(handshakeTimeoutMs, () => fail(new Error('SSH_OPERATOR_IPC_TIMEOUT')));
     socket.on('data', chunk => {
       if (resolved) return;
       bytes += chunk.toString('utf8');
@@ -136,6 +145,9 @@ export async function openSshOperatorIpcClient(
           throw new Error('SSH_OPERATOR_IPC_INVALID_PROOF');
         }
         resolved = true;
+        // The live socket carries the revocation lease: do not time out the
+        // channel after the initial handshake has succeeded.
+        socket.setTimeout(0);
         resolveReady({
           bootstrapSecret: record.bootstrapSecret,
           leaseId: record.leaseId,
