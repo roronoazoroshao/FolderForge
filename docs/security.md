@@ -332,3 +332,37 @@ Migration records the legacy file digest and line provenance but never claims th
 old log was historically untampered. See [ADR-0006](adr-0006-audit-durability.md)
 for durability and [ADR-0007](adr-0007-evidence-store-v2.md) for integrity,
 signatures, migration, and threat-model limits.
+
+### Fleet Trusted Host: per-instance macOS operator-consent qualification (not released)
+
+The per-instance Trusted Host flow is a **high-privilege, opt-in** capability.
+An authenticated Mission Control Bearer request may create a short-lived,
+instance-and-profile-bound **intent**, but neither a remote Dashboard request,
+a URL query token, nor an MCP `provision_update` call may approve host shell
+execution. The approval is performed only by an operator invoking
+`folderforge operator trusted-host approve <request-id>` on the macOS host in
+an interactive terminal. A TTY validates the interaction channel, **not**
+physical presence, resistance to SSH forwarding, or isolation from malicious
+processes with the same OS UID. The operator must verify the displayed
+workspace, installation, instance, UID, auth mode and exact profile tuple.
+
+The scope is bound to installation ID, service UID, canonical workspace,
+instance ID, authentication mode, exact tuple, and a revocation generation.
+Files are owner-only; the two-file Fleet profile update is a **journaled
+transaction**, not an atomic multi-file rename. `PREPARED` recovery rolls
+back both generated config and Fleet state; `COMMITTED` recovery validates
+and rolls forward. Unknown PID, contested lock, malformed ownership/hash or
+unrecoverable journal **blocks** further profile changes and child start.
+On revocation, future elevated starts are denied immediately. A live child
+cannot be called stopped until PID termination has been positively verified;
+ambiguous revocation is shown as `REVOKED_EXECUTION_UNCERTAIN`.
+
+**No automatic platform promotion:** macOS is the initial proposed platform;
+Linux remains unqualified, Windows unsupported. An existing **explicit**
+operator-controlled parent startup opt-in is a separate legacy compatibility
+path, not something the Dashboard can enable remotely. The per-instance
+feature must not merge into a release before a real macOS owner/operator
+interactive acceptance transcript **and APFS crash/power-loss durability
+evidence** exist. CI filesystem primitive checks and synthetic TTY fixtures
+are not sufficient. If they cannot be obtained, record `NOT_RUN`; do not
+replace the gate with a simulation or weaken the approved spec.

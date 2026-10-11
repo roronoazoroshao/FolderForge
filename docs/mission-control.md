@@ -171,3 +171,38 @@ workspace authorization for native tools, audit, or rate limits. It also does
 not configure separately launched third-party MCP/plugin runtimes or the
 OpenAI Tunnel supervisor. Secure those runtimes independently. Avoid exposing a
 trusted-host instance without strong authentication.
+
+#### Fleet Trusted Host recovery, rollback and qualification checklist
+
+To request a per-instance profile change, choose **Fleet → Configure**,
+select the intended tool preset, policy mode and Trusted Host execution, and
+press **Save changes once**. The Dashboard creates a time-limited intent and
+shows `Awaiting local operator`; **the running instance is still unchanged**.
+Copy the exact command shown and run it yourself from an interactive terminal
+on the macOS machine that hosts the FolderForge parent. Verify the instance,
+workspace, OS account, installation and exact tuple before typing the
+requested confirmation. No YAML editing or global privilege flag is needed.
+Never paste the local command into a remote untrusted execution session.
+
+If the intent expires, cancel or create a new request. If authorization
+succeeds, the Dashboard persists the exact tuple with a journal and reports
+that the **runtime remains unchanged** until a safe stop/start. A running
+child with an active tunnel or uncertain task cannot be silently restarted.
+After revocation, future elevated starts fail. If termination is not verified
+the UI should report `REVOKED_EXECUTION_UNCERTAIN`; stop and inspect the
+machine rather than treating the instance as stopped. Rollback to
+`sandbox-required` must preserve credentials and keep the runtime contained.
+
+Qualification evidence, before any merge/release of this feature:
+- **PASS (native Linux fixtures):** owner/permission/replay tests, multi-file
+  journal recovery fault injection, scoped Dashboard auth/CSRF negatives,
+  bypass prevention, real Chromium single-intent Save.
+- **NOT_RUN until independently documented:** human interactive approval by
+  the owner on a real macOS host, actual parent/child launch and revocation
+  observation, APFS crash/power-loss recovery test with two-file journal.
+  GitHub-hosted macOS directory `fsync` tests establish only primitives.
+- **UNSUPPORTED / fail-closed:** Windows operator grants. Linux qualification
+  is deferred and cannot be inferred from Linux unit tests.
+
+These statuses describe verification requirements, **not a claim of release
+readiness or of host-level physical-presence authentication**.
