@@ -107,6 +107,28 @@ describe('real Unix-socket SSH host broker transport', () => {
     }
   });
 
+  it('never unlinks the winning broker socket when simultaneous startup loses a bind race', async () => {
+    const h = harness();
+    const [first, second] = await Promise.allSettled([
+      startSshOperatorIpcServer(h.broker, h.socketPath),
+      startSshOperatorIpcServer(h.broker, h.socketPath),
+    ]);
+    const fulfilled = [first, second].filter((result) => result.status === 'fulfilled');
+    expect(fulfilled).toHaveLength(1);
+    const winner = fulfilled[0];
+    if (!winner || winner.status !== 'fulfilled') return;
+    try {
+      const st = lstatSync(h.socketPath);
+      expect(st.isSocket()).toBe(true);
+      const client = await openSshOperatorIpcClient(h.socketPath, h.uid);
+      const secret = client.openFromHost(h.uid);
+      expect(h.broker.exchangeBootstrap(secret.bootstrapSecret).leaseId).toBe(secret.leaseId);
+      client.revokeLease(secret.leaseId);
+    } finally {
+      await winner.value.close();
+    }
+  });
+
   it('removes its protected socket on shutdown and refuses an occupied socket path', async () => {
     const h = harness();
     const server = await startSshOperatorIpcServer(h.broker, h.socketPath);
