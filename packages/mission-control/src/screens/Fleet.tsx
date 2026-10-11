@@ -631,7 +631,7 @@ function ConfigModal(props: { instance: FleetInstance; onClose: () => void; onSa
           </Select>
         </Field>
         {terminalExecution === 'trusted-host' ? (
-          <Banner tone="warn">Trusted Host can execute commands as the FolderForge OS account. A separate, interactive confirmation on the Mac running FolderForge is mandatory before it can be saved. No YAML editing is required; authenticated access, hard denies and audit remain enforced.</Banner>
+          <Banner tone="warn">Trusted Host can execute commands as the FolderForge OS account. A separate, interactive confirmation on the Linux or macOS server running FolderForge is mandatory before it can be saved. No YAML editing is required; authenticated access, hard denies and audit remain enforced.</Banner>
         ) : null}
         {policy === 'danger' ? (
           <Banner tone="warn">Danger mode bypasses all manual approvals, including HIGH/CRITICAL and policy-as-code approval rules. Hard denies, authorization, containment, audit, and rate limits remain enforced.</Banner>
@@ -645,7 +645,7 @@ function ConfigModal(props: { instance: FleetInstance; onClose: () => void; onSa
               <Button size="sm" variant="ghost" onClick={() => navigator.clipboard.writeText(`folderforge operator trusted-host approve ${hostRequest.requestId}`).catch(() => undefined)}>
                 <Copy size={13} aria-hidden /> Copy local command
               </Button>
-              <span>Run this command in an interactive terminal on the Mac hosting FolderForge. The Dashboard cannot approve it remotely.</span>
+              <span>Run this command in an interactive terminal on the Linux or macOS host running FolderForge. The Dashboard cannot approve it remotely.</span>
             </div>
           </Banner>
         ) : null}

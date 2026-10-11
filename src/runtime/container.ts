@@ -13,6 +13,7 @@ import { FleetManager } from '../provisioner/fleet-manager.js';
 import { resolve } from 'node:path';
 import { operatorStateOutsideProjects } from '../operator/trusted-host-scope.js';
 import { defaultHostConsentRoot } from '../operator/trusted-host-cli.js';
+import { detectConsentPlatform } from '../operator/trusted-host-platform.js';
 import { TrustedHostStore } from '../operator/trusted-host-store.js';
 import { TrustedHostConsentService } from '../operator/trusted-host-consent.js';
 import { TunnelManager } from '../tunnels/tunnel-manager.js';
@@ -200,25 +201,26 @@ export class Container {
     }
   }
 
-  /** Lazy, macOS-only on-host consent service; no operator files are touched by ordinary startup. */
+  /** Lazy macOS/Linux on-host consent; agent workspaces cannot access grant state. */
   trustedHostConsentService(): TrustedHostConsentService | null {
     if (this.hostConsentService !== undefined) return this.hostConsentService;
-    if (process.platform !== 'darwin' || typeof process.getuid !== 'function') {
-      this.hostConsentService = null;
-      return null;
-    }
-    const operatorRoot = resolve(defaultHostConsentRoot());
-    const projectRoots = [
-      this.config.workspace.defaultProject,
-      ...this.config.workspace.allowedDirectories,
-    ];
-    // Canonicalize both sides: symlinked project aliases must not expose
-    // host-only operator state even when their lexical paths are disjoint.
-    if (!operatorStateOutsideProjects(operatorRoot, projectRoots)) {
+    if (detectConsentPlatform(process.platform) === 'unsupported' || typeof process.getuid !== 'function') {
       this.hostConsentService = null;
       return null;
     }
     try {
+      // Host path validation must also fail closed without a dashboard 500.
+      const operatorRoot = resolve(defaultHostConsentRoot());
+      const projectRoots = [
+        this.config.workspace.defaultProject,
+        ...this.config.workspace.allowedDirectories,
+      ];
+      // Canonicalize both sides: symlinked project aliases must not expose
+      // host-only operator state even when their lexical paths are disjoint.
+      if (!operatorStateOutsideProjects(operatorRoot, projectRoots)) {
+        this.hostConsentService = null;
+        return null;
+      }
       const uid = process.getuid();
       const store = new TrustedHostStore({ operatorRoot, currentUid: uid, now: Date.now });
       this.hostConsentService = new TrustedHostConsentService({

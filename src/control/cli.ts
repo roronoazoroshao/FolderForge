@@ -39,6 +39,8 @@ import { fileURLToPath } from 'node:url';
 
 import { ENV_NAME_PATTERN, TUNNEL_ID_PATTERN } from '../chatgpt/openai-tunnel.js';
 import { startDashboard } from '../dashboard/server.js';
+import { detectConsentPlatform } from '../operator/trusted-host-platform.js';
+import { startTrustedHostRevocationMonitor } from '../operator/trusted-host-monitor.js';
 import { logger } from '../core/logger.js';
 import { readFolderForgeVersion } from '../core/version.js';
 import { Container } from '../runtime/container.js';
@@ -1191,11 +1193,22 @@ async function controlServe(
     ...(options.allow !== undefined ? { allow: options.allow } : {}),
   });
 
+  // Standalone Control Panel must watch revocations too: on-host approval
+  // changes an owner-only file, not the running Fleet child's memory.
+  const stopHostRevocationMonitor = detectConsentPlatform(process.platform) !== 'unsupported'
+    ? startTrustedHostRevocationMonitor(container.fleet, (instanceId) =>
+        container.audit.record({
+          type: 'dashboard_action',
+          summary: 'trusted_host_revocation_check ' + instanceId,
+        }))
+    : () => {};
+
   await new Promise<void>((resolvePromise) => {
     let shuttingDown = false;
     const shutdown = (signal: string): void => {
       if (shuttingDown) return;
       shuttingDown = true;
+      stopHostRevocationMonitor();
       logger.info({ signal }, 'Shutting down Mission Control plane');
       server.close(() => {
         void Promise.allSettled([

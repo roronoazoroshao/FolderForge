@@ -161,10 +161,10 @@ Fleet > Provision and Fleet > Configure now expose two terminal execution profil
 
 **Host-operator authorization is mandatory.** Two paths are distinct:
 
-- **macOS per-instance zero-YAML consent (requires qualification):** in Fleet > Configure select `full`, `danger` and `trusted-host`, then choose **Save changes**. An authenticated Dashboard creates an immutable pending intent, but cannot grant host execution. On the Mac running the FolderForge parent, the OS-account owner runs the exact displayed command, e.g. `folderforge operator trusted-host approve req_<request-id>`, then types `APPROVE flt_<instance-id>` into an interactive terminal. The Dashboard polls for the matching grant and applies the exact three-setting tuple through a journaled transaction. Do **not** hand-edit Fleet YAML. A Dashboard Bearer token is required even on localhost; a `?token=` query parameter alone is insufficient. Saved settings on a running child are **not yet the active process profile**; stop/start only when safe.
+- **macOS/Linux per-instance zero-YAML consent (requires host qualification):** in Fleet > Configure select `full`, `danger` and `trusted-host`, then choose **Save changes**. An authenticated Dashboard creates an immutable pending intent, but cannot grant host execution. On the Linux server or Mac running the FolderForge parent, the OS-account owner runs the exact displayed command, e.g. `folderforge operator trusted-host approve req_<request-id>`, then types `APPROVE flt_<instance-id>` into an interactive terminal. The Dashboard polls for the matching grant and applies the exact three-setting tuple through a journaled transaction. Do **not** hand-edit Fleet YAML. A Dashboard Bearer token is required even on localhost; a `?token=` query parameter alone is insufficient. Saved settings on a running child are **not yet the active process profile**; stop/start only when safe.
 - **Legacy explicit startup opt-in:** the host owner can still use parent `terminal.sandbox.mode: process` and `terminal.sandbox.requireInDanger: false`; this backward-compatible global setting is not silently changed by the new UI.
 
-The Fleet instance must have authenticated MCP access (`authMode` cannot be `none`). Revoking a scoped grant through `folderforge operator trusted-host revoke req_<request-id>` prevents **future** elevated starts immediately. On macOS, the running parent periodically reconciles local revocations and initiates supervised termination of matching running children. The process is **not** reported as stopped until its PID is verified absent; if it survives, Fleet shows `REVOKED_EXECUTION_UNCERTAIN` and operator intervention may be required. This is not instantaneous process termination at CLI approval time. The capability's scope hash is never exposed in a Dashboard URL or printed as a bearer secret. Same-UID malicious processes and physical-presence assurance are **outside** this feature's security guarantee; hosted macOS CI primitive tests do not replace real macOS acceptance or APFS crash-durability qualification. Generated 0600 credentials, audit, hard-denies and OS file permissions remain enforced.
+The Fleet instance must have authenticated MCP access (`authMode` cannot be `none`). Revoking a scoped grant through `folderforge operator trusted-host revoke req_<request-id>` prevents **future** elevated starts immediately. On macOS and Linux, the running parent periodically reconciles local revocations and initiates supervised termination of matching running children. The process is **not** reported as stopped until its PID is verified absent; if it survives, Fleet shows `REVOKED_EXECUTION_UNCERTAIN` and operator intervention may be required. This is not instantaneous process termination at CLI approval time. The capability's scope hash is never exposed in a Dashboard URL or printed as a bearer secret. Same-UID malicious processes and physical-presence assurance are **outside** this feature's security guarantee; hosted macOS CI primitive tests do not replace real macOS acceptance or APFS crash-durability qualification. Generated 0600 credentials, audit, hard-denies and OS file permissions remain enforced.
 
 This option does **not** remove the command deny list, OS file permissions,
 workspace authorization for native tools, audit, or rate limits. It also does
@@ -179,7 +179,7 @@ select the intended tool preset, policy mode and Trusted Host execution, and
 press **Save changes once**. The Dashboard creates a time-limited intent and
 shows `Awaiting local operator`; **the running instance is still unchanged**.
 Copy the exact command shown and run it yourself from an interactive terminal
-on the macOS machine that hosts the FolderForge parent. Verify the instance,
+on the Linux or macOS host that runs the FolderForge parent. Verify the instance,
 workspace, OS account, installation and exact tuple before typing the
 requested confirmation. No YAML editing or global privilege flag is needed.
 Never paste the local command into a remote untrusted execution session.
@@ -203,8 +203,16 @@ Qualification evidence, before any merge/release of this feature:
   the owner on a real macOS host, actual parent/child launch and revocation
   observation, APFS crash/power-loss recovery test with two-file journal.
   GitHub-hosted macOS directory `fsync` tests establish only primitives.
-- **UNSUPPORTED / fail-closed:** Windows operator grants. Linux qualification
-  is deferred and cannot be inferred from Linux unit tests.
+- **Linux rollout:** the default owner-only state is `/var/tmp/folderforge-operator-consent-<UID>`.
+  `/var/tmp` must be a root-owned sticky writable directory; otherwise the feature
+  fails closed. The state root is private (0700) and must be outside every agent
+  workspace, including deployments governing the user's entire home directory.
+  A tmpfiles cleanup that removes the state invalidates prior grants; fresh
+  local consent is then required. With `systemd PrivateTmp`, CLI and server may
+  see different `/var/tmp` mounts; do not treat a missing intent as approval.
+  Real interactive owner verification and Linux filesystem/restart qualification
+  remain **NOT_RUN** until documented on the target server.
+- **UNSUPPORTED / fail-closed:** Windows operator grants.
 
 These statuses describe verification requirements, **not a claim of release
 readiness or of host-level physical-presence authentication**.
