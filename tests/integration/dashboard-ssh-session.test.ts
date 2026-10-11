@@ -80,7 +80,11 @@ describe('SSH operator browser sessions (no ambient loopback elevation)', () => 
     expect(JSON.stringify(view)).not.toContain(h.bootstrap.bootstrapSecret);
     expect((await exchange(h.base, h.bootstrap.bootstrapSecret)).status).toBe(401);
     const status = await fetch(h.base + '/operator/ssh-session/status', { headers: { cookie: credential } });
-    expect(await status.json()).toMatchObject({ verified: true, source: 'ssh-remote-exec' });
+    expect(await status.json()).toMatchObject({
+      verified: true,
+      source: 'ssh-remote-exec',
+      csrfToken: view.csrfToken,
+    });
 
     const invalidLogout = await fetch(h.base + '/operator/ssh-session/logout', {
       method: 'POST', headers: { origin: h.base, cookie: credential },
