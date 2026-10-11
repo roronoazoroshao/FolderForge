@@ -6,6 +6,19 @@ All notable changes to FolderForge are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/), and the project follows
 semantic versioning.
 
+## [3.0.3] - 2026-10-11
+
+### Fixed
+- Scope Vitest test discovery to the active checkout, excluding nested `.worktrees/` that previously contaminated manual release verification and caused unrelated test failures (#83).
+- Preserve the existing typecheck, lint, architecture, full test, package and publication preflight gates; no checks are disabled.
+
+### Engineering
+- Add the approved SSH-verified one-click Trusted Host security design and TDD implementation plan as documentation (#84, #85).
+- **The one-click Trusted Host launcher, browser handoff, Fleet credential transaction and Save & Apply flow are not part of this stable patch.** The implementation remains a separate Draft PR pending release and security qualification (#86).
+
+### Security
+- Existing host-local approval and authorization restrictions remain in effect. This patch does not relax Host Trusted execution permissions or enable unauthenticated host command execution.
+
 ## [3.0.2] - 2026-10-11
 
 ### Added
