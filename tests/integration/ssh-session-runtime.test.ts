@@ -3,8 +3,7 @@ import { chmodSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { fileURLToPath } from 'node:url';
-import { dirname } from 'node:path';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { openSshOperatorIpcClient } from '../../src/operator/ssh-operator-ipc.js';
 import { startSshOperatorRuntime } from '../../src/operator/ssh-session-runtime.js';
@@ -51,13 +50,14 @@ describe.skipIf(process.platform !== 'linux' && process.platform !== 'darwin')(
       expect(existsSync(running.socketPath)).toBe(false);
     });
 
-    it('dispatches a separate built-in CLI helper into the SAME Dashboard broker (not yet sshd E2E)', async () => {
+    it('verifies a separate helper PROCESS talks to the same Dashboard broker (not CLI/sshd E2E)', async () => {
       const h = harness();
       const running = await startSshOperatorRuntime(h.options);
       const repoRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
       const helper = spawn(process.execPath, [
-        '--import', 'tsx', join(repoRoot, 'src', 'main.ts'),
-        'operator', 'dashboard-session', 'serve', '--stdio',
+        '--import', 'tsx',
+        join(repoRoot, 'tests', 'fixtures', 'ssh-operator-helper-child.ts'),
+        h.root,
       ], { cwd: repoRoot, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
 
       try {
