@@ -34,13 +34,15 @@ describe('Fleet trusted-host compatibility / qualification matrix', () => {
     expect(fleet.get(instance.id).terminalExecution).toBe('sandbox-required');
   });
 
-  it('does not enable operator consent on Linux or unqualified platforms', () => {
+  it('enables local-scoped consent on POSIX hosts while rejecting unsupported platforms', () => {
     const h = fixture();
     const container = new Container(defaultConfig(h.root));
-    if (process.platform !== 'darwin') {
+    if (process.platform === 'darwin' || process.platform === 'linux') {
+      expect(container.trustedHostConsentService()).not.toBeNull();
+    } else {
       expect(container.trustedHostConsentService()).toBeNull();
     }
-    expect(() => requireSupportedLocalPlatform('linux')).toThrow('LOCAL_CONFIRMATION_UNAVAILABLE');
+    expect(() => requireSupportedLocalPlatform('linux')).not.toThrow();
     expect(() => requireSupportedLocalPlatform('win32')).toThrow('LOCAL_CONFIRMATION_UNAVAILABLE');
     expect(() => requireSupportedLocalPlatform('darwin')).not.toThrow();
   });
