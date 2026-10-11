@@ -98,6 +98,11 @@ describe('sensitive Fleet profile-intents API', () => {
     expect(h.store.readPending(requestId)).not.toBeNull();
     expect(h.container.fleet.get(h.instance.id).terminalExecution).not.toBe('trusted-host');
     expect((await fetch(`${h.base}${h.path}/${requestId}`, { headers })).status).toBe(200);
+    // Browsers normally omit Origin on same-origin GET fetches, but send Sec-Fetch-Site.
+    const sameOriginGet = await fetch(`${h.base}${h.path}/${requestId}`, {
+      headers: { 'sec-fetch-site': 'same-origin' },
+    });
+    expect(sameOriginGet.status).toBe(200);
     const apply = await fetch(`${h.base}${h.path}/${requestId}/apply`, { method: 'POST', headers });
     expect(apply.status).toBe(409);
     expect(h.container.fleet.get(h.instance.id).terminalExecution).not.toBe('trusted-host');
