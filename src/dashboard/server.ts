@@ -32,6 +32,8 @@ import {
   type ChatGptLifecycleSnapshot,
 } from "../chatgpt/lifecycle.js";
 import type { Container } from "../runtime/container.js";
+import type { SshSessionBroker } from "../operator/ssh-session-broker.js";
+import { SshOperatorWebSessions } from "./ssh-operator-session.js";
 import type { ToolRegistry } from "../tools/registry.js";
 import type { PolicyMode, ToolPrincipal } from "../core/types.js";
 import { adminPrincipalFromCredential } from "../core/principal.js";
@@ -63,6 +65,8 @@ import { readFolderForgeVersion } from "../core/version.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export interface DashboardOptions {
+  /** Enabled only by the host-owned SSH helper runtime; absent by default. */
+  sshOperatorBroker?: SshSessionBroker;
   host: string;
   port: number;
   /**
@@ -155,6 +159,8 @@ export function startDashboard(
     throw new Error("Dashboard bound to a non-loopback host requires a token");
   }
 
+  const sshOperatorWebSessions = opts.sshOperatorBroker
+    ? new SshOperatorWebSessions(opts.sshOperatorBroker) : null;
   const server = createServer((req, res) => {
     const credential = extractDashboardCredential(req);
     if (
@@ -171,6 +177,15 @@ export function startDashboard(
           message: "Valid bearer token required.",
         }),
       );
+      return;
+    }
+    if (sshOperatorWebSessions?.isRoute(req)) {
+      // This route never recognizes ordinary Dashboard credentials as SSH
+      // authority. The proof must come from a live server-owned SSH lease.
+      sshOperatorWebSessions.handle(req, res).catch((err) => {
+        logger.error({ err: String(err) }, "SSH operator session request failed");
+        if (!res.headersSent) sendJson(res, 500, { error: 'SSH_SESSION_INTERNAL_ERROR' });
+      });
       return;
     }
     const principal = dashboardPrincipal(req, credential, requireAuth);
