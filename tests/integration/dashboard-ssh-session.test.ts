@@ -38,8 +38,8 @@ async function setup() {
   const bootstrap = broker.openFromHost(broker.serviceUid);
   return { base, broker, bootstrap };
 }
-const exchange = (base: string, secret: string, headers: Record<string, string> = {}) =>
-  fetch(base + '/operator/ssh-session/exchange', {
+const exchange = (base: string, secret: string, headers: Record<string, string> = {}, query = '') =>
+  fetch(base + '/operator/ssh-session/exchange' + query, {
     method: 'POST',
     headers: {
       origin: base, 'sec-fetch-site': 'same-origin',
@@ -51,7 +51,7 @@ describe('SSH operator browser sessions (no ambient loopback elevation)', () => 
   it('refuses a missing proof, query token and forged origin even on 127.0.0.1', async () => {
     const h = await setup();
     expect((await exchange(h.base, 'not-a-proof')).status).toBe(401);
-    expect((await exchange(h.base + '?token=fake', 'not-a-proof')).status).toBe(401);
+    expect((await exchange(h.base, 'not-a-proof', {}, '?token=fake')).status).toBe(401);
     expect((await exchange(h.base, h.bootstrap.bootstrapSecret, { origin: 'https://attacker.example' })).status).toBe(403);
     expect((await exchange(h.base, h.bootstrap.bootstrapSecret, { 'sec-fetch-site': 'cross-site' })).status).toBe(403);
     const forgedHost = await fetch(h.base + '/operator/ssh-session/exchange', {
