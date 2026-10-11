@@ -65,7 +65,11 @@ export class TrustedHostConsentService {
   }
 
   private checkOperator(principal: OperatorPrincipal): void {
-    if (principal.role !== 'admin' || !principal.id.startsWith('credential:')) {
+    // The tokenless loopback Control Panel uses this exact local identity;
+    // only the Dashboard HTTP boundary can assign it to an incoming request.
+    // An intent is not a host-execution grant: local CLI approval remains required.
+    if (principal.role !== 'admin' ||
+        (principal.id !== 'local:dashboard-admin' && !principal.id.startsWith('credential:'))) {
       throw new Error('HOST_OPERATOR_AUTH_REQUIRED');
     }
   }
