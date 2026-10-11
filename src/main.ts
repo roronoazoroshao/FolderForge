@@ -41,7 +41,15 @@ import { executeControlCli } from "./control/cli.js";
 import { defaultOriginDeps, executeOriginCli } from "./control/origin.js";
 import { defaultTunnelDeps, executeTunnelCli } from "./control/tunnel.js";
 import { executeShareCli } from "./share/cli.js";
-import { executeHostOperatorCli } from "./operator/trusted-host-cli.js";
+import { executeHostOperatorCli, defaultHostConsentRoot } from "./operator/trusted-host-cli.js";
+import { TrustedHostStore } from "./operator/trusted-host-store.js";
+import { isSshDashboardHelperCommand, runSshDashboardHelper } from "./operator/ssh-session-helper.js";
+import { openSshOperatorIpcClient } from "./operator/ssh-operator-ipc.js";
+import {
+  startSshOperatorRuntime,
+  sshOperatorIpcSocketPath,
+  type SshOperatorRuntime,
+} from "./operator/ssh-session-runtime.js";
 import { detectConsentPlatform } from "./operator/trusted-host-platform.js";
 import { startTrustedHostRevocationMonitor } from "./operator/trusted-host-monitor.js";
 import { ensureRuntimeNodeOnPath } from "./runtime/node-path.js";
@@ -454,6 +462,25 @@ async function main(): Promise<void> {
     process.exitCode = result.exitCode;
     return;
   }
+  if (argv[0] === "operator" && argv[1] === "dashboard-session") {
+    // CLI authentication is supplied by the real SSH remote-exec OS account.
+    // Never allow an HTTP header, Dashboard token or caller-provided UID to
+    // select this helper. The protected IPC must already belong to the host.
+    if (!isSshDashboardHelperCommand(argv)) {
+      throw new Error("SSH_OPERATOR_HELPER_USAGE");
+    }
+    if (typeof process.getuid !== "function") {
+      throw new Error("SSH_OPERATOR_PLATFORM_UNSUPPORTED");
+    }
+    const uid = process.getuid();
+    const ipc = await openSshOperatorIpcClient(
+      sshOperatorIpcSocketPath(defaultHostConsentRoot()), uid,
+    );
+    await runSshDashboardHelper({
+      osUid: uid, stdin: process.stdin, stdout: process.stdout,
+    }, ipc);
+    return;
+  }
   if (argv[0] === "operator" && argv[1] === "trusted-host") {
     const result = await executeHostOperatorCli(argv.slice(2));
     process.stdout.write(result.output);
@@ -841,6 +868,7 @@ async function main(): Promise<void> {
   });
 
   // Dashboard is independent of the MCP transport (and is safe to run alongside stdio).
+  let sshOperatorRuntime: SshOperatorRuntime | null = null;
   if (dashboardEnabled) {
     const dashHost = config.server.dashboard.host;
     // A non-loopback bind exposes the control plane to the network, so it must be
@@ -851,8 +879,35 @@ async function main(): Promise<void> {
         "Dashboard non-loopback bind requires server.dashboard.token; FolderForge will not print generated credentials to logs",
       );
     }
+    // A verified SSH operator path is opt-in, restricted to loopback and
+    // unavailable on platforms lacking owner-only Unix IPC. Startup failure
+    // must leave ordinary Dashboard functionality intact but NEVER enable
+    // trusted-host authority from HTTP or ambient localhost access.
+    if (dashHost === "127.0.0.1" &&
+        typeof process.getuid === "function" &&
+        container.trustedHostConsentService() !== null) {
+      try {
+        const root = defaultHostConsentRoot();
+        const uid = process.getuid();
+        const store = new TrustedHostStore({
+          operatorRoot: root, currentUid: uid, now: Date.now,
+        });
+        sshOperatorRuntime = await startSshOperatorRuntime({
+          operatorRoot: root,
+          serviceUid: uid,
+          installationId: store.getOrCreateInstallationId(),
+          projectRoots: [
+            config.workspace.defaultProject, ...config.workspace.allowedDirectories,
+          ],
+          now: Date.now,
+        });
+      } catch (error) {
+        logger.warn({ err: String(error) }, "SSH operator IPC unavailable (fail-closed)");
+      }
+    }
     startDashboard(container, registry, {
       host: dashHost,
+      ...(sshOperatorRuntime ? { sshOperatorBroker: sshOperatorRuntime.broker } : {}),
       port: config.server.dashboard.port,
       ...(token ? { token } : {}),
       responsesGateway: {
@@ -967,6 +1022,7 @@ async function main(): Promise<void> {
     logger.info({ signal }, "Shutting down FolderForge");
     stopHostRevocationMonitor();
     await Promise.allSettled([
+      ...(sshOperatorRuntime ? [sshOperatorRuntime.close()] : []),
       stopManagedProcessTrees(container, 1_500),
       server.close(),
       container.adapters.stopAllAndWait(1_500),
