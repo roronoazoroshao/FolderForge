@@ -42,6 +42,7 @@ import { defaultOriginDeps, executeOriginCli } from "./control/origin.js";
 import { defaultTunnelDeps, executeTunnelCli } from "./control/tunnel.js";
 import { executeShareCli } from "./share/cli.js";
 import { executeHostOperatorCli, defaultHostConsentRoot } from "./operator/trusted-host-cli.js";
+import { executeSshDashboardCli } from "./operator/ssh-dashboard-launcher.js";
 import { TrustedHostStore } from "./operator/trusted-host-store.js";
 import { isSshDashboardHelperCommand, runSshDashboardHelper } from "./operator/ssh-session-helper.js";
 import { openSshOperatorIpcClient } from "./operator/ssh-operator-ipc.js";
@@ -331,6 +332,7 @@ function printHelp(): void {
       "  worker init|run        Create a worker identity or run an allowlisted remote worker",
       "  plugin <command>       init|validate|test|pack|keygen|sign plugin SDK workflow",
       "  control <command>      start|stop|status|open the local Mission Control plane",
+      "  dashboard ssh --host <ssh-alias>  Open a verified browser over one trusted SSH login",
       "  origin <command>       install|uninstall|status a supervised boot-persistent MCP origin (systemd)",
       "  tunnel <command>       install|uninstall|status a supervised named cloudflared tunnel (systemd)",
       "  share                  Temporary trial env: share [--tunnel openai|cloudflare|none] [--auth token|oauth]",
@@ -376,6 +378,10 @@ function printHelp(): void {
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
+  if (argv[0] === "dashboard" && argv[1] === "ssh") {
+    await executeSshDashboardCli(argv.slice(2));
+    return;
+  }
   if (argv[0] === "distributed" || argv[0] === "worker") {
     await executeDistributedCli(argv);
     return;
