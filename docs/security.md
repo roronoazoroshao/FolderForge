@@ -370,3 +370,16 @@ owner/operator acceptance on each advertised target and the relevant
 APFS/Linux crash-recovery durability evidence exist. CI filesystem primitive checks and synthetic TTY fixtures
 are not sufficient. If they cannot be obtained, record `NOT_RUN`; do not
 replace the gate with a simulation or weaken the approved spec.
+
+#### Fleet directory-fsync platform boundary
+
+The profile journal uses file `fsync` and directory `fsync` on
+macOS/Linux to make the metadata ordering explicit. Windows rejects
+directory `fsync` through Node with `EPERM`; on `win32` the code
+retains file `fsync` and exclusive writer locks but omits unsupported
+**directory-only** `fsync` calls. This is a compatibility guard for
+the default sandbox-required Fleet management commands, **not** a
+durability or Trusted Host qualification for Windows. Trusted Host
+interactive on-host grants remain unsupported on Windows. The macOS
+APFS crash/power-loss evidence gate remains NOT_RUN and is unaffected
+by the Windows compatibility path.
