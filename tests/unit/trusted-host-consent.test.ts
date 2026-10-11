@@ -40,12 +40,19 @@ function harness() {
 afterEach(() => { for (const r of roots.splice(0)) rmSync(r, { recursive: true, force: true }); });
 
 describe('trusted host profile consent service', () => {
-  it.skipIf(process.platform === 'darwin')('keeps operator consent unavailable on non-qualified hosts', () => {
+  it.skipIf(process.platform === 'darwin' || process.platform === 'linux')('keeps operator consent unavailable on non-qualified hosts', () => {
     const root = mkdtempSync(join(tmpdir(), 'ff-no-macos-consent-'));
     roots.push(root);
     const container = new Container(defaultConfig(root));
     expect(container.trustedHostConsentService()).toBeNull();
   });
+  it.skipIf(process.platform !== 'linux')('initializes the same host-owned local consent service on Linux', () => {
+    const root = mkdtempSync(join(tmpdir(), 'ff-linux-consent-'));
+    roots.push(root);
+    const container = new Container(defaultConfig(root));
+    expect(container.trustedHostConsentService()).not.toBeNull();
+  });
+
   it('creates an immutable pending intent; does not change Fleet config or create a grant', () => {
     const h = harness();
     const before = h.fleet.get(h.instance.id);
