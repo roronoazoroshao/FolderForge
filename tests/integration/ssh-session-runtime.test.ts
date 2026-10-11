@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { chmodSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+import { fileURLToPath } from 'node:url';
+import { dirname } from 'node:path';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { openSshOperatorIpcClient } from '../../src/operator/ssh-operator-ipc.js';
@@ -46,6 +50,52 @@ describe.skipIf(process.platform !== 'linux' && process.platform !== 'darwin')(
       }
       expect(existsSync(running.socketPath)).toBe(false);
     });
+
+    it('dispatches a separate built-in CLI helper into the SAME Dashboard broker (not yet sshd E2E)', async () => {
+      const h = harness();
+      const running = await startSshOperatorRuntime(h.options);
+      const repoRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
+      const helper = spawn(process.execPath, [
+        '--import', 'tsx', join(repoRoot, 'src', 'main.ts'),
+        'operator', 'dashboard-session', 'serve', '--stdio',
+      ], { cwd: repoRoot, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+
+      try {
+        const proof = await new Promise<{ bootstrapSecret: string; leaseId: string }>((resolve, reject) => {
+          let output = '';
+          const timeout = setTimeout(() => reject(new Error('SSH_HELPER_CLI_START_TIMEOUT')), 15_000);
+          helper.once('error', reject);
+          helper.once('exit', (code) => reject(new Error('SSH_HELPER_CLI_PREMATURE_EXIT:' + code)));
+          helper.stdout.on('data', chunk => {
+            output += chunk.toString('utf8');
+            const newline = output.indexOf('\n');
+            if (newline < 0) return;
+            clearTimeout(timeout);
+            try {
+              resolve(JSON.parse(output.slice(0, newline)) as { bootstrapSecret: string; leaseId: string });
+            } catch (error) { reject(error); }
+          });
+        });
+        const session = running.broker.exchangeBootstrap(proof.bootstrapSecret);
+        expect(session.leaseId).toBe(proof.leaseId);
+        expect(running.broker.assertLiveSession(session.sessionId).source)
+          .toBe('ssh-remote-exec');
+
+        const closed = once(helper, 'close');
+        helper.stdin.end();
+        await closed;
+        let revoked = false;
+        for (let attempt = 0; attempt < 100; attempt++) {
+          try { running.broker.assertLiveSession(session.sessionId); }
+          catch { revoked = true; break; }
+          await new Promise(resolve => setTimeout(resolve, 20));
+        }
+        expect(revoked).toBe(true);
+      } finally {
+        if (helper.exitCode === null) helper.kill();
+        await running.close();
+      }
+    }, 20_000);
 
     it('refuses an operator directory accessible to other OS users before opening IPC', async () => {
       const h = harness();
