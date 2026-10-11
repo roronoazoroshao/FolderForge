@@ -1,4 +1,5 @@
 import { homedir } from 'node:os';
+import { lstatSync } from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { checkLocalTerminal, requireSupportedLocalPlatform } from './trusted-host-platform.js';
@@ -65,8 +66,29 @@ export async function runTrustedHostOperatorCli(
   }
 }
 
-/** On macOS, this directory is outside the project and not exposed via Fleet YAML. */
+/** The Linux parent must be root-owned, sticky, and world-writable.
+ * This prevents other UIDs from replacing this user's protected consent root.
+ * Same-UID malicious code is outside the documented operator-consent boundary.
+ */
+export function validateLinuxOperatorBase(path: string): void {
+  try {
+    const st = lstatSync(path);
+    if (st.isDirectory() && !st.isSymbolicLink() &&
+        st.uid === 0 && (st.mode & 0o1000) !== 0 && (st.mode & 0o002) !== 0) return;
+  } catch { /* A missing/ambiguous parent is not safe. */ }
+  throw new Error('UNSAFE_LINUX_OPERATOR_PARENT');
+}
+
+/** Platform-specific operator storage, kept outside a home-wide agent workspace. */
 export function defaultHostConsentRoot(): string {
+  if (process.platform === 'linux') {
+    if (typeof process.getuid !== 'function') throw new Error('LOCAL_CONFIRMATION_UNAVAILABLE');
+    const uid = process.getuid();
+    if (!Number.isSafeInteger(uid) || uid < 0) throw new Error('LOCAL_CONFIRMATION_UNAVAILABLE');
+    validateLinuxOperatorBase('/var/tmp');
+    return join('/var/tmp', 'folderforge-operator-consent-' + String(uid));
+  }
+  if (process.platform !== 'darwin') throw new Error('LOCAL_CONFIRMATION_UNAVAILABLE');
   return join(homedir(), 'Library', 'Application Support', 'FolderForge', 'operator-consent');
 }
 
