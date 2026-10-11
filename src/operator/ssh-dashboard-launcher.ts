@@ -53,7 +53,6 @@ export function buildSshDashboardArgv(
     '-o', 'StrictHostKeyChecking=yes',
     '-o', 'ForwardAgent=no',
     '-o', 'ExitOnForwardFailure=yes',
-    '-o', 'ClearAllForwardings=yes',
     '-L', '127.0.0.1:' + localPort + ':127.0.0.1:' + dashboardPort,
     host,
     'folderforge', 'operator', 'dashboard-session', 'serve', '--stdio',
