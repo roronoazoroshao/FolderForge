@@ -1,0 +1,33 @@
+name: Prune merged release 3.0.2 branch
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/temporary-release-302-cleanup-20261011.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  remove-reviewed-branch:
+    if: github.repository == 'roronoazoroshao/FolderForge'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Delete exact reviewed and merged branch tip
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          branch='release/3.0.2'
+          expected='7a6230cdf52b8afee5bcf6c3d17dcacb5f6ceb7f'
+          actual="$(gh api "repos/${REPO}/git/ref/heads/${branch}" --jq '.object.sha')"
+          if [[ "$actual" != "$expected" ]]; then
+            echo "::error::Branch HEAD changed; cleanup refused"
+            exit 1
+          fi
+          gh api --method DELETE "repos/${REPO}/git/refs/heads/${branch}"
+          gh api "repos/${REPO}/branches?per_page=100" --jq '.[].name'
