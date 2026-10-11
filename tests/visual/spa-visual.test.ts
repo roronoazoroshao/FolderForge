@@ -228,6 +228,51 @@ describe.skipIf(!CHROMIUM)('Mission Control SPA visual regression (proposal 018)
     }
   }
 
+  it('submits exactly one scoped host intent from Fleet Configure and leaves runtime unchanged', { timeout: 30_000 }, async () => {
+    const local = await startHarness();
+    const page = await desktop.newPage();
+    const project = join(local.root, 'fleet-project');
+    mkdirSync(project);
+    const { instance } = local.container.fleet.create({ projectPath: project, authMode: 'api-key' });
+    let intents = 0;
+    let legacySetters = 0;
+    try {
+      await page.route('**/fleet/*/profile-intents', async route => {
+        if (route.request().method() !== 'POST') return route.continue();
+        intents++;
+        const body = route.request().postDataJSON() as Record<string, string>;
+        expect(body).toEqual({
+          toolsPreset: 'full', policyMode: 'danger', terminalExecution: 'trusted-host',
+        });
+        await route.fulfill({
+          status: 202, contentType: 'application/json',
+          body: JSON.stringify({ requestId: 'req_browser_fixture', status: 'pending', expiresAt: Date.now() + 600000 }),
+        });
+      });
+      await page.route(/\/fleet\/[^/]+\/(preset|policy|terminal)$/, async route => {
+        legacySetters++;
+        await route.fulfill({ status: 500, body: 'legacy profile setter must not run' });
+      });
+      await page.goto(`${local.baseUrl}/app/fleet?token=local-preview-token`, { waitUntil: 'networkidle' });
+      await page.getByRole('button', { name: 'Configure' }).first().click();
+      await page.getByRole('dialog').getByText(`Configure ${instance.id}`).waitFor();
+      const modal = page.getByRole('dialog');
+      await modal.getByRole('combobox', { name: 'Tool preset' }).selectOption('full');
+      await modal.getByRole('combobox', { name: 'Policy mode' }).selectOption('danger');
+      await modal.getByRole('combobox', { name: 'Terminal execution profile' }).selectOption('trusted-host');
+      await modal.getByRole('button', { name: 'Save changes' }).click();
+      await modal.getByText(/Awaiting approval from the operator/).waitFor();
+      expect(await modal.getByText(/folderforge operator trusted-host approve/).count()).toBe(1);
+      expect(intents).toBe(1);
+      expect(legacySetters).toBe(0);
+      expect(local.container.fleet.get(instance.id).terminalExecution).toBe('sandbox-required');
+    } finally {
+      await page.close();
+      await new Promise<void>(resolve => local.server.close(() => resolve()));
+      rmSync(local.root, { recursive: true, force: true });
+    }
+  });
+
   it('labels an unavailable task worktree without exposing discard action', { timeout: 30_000 }, async () => {
     const gitHarness = await startHarness(true);
     const page = await desktop.newPage();
