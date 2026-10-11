@@ -815,7 +815,8 @@ async function handle(
   // even on loopback. The legacy dashboard permits URL tokens for ordinary UI
   // actions; that credential path must never create a host-execution intent.
   const profileRoute = /^\/fleet\/(flt_[0-9a-f]{8})\/profile-intents(?:\/(req_[A-Za-z0-9_-]{3,72})(?:\/(apply))?)?$/.exec(path);
-  if (profileRoute) {
+  const authorityRoute = /^\/fleet\/(flt_[0-9a-f]{8})\/execution-authority$/.exec(path);
+  if (profileRoute || authorityRoute) {
     const authorization = req.headers.authorization;
     const presented = typeof authorization === 'string' && authorization.startsWith('Bearer ')
       ? authorization.slice(7).trim() : '';
@@ -838,12 +839,12 @@ async function handle(
     }
     const service = container.trustedHostConsentService();
     if (!service) return sendJson(res, 503, { error: 'LOCAL_CONFIRMATION_UNAVAILABLE' });
-    const instanceId = profileRoute[1]!;
-    const requestId = profileRoute[2];
-    const isApply = profileRoute[3] === 'apply';
+    const instanceId = (profileRoute?.[1] ?? authorityRoute?.[1])!;
+    const requestId = profileRoute?.[2];
+    const isApply = profileRoute?.[3] === 'apply';
     const operator = { id: adminPrincipalFromCredential(presented).id, role: 'admin' };
     try {
-      if (method === 'POST' && !requestId) {
+      if (method === 'POST' && profileRoute && !requestId) {
         if (!(req.headers['content-type'] ?? '').toString().startsWith('application/json')) {
           return sendJson(res, 415, { error: 'INVALID_CONTENT_TYPE' });
         }

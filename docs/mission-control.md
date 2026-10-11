@@ -184,6 +184,8 @@ workspace, OS account, installation and exact tuple before typing the
 requested confirmation. No YAML editing or global privilege flag is needed.
 Never paste the local command into a remote untrusted execution session.
 
+Authenticated operators may inspect the redacted effective profile and grant state via `GET /fleet/:id/execution-authority`; this Bearer-and-Origin-protected route has no mutation or approval capability.
+
 If the intent expires, cancel or create a new request. If authorization
 succeeds, the Dashboard persists the exact tuple with a journal and reports
 that the **runtime remains unchanged** until a safe stop/start. A running

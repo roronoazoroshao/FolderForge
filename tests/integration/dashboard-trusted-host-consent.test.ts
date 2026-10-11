@@ -66,6 +66,29 @@ describe('sensitive Fleet profile-intents API', () => {
     expect(invalid.status).toBe(409);
   });
 
+  it('exposes read-only execution-authority only to scoped bearer admin', async () => {
+    const h = await harness();
+    const url = `${h.base}/fleet/${h.instance.id}/execution-authority`;
+    const origin = h.base;
+    expect((await fetch(url, { headers: { origin } })).status).toBe(401);
+    expect((await fetch(`${url}?token=dev-host-token`, { headers: { origin } })).status).toBe(401);
+    expect((await fetch(url, {
+      headers: { origin: 'https://cross-site.invalid', authorization: 'Bearer dev-host-token' },
+    })).status).toBe(403);
+    const response = await fetch(url, {
+      headers: { origin, authorization: 'Bearer dev-host-token' },
+    });
+    expect(response.status).toBe(200);
+    const result = await response.json() as Record<string, unknown>;
+    expect(result.authority).toBe('local-operator-only');
+    expect(result.instanceId).toBe(h.instance.id);
+    expect(result.runtime).toBeDefined();
+    expect(JSON.stringify(result)).not.toContain('dev-host-token');
+    expect((await fetch(url, {
+      method: 'POST', headers: { origin, authorization: 'Bearer dev-host-token' },
+    })).status).toBe(405);
+  });
+
   it('creates one pending intent with bearer admin and never grants host execution over HTTP', async () => {
     const h = await harness();
     const headers = { origin: h.base, authorization: 'Bearer dev-host-token' };
