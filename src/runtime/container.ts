@@ -208,18 +208,19 @@ export class Container {
       this.hostConsentService = null;
       return null;
     }
-    const operatorRoot = resolve(defaultHostConsentRoot());
-    const projectRoots = [
-      this.config.workspace.defaultProject,
-      ...this.config.workspace.allowedDirectories,
-    ];
-    // Canonicalize both sides: symlinked project aliases must not expose
-    // host-only operator state even when their lexical paths are disjoint.
-    if (!operatorStateOutsideProjects(operatorRoot, projectRoots)) {
-      this.hostConsentService = null;
-      return null;
-    }
     try {
+      // Host path validation must also fail closed without a dashboard 500.
+      const operatorRoot = resolve(defaultHostConsentRoot());
+      const projectRoots = [
+        this.config.workspace.defaultProject,
+        ...this.config.workspace.allowedDirectories,
+      ];
+      // Canonicalize both sides: symlinked project aliases must not expose
+      // host-only operator state even when their lexical paths are disjoint.
+      if (!operatorStateOutsideProjects(operatorRoot, projectRoots)) {
+        this.hostConsentService = null;
+        return null;
+      }
       const uid = process.getuid();
       const store = new TrustedHostStore({ operatorRoot, currentUid: uid, now: Date.now });
       this.hostConsentService = new TrustedHostConsentService({
