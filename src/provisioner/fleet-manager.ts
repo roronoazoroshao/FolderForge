@@ -491,7 +491,8 @@ export class FleetManager {
     const candidates = this.instances.filter((item) =>
       item.terminalExecution === 'trusted-host' &&
       (item.state === 'running' || item.state === 'starting' || item.state === 'stopping' ||
-        (item.state === 'failed' && item.lastError === 'REVOKED_EXECUTION_UNCERTAIN_AFTER_RESTART')),
+        (item.state === 'failed' && (item.lastError === 'REVOKED_EXECUTION_UNCERTAIN_AFTER_RESTART' ||
+          item.lastError === 'TRUSTED_HOST_STOP_UNCERTAIN_AFTER_RESTART'))),
     );
     if (candidates.length === 0) return [];
     const consent = this.trustedHostConsent ?? this.consentResolver?.();
@@ -679,6 +680,10 @@ export class FleetManager {
     if (record.state === 'running' || record.state === 'starting') {
       throw new Error(`Instance ${id} is already ${record.state}.`);
     }
+    if (record.terminalExecution === 'trusted-host' &&
+        (record.state === 'stopping' || record.lastError?.includes('STOP_UNCERTAIN'))) {
+      throw new Error(`Instance ${id} cannot start while execution termination is unverified.`);
+    }
     this.assertSpawnReady();
     this.assertSavedProfile(record);
     if (record.terminalExecution === 'trusted-host') {
@@ -737,6 +742,25 @@ export class FleetManager {
       } catch {
         // The session may already be gone; the record still converges to stopped.
       }
+    }
+    // A trusted-host child may still execute as the parent OS account even
+    // if the process supervisor throws or fails to supply a stop handler.
+    // Never erase its PID or claim stopped without observed PID absence.
+    if (record.terminalExecution === 'trusted-host' && record.pid !== undefined &&
+        this.isAliveFn(record.pid)) {
+      record.state = 'stopping';
+      record.lastError = 'TRUSTED_HOST_STOP_UNCERTAIN';
+      this.touch(record);
+      this.persist();
+      return cloneInstance(record);
+    }
+    if (record.terminalExecution === 'trusted-host' && record.pid === undefined &&
+        record.sessionId !== undefined) {
+      record.state = 'stopping';
+      record.lastError = 'TRUSTED_HOST_STOP_UNCERTAIN';
+      this.touch(record);
+      this.persist();
+      return cloneInstance(record);
     }
     record.state = 'stopped';
     delete record.sessionId;
@@ -1464,7 +1488,9 @@ export class FleetManager {
     this.instances = parsed.instances.map((instance) => {
       const wasActive = instance.state === 'running' || instance.state === 'starting';
       const revokedUncertain = instance.terminalExecution === 'trusted-host' &&
-        instance.state === 'stopping' && instance.lastError === 'REVOKED_EXECUTION_UNCERTAIN';
+        instance.state === 'stopping' &&
+        (instance.lastError === 'REVOKED_EXECUTION_UNCERTAIN' ||
+          instance.lastError === 'TRUSTED_HOST_STOP_UNCERTAIN');
       const normalized: FleetInstance = {
         ...instance,
         authMode: instance.authMode ?? 'token',
@@ -1489,7 +1515,9 @@ export class FleetManager {
         } else {
           // Parent restart loses the session handle. Preserve an explicit
           // uncertain status, not a false stopped claim or blind PID kill.
-          normalized.lastError = 'REVOKED_EXECUTION_UNCERTAIN_AFTER_RESTART';
+          normalized.lastError = instance.lastError === 'TRUSTED_HOST_STOP_UNCERTAIN'
+            ? 'TRUSTED_HOST_STOP_UNCERTAIN_AFTER_RESTART'
+            : 'REVOKED_EXECUTION_UNCERTAIN_AFTER_RESTART';
         }
       } else {
         this.reconcileInstancePid(normalized, wasActive);
