@@ -811,17 +811,23 @@ async function handle(
   const url = new URL(req.url ?? "/", "http://localhost");
   const path = url.pathname;
 
-  // Elevated Fleet intent requests require an explicit bearer admin credential
-  // even on loopback. The legacy dashboard permits URL tokens for ordinary UI
-  // actions; that credential path must never create a host-execution intent.
+  // Elevated Fleet intents require a bearer admin when Dashboard auth is
+  // configured. A tokenless, loopback-only Control Panel may stage the same
+  // immutable intent without an extra credential, but it cannot grant host
+  // execution: that still requires a separate host-local operator approval.
+  // URL query tokens never authorize these privileged routes.
   const profileRoute = /^\/fleet\/(flt_[0-9a-f]{8})\/profile-intents(?:\/(req_[A-Za-z0-9_-]{3,72})(?:\/(apply))?)?$/.exec(path);
   const authorityRoute = /^\/fleet\/(flt_[0-9a-f]{8})\/execution-authority$/.exec(path);
   if (profileRoute || authorityRoute) {
     const authorization = req.headers.authorization;
     const presented = typeof authorization === 'string' && authorization.startsWith('Bearer ')
       ? authorization.slice(7).trim() : '';
-    if (!opts.token || !presented || !timingSafeEqualStr(presented, opts.token)) {
-      return sendJson(res, 401, { error: 'HOST_OPERATOR_AUTH_REQUIRED' });
+    const verifiedBearer = Boolean(opts.token && presented &&
+      timingSafeEqualStr(presented, opts.token));
+    const tokenlessLocalOperator = !opts.token && opts.requireAuth !== true &&
+      isLoopbackHost(opts.host) && isLoopbackHost(req.socket.remoteAddress ?? '');
+    if (!verifiedBearer && !tokenlessLocalOperator) {
+      return sendJson(res, 401, { error: 'UNAUTHORIZED' });
     }
     const host = req.headers.host;
     const origin = req.headers.origin;
@@ -842,7 +848,10 @@ async function handle(
     const instanceId = (profileRoute?.[1] ?? authorityRoute?.[1])!;
     const requestId = profileRoute?.[2];
     const isApply = profileRoute?.[3] === 'apply';
-    const operator = { id: adminPrincipalFromCredential(presented).id, role: 'admin' };
+    const operator = {
+      id: adminPrincipalFromCredential(verifiedBearer ? presented : undefined).id,
+      role: 'admin',
+    };
     try {
       if (method === 'POST' && profileRoute && !requestId) {
         if (!(req.headers['content-type'] ?? '').toString().startsWith('application/json')) {
