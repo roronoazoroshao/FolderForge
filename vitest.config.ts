@@ -2,6 +2,9 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
+    // Keep test discovery inside the active checkout. Nested Git worktrees
+    // (for example .worktrees/...) are independent projects, not release tests.
+    include: ['tests/**/*.{test,spec}.?(c|m)[jt]s?(x)'],
     maxWorkers: 2,
     setupFiles: ['./tests/setup.ts'],
     // Integration-heavy suites perform real filesystem, Git, child-process, and
