@@ -25,7 +25,8 @@ let forwarded;
 let liveHelper;
 const command = (bin, args, options = {}) => execFileSync(bin, args, {
   encoding: 'utf8',
-  timeout: 15_000,
+  // Shared Linux test runners can delay NSS/passwd locking during account setup.
+  timeout: 80_000,
   stdio: ['pipe', 'pipe', 'pipe'],
   ...options,
 });
@@ -67,6 +68,7 @@ try {
   command('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-f', join(tmp, 'hostkey')]);
   command('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-f', join(tmp, 'id_operator')]);
   command('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-f', join(tmp, 'wronghost')]);
+  if (Number(sudo(['id', '-u']).trim()) !== 0) throw new Error('ROOT_FIXTURE_NOT_AVAILABLE');
   for (const user of [service, other]) {
     sudo(['useradd', '-m', '-s', '/bin/sh', user]);
     users.push(user);
