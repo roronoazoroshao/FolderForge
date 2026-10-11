@@ -13,6 +13,7 @@ import { FleetManager } from '../provisioner/fleet-manager.js';
 import { resolve } from 'node:path';
 import { operatorStateOutsideProjects } from '../operator/trusted-host-scope.js';
 import { defaultHostConsentRoot } from '../operator/trusted-host-cli.js';
+import { detectConsentPlatform } from '../operator/trusted-host-platform.js';
 import { TrustedHostStore } from '../operator/trusted-host-store.js';
 import { TrustedHostConsentService } from '../operator/trusted-host-consent.js';
 import { TunnelManager } from '../tunnels/tunnel-manager.js';
@@ -200,10 +201,10 @@ export class Container {
     }
   }
 
-  /** Lazy, macOS-only on-host consent service; no operator files are touched by ordinary startup. */
+  /** Lazy macOS/Linux on-host consent; agent workspaces cannot access grant state. */
   trustedHostConsentService(): TrustedHostConsentService | null {
     if (this.hostConsentService !== undefined) return this.hostConsentService;
-    if (process.platform !== 'darwin' || typeof process.getuid !== 'function') {
+    if (detectConsentPlatform(process.platform) === 'unsupported' || typeof process.getuid !== 'function') {
       this.hostConsentService = null;
       return null;
     }
