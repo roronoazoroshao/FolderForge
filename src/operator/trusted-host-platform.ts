@@ -7,8 +7,8 @@ export function detectConsentPlatform(platform: string): OperatorPlatform {
 }
 
 export function requireSupportedLocalPlatform(platform: string): void {
-  if (detectConsentPlatform(platform) !== 'darwin') {
-    // macOS is the only initially qualified target. Linux requires its own gate.
+  if (detectConsentPlatform(platform) === 'unsupported') {
+    // Unqualified platforms remain fail-closed.
     throw new Error('LOCAL_CONFIRMATION_UNAVAILABLE');
   }
 }
