@@ -45,3 +45,21 @@ jobs:
       - run: npm run build:adapter-godot
       - name: Verify helper TDD contract
         run: npx vitest run tests/integration/ssh-session-helper.test.ts tests/unit/ssh-session-broker.test.ts tests/integration/ssh-operator-ipc.test.ts tests/integration/ssh-session-runtime.test.ts tests/integration/ssh-local-bridge.test.ts tests/unit/ssh-dashboard-launcher.test.ts tests/integration/dashboard-ssh-session.test.ts --reporter=verbose
+
+  browser-handoff:
+    name: Real Chromium browser invitation and cookie handoff
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Install real Chromium and runtime dependencies
+        run: node node_modules/playwright-core/cli.js install --with-deps chromium
+      - name: Require actual browser E2E (no silent skip)
+        env:
+          FOLDERFORGE_REQUIRE_BROWSER_E2E: '1'
+        run: npx vitest run tests/acceptance/ssh-browser-handoff.test.ts --reporter=verbose
