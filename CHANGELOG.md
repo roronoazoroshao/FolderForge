@@ -6,6 +6,21 @@ All notable changes to FolderForge are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/), and the project follows
 semantic versioning.
 
+## [3.0.2] - 2026-10-11
+
+### Added
+- Fleet per-instance Trusted Host execution profile with host-local, scope-bound operator consent and Fleet web configuration; macOS and Linux qualification paths preserve independent host approval, sandbox hard denies, and revocation (#78, #80).
+- Opt-in read-only compatibility for newer MCP protocol clients while keeping protected mutations fail-closed (#74).
+
+### Fixed
+- The loopback-only Control Panel can create a Trusted Host consent intent without requiring a second Dashboard token when no credential authentication is configured; token-protected sessions still require a valid Bearer token. Same-origin browser status polling no longer fails on GET requests without an Origin header (#81).
+- Tighten Fleet Trusted Host consent persistence and running-process reconciliation around concurrent updates and uncertain PIDs (#79).
+- Report managed isolation health and safe recovery truthfully (#60).
+- Stabilize the authenticated HTTP smoke fixture credential (#73).
+
+### Security
+- Host execution still requires an independent, interactive on-host operator approval; no web API can issue a Trusted Host grant. Scoped grants, audit, revocation, and execution hard-denies remain enforced (#78, #79, #80, #81).
+
 ## [3.0.1] - 2026-10-04
 
 ### Security
