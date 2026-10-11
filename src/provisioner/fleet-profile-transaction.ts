@@ -206,6 +206,17 @@ export class FleetProfileTransaction {
     syncDir(this.folder);
   }
 
+  /** Share the exclusive Fleet writer lock with legacy mutators.
+   * Never let a direct preset/policy/terminal write race a profile journal
+   * before PREPARED exists or after COMMITTED cleanup.
+   */
+  runGuardedMutation<T>(action: () => T): T {
+    return this.withLock(() => {
+      this.recoverLocked();
+      return action();
+    });
+  }
+
   recoverBeforeReadOrStart(): void {
     if (!existsSync(this.journalFile)) return;
     this.withLock(() => this.recoverLocked());
