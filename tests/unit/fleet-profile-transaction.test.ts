@@ -3,7 +3,7 @@ import { lstatSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, w
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FleetManager } from '../../src/provisioner/fleet-manager.js';
-import { FleetProfileTransaction } from '../../src/provisioner/fleet-profile-transaction.js';
+import { FleetProfileTransaction, supportsDirectoryFsync } from '../../src/provisioner/fleet-profile-transaction.js';
 import type { FleetProfileTuple } from '../../src/operator/trusted-host-scope.js';
 
 const tuple: FleetProfileTuple = { toolsPreset: 'full', policyMode: 'danger', terminalExecution: 'trusted-host' };
@@ -27,6 +27,49 @@ function fixture(phase?: 'prepared' | 'yaml-renamed' | 'state-renamed' | 'commit
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
 describe('crash-consistent Fleet profile transaction', () => {
+  it('documents and gates platform directory fsync without weakening macOS/APFS', () => {
+    expect(supportsDirectoryFsync('win32')).toBe(false);
+    expect(supportsDirectoryFsync('darwin')).toBe(true);
+    expect(supportsDirectoryFsync('linux')).toBe(true);
+  });
+
+  it('rejects a stale legacy Fleet writer after a committed profile transaction', () => {
+    const h = fixture();
+    const stale = new FleetManager(h.root);
+    h.tx.commit(h.instance.id, tuple, 'allowed-digest');
+    const afterCommit = readFileSync(h.statePath, 'utf8');
+    expect(() => stale.setPolicyMode(h.instance.id, 'safe')).toThrow('FLEET_PROFILE_STALE_WRITER');
+    expect(readFileSync(h.statePath, 'utf8')).toBe(afterCommit);
+    expect(() => stale.setToolsPreset(h.instance.id, 'vibe')).toThrow('FLEET_PROFILE_STALE_WRITER');
+  });
+
+  it('blocks legacy Fleet setters while profile lock is held before PREPARED journal', () => {
+    const h = fixture();
+    const spawned: string[] = [];
+    const competing = new FleetManager(h.root, {
+      mainJs: process.execPath,
+      spawn: (command) => {
+        spawned.push(command);
+        return { sessionId: 'proc_test', pid: 100000 };
+      },
+    });
+    const tx = new FleetProfileTransaction({
+      root: h.root,
+      authorize: () => {
+        // The writer lock exists but PREPARED does not. Previously mutable()
+        // only checked for a journal and accepted this competing mutation.
+        expect(() => competing.setPolicyMode(h.instance.id, 'safe')).toThrow('FLEET_PROFILE_BUSY');
+        expect(() => competing.setToolsPreset(h.instance.id, 'full')).toThrow('FLEET_PROFILE_BUSY');
+        expect(() => competing.setAutoRestart(h.instance.id, true)).toThrow('FLEET_PROFILE_BUSY');
+        expect(() => competing.start(h.instance.id)).toThrow('FLEET_PROFILE_BUSY');
+        expect(spawned).toEqual([]);
+        expect(readFileSync(h.statePath, 'utf8')).toBe(h.before.json);
+      },
+    });
+    const result = tx.commit(h.instance.id, tuple, 'allowed-digest');
+    expect(result.terminalExecution).toBe('trusted-host');
+  });
+
   it('preserves YAML credentials while changing only requested tuple', () => {
     const h = fixture();
     const updated = h.tx.commit(h.instance.id, tuple, 'allowed-digest');

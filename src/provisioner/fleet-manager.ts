@@ -491,7 +491,8 @@ export class FleetManager {
     const candidates = this.instances.filter((item) =>
       item.terminalExecution === 'trusted-host' &&
       (item.state === 'running' || item.state === 'starting' || item.state === 'stopping' ||
-        (item.state === 'failed' && item.lastError === 'REVOKED_EXECUTION_UNCERTAIN_AFTER_RESTART')),
+        (item.state === 'failed' && (item.lastError === 'REVOKED_EXECUTION_UNCERTAIN_AFTER_RESTART' ||
+          item.lastError === 'TRUSTED_HOST_STOP_UNCERTAIN_AFTER_RESTART'))),
     );
     if (candidates.length === 0) return [];
     const consent = this.trustedHostConsent ?? this.consentResolver?.();
@@ -668,12 +669,20 @@ export class FleetManager {
   }
 
   start(id: string): FleetInstance {
+    return this.withFleetProfileLock(id, () => this.startUnlocked(id));
+  }
+
+  private startUnlocked(id: string): FleetInstance {
     const record = this.mutable(id);
     if (record.openAiTunnel?.state === 'running' || record.openAiTunnel?.state === 'starting') {
       throw new Error(`Stop the OpenAI tunnel for ${id} before starting the normal Fleet instance.`);
     }
     if (record.state === 'running' || record.state === 'starting') {
       throw new Error(`Instance ${id} is already ${record.state}.`);
+    }
+    if (record.terminalExecution === 'trusted-host' &&
+        (record.state === 'stopping' || record.lastError?.includes('STOP_UNCERTAIN'))) {
+      throw new Error(`Instance ${id} cannot start while execution termination is unverified.`);
     }
     this.assertSpawnReady();
     this.assertSavedProfile(record);
@@ -733,6 +742,25 @@ export class FleetManager {
       } catch {
         // The session may already be gone; the record still converges to stopped.
       }
+    }
+    // A trusted-host child may still execute as the parent OS account even
+    // if the process supervisor throws or fails to supply a stop handler.
+    // Never erase its PID or claim stopped without observed PID absence.
+    if (record.terminalExecution === 'trusted-host' && record.pid !== undefined &&
+        this.isAliveFn(record.pid)) {
+      record.state = 'stopping';
+      record.lastError = 'TRUSTED_HOST_STOP_UNCERTAIN';
+      this.touch(record);
+      this.persist();
+      return cloneInstance(record);
+    }
+    if (record.terminalExecution === 'trusted-host' && record.pid === undefined &&
+        record.sessionId !== undefined) {
+      record.state = 'stopping';
+      record.lastError = 'TRUSTED_HOST_STOP_UNCERTAIN';
+      this.touch(record);
+      this.persist();
+      return cloneInstance(record);
     }
     record.state = 'stopped';
     delete record.sessionId;
@@ -815,6 +843,13 @@ export class FleetManager {
   }
 
   startOpenAiTunnel(
+    id: string,
+    input: { tunnelId: string; apiKeyEnv?: string; oauth?: boolean; apiKey?: string },
+  ): FleetInstance {
+    return this.withFleetProfileLock(id, () => this.startOpenAiTunnelUnlocked(id, input));
+  }
+
+  private startOpenAiTunnelUnlocked(
     id: string,
     input: { tunnelId: string; apiKeyEnv?: string; oauth?: boolean; apiKey?: string },
   ): FleetInstance {
@@ -1003,72 +1038,102 @@ export class FleetManager {
   }
 
   /** Enable or disable automatic restart after an unexpected normal-instance exit. */
+  /** Prevent a legacy setter from overwriting another process's committed
+   * Fleet tuple. The same exclusive lock fences the PREPARED/COMMITTED window.
+   * Scope comparison intentionally excludes in-memory runtime-only fields.
+   */
+  private withFleetProfileLock<T>(id: string, action: () => T): T {
+    return this.profileTransaction.runGuardedMutation(() => {
+      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as PersistedFleetState;
+      const recorded = saved.instances.find((item) => item.id === id);
+      const cached = this.instances.find((item) => item.id === id);
+      const fingerprint = (value: FleetInstance) => JSON.stringify([
+        value.toolsPreset, value.policyMode, value.terminalExecution,
+        value.authMode, value.updatedAt, value.autoRestart, value.tokenSha256,
+        value.oauth,
+      ]);
+      if (!cached) throw new Error(`Unknown fleet instance: ${id}`);
+      if (!recorded || fingerprint(recorded) !== fingerprint(cached)) {
+        throw new Error('FLEET_PROFILE_STALE_WRITER');
+      }
+      return action();
+    });
+  }
+
   setAutoRestart(id: string, enabled: boolean): FleetInstance {
-    const record = this.mutable(id);
-    record.autoRestart = enabled;
-    this.touch(record);
-    this.persist();
-    return cloneInstance(record);
+    return this.withFleetProfileLock(id, () => {
+      const record = this.mutable(id);
+      record.autoRestart = enabled;
+      this.touch(record);
+      this.persist();
+      return cloneInstance(record);
+    });
   }
 
   setToolsPreset(id: string, preset: string): FleetInstance {
-    if (!(FLEET_TOOLS_PRESETS as readonly string[]).includes(preset)) {
-      throw new Error(`Invalid tools preset: ${preset} (expected one of ${FLEET_TOOLS_PRESETS.join(', ')}).`);
-    }
-    const record = this.mutable(id);
-    record.toolsPreset = preset;
-    this.touch(record);
-    this.persist();
-    return cloneInstance(record);
+    return this.withFleetProfileLock(id, () => {
+      if (!(FLEET_TOOLS_PRESETS as readonly string[]).includes(preset)) {
+        throw new Error(`Invalid tools preset: ${preset} (expected one of ${FLEET_TOOLS_PRESETS.join(', ')}).`);
+      }
+      const record = this.mutable(id);
+      record.toolsPreset = preset;
+      this.touch(record);
+      this.persist();
+      return cloneInstance(record);
+    });
   }
 
   setPolicyMode(id: string, mode: string): FleetInstance {
-    if (!(FLEET_POLICY_MODES as readonly string[]).includes(mode)) {
-      throw new Error(`Invalid policy mode: ${mode} (expected one of ${FLEET_POLICY_MODES.join(', ')}).`);
-    }
-    const record = this.mutable(id);
-    record.policyMode = mode;
-    // Strip the retired escape hatch whenever the record is touched.
-    delete record.allowCriticalInDanger;
-    this.touch(record);
-    this.persist();
-    return cloneInstance(record);
+    return this.withFleetProfileLock(id, () => {
+      if (!(FLEET_POLICY_MODES as readonly string[]).includes(mode)) {
+        throw new Error(`Invalid policy mode: ${mode} (expected one of ${FLEET_POLICY_MODES.join(', ')}).`);
+      }
+      const record = this.mutable(id);
+      record.policyMode = mode;
+      // Strip the retired escape hatch whenever the record is touched.
+      delete record.allowCriticalInDanger;
+      this.touch(record);
+      this.persist();
+      return cloneInstance(record);
+    });
   }
 
   setTerminalExecution(id: string, profile: FleetTerminalExecution): FleetInstance {
-    if (profile !== 'sandbox-required' && profile !== 'trusted-host') {
-      throw new Error('Invalid Fleet terminal execution profile.');
-    }
-    const record = this.mutable(id);
-    if (profile === 'trusted-host' && !this.allowTrustedHostExecution) {
-      throw new Error('Trusted host execution requires operator startup opt-in: terminal.sandbox.mode=process and requireInDanger=false.');
-    }
-    if (profile === 'trusted-host' && record.authMode === 'none') {
-      throw new Error('Trusted host execution requires authenticated MCP access.');
-    }
-    const file = this.configPathFor(id);
-    const original = readFileSync(file, 'utf8');
-    const marker = '# Fleet-managed terminal execution profile';
-    const at = original.indexOf(marker);
-    if (at < 0 && /^terminal:/m.test(original)) {
-      throw new Error('Refusing to replace an unmanaged terminal configuration.');
-    }
-    const block = [
-      marker,
-      'terminal:',
-      '  sandbox:',
-      '    mode: process',
-      `    requireInDanger: ${profile === 'trusted-host' ? 'false' : 'true'}`,
-      '',
-    ].join('\n');
-    const next = (at >= 0 ? original.slice(0, at) : original.trimEnd() + '\n\n') + block;
-    const temp = `${file}.${randomUUID().slice(0, 8)}.tmp`;
-    writeFileSync(temp, next, { mode: 0o600 });
-    renameSync(temp, file);
-    record.terminalExecution = profile;
-    this.touch(record);
-    this.persist();
-    return cloneInstance(record);
+    return this.withFleetProfileLock(id, () => {
+      if (profile !== 'sandbox-required' && profile !== 'trusted-host') {
+        throw new Error('Invalid Fleet terminal execution profile.');
+      }
+      const record = this.mutable(id);
+      if (profile === 'trusted-host' && !this.allowTrustedHostExecution) {
+        throw new Error('Trusted host execution requires operator startup opt-in: terminal.sandbox.mode=process and requireInDanger=false.');
+      }
+      if (profile === 'trusted-host' && record.authMode === 'none') {
+        throw new Error('Trusted host execution requires authenticated MCP access.');
+      }
+      const file = this.configPathFor(id);
+      const original = readFileSync(file, 'utf8');
+      const marker = '# Fleet-managed terminal execution profile';
+      const at = original.indexOf(marker);
+      if (at < 0 && /^terminal:/m.test(original)) {
+        throw new Error('Refusing to replace an unmanaged terminal configuration.');
+      }
+      const block = [
+        marker,
+        'terminal:',
+        '  sandbox:',
+        '    mode: process',
+        `    requireInDanger: ${profile === 'trusted-host' ? 'false' : 'true'}`,
+        '',
+      ].join('\n');
+      const next = (at >= 0 ? original.slice(0, at) : original.trimEnd() + '\n\n') + block;
+      const temp = `${file}.${randomUUID().slice(0, 8)}.tmp`;
+      writeFileSync(temp, next, { mode: 0o600 });
+      renameSync(temp, file);
+      record.terminalExecution = profile;
+      this.touch(record);
+      this.persist();
+      return cloneInstance(record);
+    });
   }
 
   /**
@@ -1076,11 +1141,13 @@ export class FleetManager {
    * persisted field; danger mode itself controls autonomous execution.
    */
   setAllowCriticalInDanger(id: string, _allow: boolean): FleetInstance {
-    const record = this.mutable(id);
-    delete record.allowCriticalInDanger;
-    this.touch(record);
-    this.persist();
-    return cloneInstance(record);
+    return this.withFleetProfileLock(id, () => {
+      const record = this.mutable(id);
+      delete record.allowCriticalInDanger;
+      this.touch(record);
+      this.persist();
+      return cloneInstance(record);
+    });
   }
 
   private handleExit(id: string, sessionId: string, leaseId?: string): void {
@@ -1421,7 +1488,9 @@ export class FleetManager {
     this.instances = parsed.instances.map((instance) => {
       const wasActive = instance.state === 'running' || instance.state === 'starting';
       const revokedUncertain = instance.terminalExecution === 'trusted-host' &&
-        instance.state === 'stopping' && instance.lastError === 'REVOKED_EXECUTION_UNCERTAIN';
+        instance.state === 'stopping' &&
+        (instance.lastError === 'REVOKED_EXECUTION_UNCERTAIN' ||
+          instance.lastError === 'TRUSTED_HOST_STOP_UNCERTAIN');
       const normalized: FleetInstance = {
         ...instance,
         authMode: instance.authMode ?? 'token',
@@ -1446,7 +1515,9 @@ export class FleetManager {
         } else {
           // Parent restart loses the session handle. Preserve an explicit
           // uncertain status, not a false stopped claim or blind PID kill.
-          normalized.lastError = 'REVOKED_EXECUTION_UNCERTAIN_AFTER_RESTART';
+          normalized.lastError = instance.lastError === 'TRUSTED_HOST_STOP_UNCERTAIN'
+            ? 'TRUSTED_HOST_STOP_UNCERTAIN_AFTER_RESTART'
+            : 'REVOKED_EXECUTION_UNCERTAIN_AFTER_RESTART';
         }
       } else {
         this.reconcileInstancePid(normalized, wasActive);

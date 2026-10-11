@@ -71,6 +71,33 @@ describe('Fleet trusted-host execution boundary', () => {
     expect(() => h.fleet.start(h.instance.id)).toThrow('TRUSTED_HOST_CONSENT_REQUIRED');
   });
 
+  it('never marks an elevated child stopped while a failed stop leaves PID alive', () => {
+    const root = mkdtempSync(join(tmpdir(), 'ff-host-stop-failure-'));
+    roots.push(root);
+    const project = join(root, 'project');
+    mkdirSync(project);
+    let alive = true;
+    const fleet = new FleetManager(root, {
+      mainJs: process.execPath,
+      spawn: () => ({ sessionId: 'proc_failing_stop', pid: 23456 }),
+      stopSession: () => { throw new Error('stop failed'); },
+      isAlive: () => alive,
+      allowTrustedHostExecution: true,
+    });
+    const { instance } = fleet.create({ projectPath: project, authMode: 'api-key' });
+    fleet.start(instance.id);
+    const attempted = fleet.stop(instance.id);
+    expect(attempted.state).not.toBe('stopped');
+    expect(attempted.pid).toBe(23456);
+    expect(attempted.lastError).toMatch(/UNCERTAIN/);
+    expect(() => fleet.restart(instance.id)).toThrow(/termination is unverified/);
+    const rebooted = new FleetManager(root, { isAlive: () => alive });
+    expect(rebooted.get(instance.id).state).not.toBe('stopped');
+    expect(rebooted.get(instance.id).lastError).toMatch(/STOP_UNCERTAIN/);
+    alive = false;
+    expect(fleet.stop(instance.id).state).toBe('stopped');
+  });
+
   it('holds a revoked live PID in an uncertain state until termination is proven', () => {
     const alive = { current: true };
     const h = fixture(true, alive);

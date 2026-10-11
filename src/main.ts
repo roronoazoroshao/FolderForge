@@ -628,7 +628,7 @@ async function main(): Promise<void> {
   const stopHostRevocationMonitor = process.platform === 'darwin'
     ? startTrustedHostRevocationMonitor(container.fleet, (id) => container.audit.record({
         type: 'dashboard_action', summary: `trusted_host_revocation_check ${id}`,
-      }))
+      }), 1000, true)
     : () => {};
   const registry = buildRegistry(container);
   const responsesStore = new ResponsesStore();

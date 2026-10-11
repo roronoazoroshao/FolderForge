@@ -3,6 +3,21 @@ import { startTrustedHostRevocationMonitor } from '../../src/operator/trusted-ho
 
 afterEach(() => { vi.useRealTimers(); });
 describe('host consent revocation monitor', () => {
+  it('can reconcile synchronously before Dashboard startup and fails closed on initial storage error', () => {
+    vi.useFakeTimers();
+    const report = vi.fn().mockReturnValue(['flt_deadbeef']);
+    const audit = vi.fn();
+    const cancel = startTrustedHostRevocationMonitor(
+      { reconcileRevokedTrustedHosts: report }, audit, 1000, true,
+    );
+    expect(report).toHaveBeenCalledTimes(1);
+    expect(audit).toHaveBeenCalledWith('flt_deadbeef');
+    cancel();
+    expect(() => startTrustedHostRevocationMonitor({
+      reconcileRevokedTrustedHosts: () => { throw new Error('HOST_GRANT_STATE_UNREADABLE'); },
+    }, audit, 1000, true)).toThrow('HOST_GRANT_STATE_UNREADABLE');
+  });
+
   it('reconciles revoked Fleet children periodically and stops polling on shutdown', () => {
     vi.useFakeTimers();
     const report = vi.fn();
