@@ -66,9 +66,12 @@ describe('trusted host profile consent service', () => {
     expect(h.audit).toContain('trusted_host_intent_requested');
   });
 
-  it('never accepts a local unauthenticated admin or low-scope actor', () => {
+  it('accepts the canonical local dashboard admin to create a pending request but rejects untrusted callers', () => {
     const h = harness();
-    expect(() => h.service.requestProfile(h.instance.id, tuple, forbidden)).toThrow('HOST_OPERATOR_AUTH_REQUIRED');
+    const intent = h.service.requestProfile(h.instance.id, tuple, forbidden);
+    expect(intent.status).toBe('pending');
+    expect(() => h.service.assertAuthorized(h.instance.id, tuple)).toThrow('TRUSTED_HOST_CONSENT_REQUIRED');
+    expect(() => h.service.requestProfile(h.instance.id, tuple, { id: 'local:dashboard-admin-forged', role: 'admin' })).toThrow('HOST_OPERATOR_AUTH_REQUIRED');
     expect(() => h.service.requestProfile(h.instance.id, tuple, { id: 'remote-agent', role: 'agent' })).toThrow('HOST_OPERATOR_AUTH_REQUIRED');
     expect(() => h.service.requestProfile(h.instance.id, tuple, { id: 'credential:wrong', role: 'viewer' })).toThrow('HOST_OPERATOR_AUTH_REQUIRED');
   });
