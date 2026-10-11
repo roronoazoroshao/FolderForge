@@ -121,8 +121,16 @@ export class SshOperatorWebSessions {
 
     if (path === PATH + 'status' && method === 'GET') {
       const active = this.current(req);
+      // CSRF tokens are intentionally readable by the authenticated,
+      // same-origin browser UI (the session cookie remains HttpOnly). This
+      // enables a one-click form without a second operator interaction.
+      // No-store and origin restrictions protect this response.
       return respond(res, 200, active
-        ? { verified: true, source: 'ssh-remote-exec' }
+        ? {
+            verified: true,
+            source: 'ssh-remote-exec',
+            csrfToken: this.csrfBySession.get(this.key(active.sessionId)),
+          }
         : { verified: false });
     }
 
