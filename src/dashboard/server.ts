@@ -840,7 +840,12 @@ async function handle(
       }
     } catch { /* Missing/malformed origin fails closed. */ }
     const fetchSite = req.headers['sec-fetch-site'];
-    if (!validOrigin || (fetchSite && fetchSite !== 'same-origin' && fetchSite !== 'none')) {
+    // Same-origin browser GET requests commonly omit Origin. Fetch Metadata
+    // is browser-controlled; permit that read-only form, never a POST/DELETE.
+    const sameOriginBrowserRead = method === 'GET' &&
+      origin === undefined && fetchSite === 'same-origin';
+    if ((!validOrigin && !sameOriginBrowserRead) ||
+        (fetchSite && fetchSite !== 'same-origin' && fetchSite !== 'none')) {
       return sendJson(res, 403, { error: 'HOST_OPERATOR_ORIGIN_DENIED' });
     }
     const service = container.trustedHostConsentService();
