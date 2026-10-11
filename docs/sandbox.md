@@ -177,3 +177,23 @@ kernel is vulnerability-free. Operators still need a patched runtime, reviewed
 images, minimal mounts, rootless execution where practical, and host-level
 monitoring. Windows and macOS container engines normally run Linux containers in
 a VM; host-path mount semantics should be validated on the deployment platform.
+
+### Fleet per-instance host execution (qualification hold)
+
+Fleet's default `terminal.sandbox.mode=process` with
+`requireInDanger=true` remains enforced: choosing `danger` does not by
+itself grant unsandboxed shell execution. A `sandbox-required` child does
+not inherit the privileges of a parent with an explicit trusted-host setting.
+
+In the opt-in macOS workflow, a separate owner-approved, scope-bound Fleet
+grant is required **at every child start and restart**. Profile changes
+persist a generated Fleet YAML and Fleet state together using a recoverable
+two-file journal; saving does not prove the existing child has restarted.
+When a grant is revoked, a running child may need verified termination; an
+uncertain or foreign PID causes a fail-closed state and requires investigation,
+not an optimistic "stopped" status.
+
+Platform qualification: macOS real operator acceptance and APFS recovery
+proof are external merge gates and remain `NOT_RUN` until collected.
+Linux host consent is unqualified; Windows must fail closed. Never use an
+HTTP, MCP or query-token call as a substitute for host-local confirmation.
