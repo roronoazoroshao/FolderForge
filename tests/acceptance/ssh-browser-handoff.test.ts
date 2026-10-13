@@ -174,8 +174,16 @@ describe.skipIf(!required)(
         if (path.includes('/operator/ssh-session/status') ||
             path.includes('/one-click-trusted-host')) {
           // Never print response bodies: they may contain a newly minted token.
-          afterClick.push({ path, status: response.status(),
-            message: response.ok() ? 'ok' : 'failed' });
+          let errorCode = 'ok';
+          if (!response.ok()) {
+            try {
+              // Only the server's static error identifier is safe to log.
+              const payload = await response.json() as { error?: string };
+              errorCode = /^[A-Z_]{3,100}$/.test(payload.error ?? '')
+                ? payload.error! : 'failed';
+            } catch { errorCode = 'failed'; }
+          }
+          afterClick.push({ path, status: response.status(), message: errorCode });
         }
       });
       await page.getByRole('button', {
