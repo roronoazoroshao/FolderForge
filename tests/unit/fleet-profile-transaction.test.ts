@@ -43,7 +43,7 @@ function anonymousFixture(phase?: 'prepared' | 'yaml-renamed' | 'state-renamed' 
     token, tokenSha256,
     renderYaml: (_record: unknown, secret: string) =>
       before.yaml
-        .replace('      mode: "none"', '      mode: "token"\\n    token: "' + secret + '"\\n    requireAuth: true')
+        .replace('      mode: "none"', '      mode: "token"\n    token: "' + secret + '"\n    requireAuth: true')
         .replace('  defaultMode: "dev"', '  defaultMode: "danger"')
         .replace('    requireInDanger: true', '    requireInDanger: false'),
   };
