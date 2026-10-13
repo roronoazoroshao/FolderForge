@@ -1630,6 +1630,23 @@ async function handle(
   if (method === "POST" && fleetLifecycleMatch) {
     const id = decodeURIComponent(fleetLifecycleMatch[1]!);
     const action = fleetLifecycleMatch[2]!;
+    // A persistent trusted-host grant must not turn the OLD tokenless
+    // localhost lifecycle endpoint into ambient authority to launch an
+    // OS-privileged child. Recheck the live owner session and CSRF at every
+    // start/restart, including after crashes and subsequent app launches.
+    if (action !== "stop") {
+      const instance = container.fleet.get(id);
+      if (instance.terminalExecution === 'trusted-host') {
+        if (!sshOperatorWebSessions || !opts.sshOperatorBroker) {
+          return sendJson(res, 403, { error: 'VERIFIED_OWNER_SESSION_REQUIRED' });
+        }
+        try {
+          sshOperatorWebSessions.requirePrivilegedWrite(req);
+        } catch {
+          return sendJson(res, 403, { error: 'VERIFIED_OWNER_SESSION_REQUIRED' });
+        }
+      }
+    }
     const tool =
       action === "start"
         ? "provision_start"
