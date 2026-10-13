@@ -217,9 +217,13 @@ describe.skipIf(!required)(
       expect(() => service.assertAuthorized(instance.id, {
         toolsPreset: 'full', policyMode: 'danger', terminalExecution: 'trusted-host',
       })).not.toThrow();
-      await expect.poll(() => page.getByText(/Bearer token|new token|credential/i).count(), {
-        timeout: 6_000,
-      }).toBeGreaterThan(0);
+      await expect.poll(() => page.getByRole('button', {
+        name: /Turn off AI access/i,
+      }).count(), { timeout: 6_000 }).toBe(1);
+      // No second mandatory credential-popup confirmation after the user's
+      // one explicit enable click. The token remains optional to inspect.
+      expect(await page.getByText(/Shown exactly once — copy it now/i).count()).toBe(0);
+      expect(await page.getByRole('button', { name: /Show connection key/i }).count()).toBe(1);
       await context.close();
     }, 40_000);
 
