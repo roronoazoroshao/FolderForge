@@ -1,6 +1,16 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createServer, type Server } from 'node:http';
 import { once } from 'node:events';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { defaultConfig } from '../../src/runtime/config.js';
+import { Container } from '../../src/runtime/container.js';
+import { startDashboard } from '../../src/dashboard/server.js';
+import { buildRegistry } from '../../src/tools/index.js';
+import { TrustedHostStore } from '../../src/operator/trusted-host-store.js';
+import { TrustedHostConsentService } from '../../src/operator/trusted-host-consent.js';
+import { SshSessionBroker } from '../../src/operator/ssh-session-broker.js';
 import { type AddressInfo } from 'node:net';
 import { chromium, type Browser } from 'playwright-core';
 import { createSshLocalBridge } from '../../src/operator/ssh-local-bridge.js';
@@ -10,11 +20,14 @@ const required = process.env.FOLDERFORGE_REQUIRE_BROWSER_E2E === '1';
 const servers: Server[] = [];
 const browsers: Browser[] = [];
 const cleanup: Array<() => Promise<void> | void> = [];
+const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(browsers.splice(0).map(browser => browser.close()));
   await Promise.all(cleanup.splice(0).map(fn => fn()));
   await Promise.all(servers.splice(0).map(server =>
     new Promise<void>(resolve => server.close(() => resolve()))));
+  vi.restoreAllMocks();
+  roots.splice(0).forEach(root => rmSync(root, { recursive: true, force: true }));
 });
 
 describe.skipIf(!required)(
@@ -74,6 +87,79 @@ describe.skipIf(!required)(
         cookie.httpOnly && cookie.sameSite === 'Strict')).toBe(true);
       await owner.close();
     }, 35_000);
+
+    it('drives the REAL Mission Control Fleet button with an OS-owner browser session', async () => {
+      const root = mkdtempSync(join(tmpdir(), 'ff-real-owner-ui-'));
+      roots.push(root);
+      const config = defaultConfig(root);
+      config.rateLimit.enabled = false;
+      const container = new Container(config);
+      const project = join(root, 'project');
+      mkdirSync(project);
+      const { instance } = container.fleet.create({ projectPath: project, authMode: 'none' });
+      const uid = process.getuid?.() ?? 0;
+      const store = new TrustedHostStore({
+        operatorRoot: join(root, 'operator'), currentUid: uid, now: Date.now,
+      });
+      const installationId = store.getOrCreateInstallationId();
+      const service = new TrustedHostConsentService({
+        fleet: container.fleet, store, installationId, serviceUid: uid,
+        now: Date.now, isWriteFrozen: () => false, recordAudit: () => {},
+      });
+      vi.spyOn(container, 'trustedHostConsentService').mockReturnValue(service);
+      vi.spyOn(container.fleet, 'start').mockImplementation(id => container.fleet.get(id));
+      const broker = new SshSessionBroker({
+        serviceUid: uid, installationId, operatorRoot: join(root, 'ssh'),
+        projectRoots: [project], now: Date.now,
+      });
+      const dashboard = startDashboard(container, buildRegistry(container), {
+        host: '127.0.0.1', port: 0, sshOperatorBroker: broker,
+      });
+      servers.push(dashboard);
+      if (!dashboard.listening) await once(dashboard, 'listening');
+      const dashboardPort = (dashboard.address() as AddressInfo).port;
+      const bootstrap = broker.openFromHost(uid, 'local-operator-launch');
+      let secret: string | null = bootstrap.bootstrapSecret;
+      const token = 'p'.repeat(43);
+      const bridge = await createSshLocalBridge({
+        forwardPort: dashboardPort,
+        invitationToken: token, landingPath: '/app/',
+        takeBootstrap: () => {
+          const value = secret;
+          secret = null;
+          return value;
+        },
+      });
+      cleanup.push(bridge.close);
+      const invite = createSshBrowserInvitation(bridge.origin, token);
+      cleanup.push(invite.cleanup);
+      const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
+      browsers.push(browser);
+      const context = await browser.newContext();
+      const page = await context.newPage();
+      await page.goto(invite.url);
+      await page.waitForURL(bridge.origin + '/app/', { timeout: 10_000 });
+      await page.goto(bridge.origin + '/app/fleet');
+      await expect.poll(() => page.getByRole('button', {
+        name: /Allow AI to operate on this computer/i,
+      }).count(), { timeout: 12_000 }).toBe(1);
+      await page.getByRole('button', {
+        name: /Allow AI to operate on this computer/i,
+      }).click();
+      await expect.poll(() => container.fleet.get(instance.id).terminalExecution, {
+        timeout: 12_000,
+      }).toBe('trusted-host');
+      expect(container.fleet.get(instance.id)).toMatchObject({
+        authMode: 'token', toolsPreset: 'full', policyMode: 'danger',
+      });
+      expect(() => service.assertAuthorized(instance.id, {
+        toolsPreset: 'full', policyMode: 'danger', terminalExecution: 'trusted-host',
+      })).not.toThrow();
+      await expect.poll(() => page.getByText(/Bearer token|new token|credential/i).count(), {
+        timeout: 6_000,
+      }).toBeGreaterThan(0);
+      await context.close();
+    }, 40_000);
 
     it('opens local Mission Control app directly from a one-time owner invitation', async () => {
       let exchanges = 0;
