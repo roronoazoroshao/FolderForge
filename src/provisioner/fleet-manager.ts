@@ -807,8 +807,10 @@ export class FleetManager {
       throw new Error('FLEET_PROFILE_STOP_UNVERIFIED');
     }
     this.stop(id);
-    const start = this.now();
-    while (this.isAliveFn(originalPid) && this.now() - start < timeoutMs) {
+    // Monotonic loop bound must not depend on Fleet's injected event clock:
+    // test clocks and clock adjustments can otherwise extend a stop forever.
+    const start = performance.now();
+    while (this.isAliveFn(originalPid) && performance.now() - start < timeoutMs) {
       await new Promise<void>(resolve => setTimeout(resolve, 25));
     }
     if (this.isAliveFn(originalPid)) {
