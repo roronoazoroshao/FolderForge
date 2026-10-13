@@ -7,8 +7,10 @@ const BOOTSTRAP_TTL_MS = 60_000;
 const SESSION_IDLE_TTL_MS = 15 * 60_000;
 const SESSION_ABSOLUTE_TTL_MS = 8 * 60 * 60_000;
 
+export type OperatorProofSource = 'ssh-remote-exec' | 'local-operator-launch';
+
 export interface SshOperatorAuthority {
-  readonly source: 'ssh-remote-exec';
+  readonly source: OperatorProofSource;
   readonly installationId: string;
   readonly serviceUid: number;
   readonly leaseId: string;
@@ -24,11 +26,13 @@ export interface SshOperatorSession {
 }
 
 type LeaseRecord = {
+  source: OperatorProofSource;
   digest: Buffer;
   expiresAt: number;
 };
 
 type SessionRecord = {
+  source: OperatorProofSource;
   leaseId: string;
   lastSeenAt: number;
   absoluteExpiresAt: number;
@@ -72,9 +76,12 @@ export class SshSessionBroker implements SshHelperBroker {
     return createHash('sha256').update(secret).digest();
   }
 
-  openFromHost(uid: number): SshHelperBootstrap {
+  openFromHost(uid: number, source: OperatorProofSource = 'ssh-remote-exec'): SshHelperBootstrap {
     if (uid !== this.serviceUid || !Number.isSafeInteger(uid)) {
       throw new Error('WRONG_OPERATOR_UID');
+    }
+    if (!['ssh-remote-exec', 'local-operator-launch'].includes(source)) {
+      throw new Error('INVALID_OPERATOR_PROOF_SOURCE');
     }
     if (this.leases.size >= 128) {
       throw new Error('SSH_SESSION_CAPACITY_EXCEEDED');
@@ -84,7 +91,7 @@ export class SshSessionBroker implements SshHelperBroker {
     const expiresAt = this.now() + BOOTSTRAP_TTL_MS;
     const digest = this.digest(secret);
     this.store.record(leaseId, digest.toString('hex'), expiresAt);
-    this.leases.set(leaseId, { digest, expiresAt });
+    this.leases.set(leaseId, { source, digest, expiresAt });
     return { bootstrapSecret: secret, leaseId, expiresAt };
   }
 
@@ -101,12 +108,13 @@ export class SshSessionBroker implements SshHelperBroker {
       if (record.expiresAt <= this.now()) throw new Error('SSH_BOOTSTRAP_UNAVAILABLE');
       const sessionId = randomBytes(32).toString('base64url');
       const session: SessionRecord = {
+        source: record.source,
         leaseId,
         lastSeenAt: this.now(),
         absoluteExpiresAt: this.now() + SESSION_ABSOLUTE_TTL_MS,
       };
       // An exchanged bootstrap retains its live lease until SSH disconnect.
-      this.leases.set(leaseId, { digest: Buffer.alloc(32), expiresAt: session.absoluteExpiresAt });
+      this.leases.set(leaseId, { source: record.source, digest: Buffer.alloc(32), expiresAt: session.absoluteExpiresAt });
       this.sessions.set(this.digest(sessionId).toString('hex'), session);
       return {
         sessionId,
@@ -134,7 +142,7 @@ export class SshSessionBroker implements SshHelperBroker {
     }
     session.lastSeenAt = this.now();
     const authority: SshOperatorAuthority = Object.freeze({
-      source: 'ssh-remote-exec',
+      source: session.source,
       installationId: this.installationId,
       serviceUid: this.serviceUid,
       leaseId: session.leaseId,
