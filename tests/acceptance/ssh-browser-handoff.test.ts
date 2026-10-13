@@ -168,12 +168,41 @@ describe.skipIf(!required)(
         }));
         throw error;
       }
+      const afterClick: Array<{ path: string; status: number; message: string }> = [];
+      page.on('response', async response => {
+        const path = new URL(response.url()).pathname;
+        if (path.includes('/operator/ssh-session/status') ||
+            path.includes('/one-click-trusted-host')) {
+          // Never print response bodies: they may contain a newly minted token.
+          afterClick.push({ path, status: response.status(),
+            message: response.ok() ? 'ok' : 'failed' });
+        }
+      });
       await page.getByRole('button', {
         name: /Allow AI to operate on this computer/i,
       }).click();
-      await expect.poll(() => container.fleet.get(instance.id).terminalExecution, {
-        timeout: 12_000,
-      }).toBe('trusted-host');
+      try {
+        await expect.poll(() => container.fleet.get(instance.id).terminalExecution, {
+          timeout: 12_000,
+        }).toBe('trusted-host');
+      } catch (error) {
+        const browserStatus = await page.evaluate(async () => {
+          const result = await fetch('/operator/ssh-session/status');
+          const body = await result.json() as { verified?: boolean; source?: string };
+          return { http: result.status, verified: body.verified, source: body.source };
+        });
+        console.error('FLEET_ONE_CLICK_DIAGNOSTICS', JSON.stringify({
+          afterClick, browserStatus,
+          ui: (await page.locator('body').innerText()).slice(-1600),
+          browserErrors: browserErrors.slice(0, 12),
+          instance: {
+            state: container.fleet.get(instance.id).state,
+            terminalExecution: container.fleet.get(instance.id).terminalExecution,
+            authMode: container.fleet.get(instance.id).authMode,
+          },
+        }));
+        throw error;
+      }
       expect(container.fleet.get(instance.id)).toMatchObject({
         authMode: 'token', toolsPreset: 'full', policyMode: 'danger',
       });
