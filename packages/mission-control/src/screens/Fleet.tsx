@@ -171,6 +171,35 @@ export function FleetScreen() {
     return ok;
   };
 
+  const fleetLifecycle = async (
+    instance: FleetInstance, lifecycle: 'start' | 'restart' | 'stop',
+  ) => {
+    const endpoint = `/fleet/${encodeURIComponent(instance.id)}/${lifecycle}`;
+    if (lifecycle === 'stop' || instance.terminalExecution !== 'trusted-host') {
+      await call(endpoint, undefined, `${instance.id} ${lifecycle} requested`);
+      return;
+    }
+    setQuickAccessBusy(instance.id);
+    try {
+      const owner = await api<{ verified: boolean; csrfToken?: string }>(
+        '/operator/ssh-session/status', { sensitive: true },
+      );
+      if (!owner.verified || !owner.csrfToken) {
+        throw new Error('Verified owner session required. Reopen Mission Control from the app.');
+      }
+      await api(endpoint, {
+        method: 'POST', sensitive: true,
+        headers: { 'x-folderforge-operator-csrf': owner.csrfToken },
+      });
+      fleet.reload();
+      toast('success', `${instance.id} ${lifecycle} requested; check runtime readiness.`);
+    } catch (error) {
+      toast('error', error instanceof Error ? error.message : String(error));
+    } finally {
+      setQuickAccessBusy(null);
+    }
+  };
+
   const enableFullAiAccess = async (instance: FleetInstance) => {
     setQuickAccessBusy(instance.id);
     try {
@@ -447,8 +476,8 @@ export function FleetScreen() {
                     <div className="flex shrink-0 gap-1.5">
                       {instance.state === 'running' ? (
                         <>
-                          <Button size="sm" disabled={action.busy} onClick={() => void call(`/fleet/${encodeURIComponent(instance.id)}/stop`, undefined, `${instance.id} stopped`)}>Stop</Button>
-                          <Button size="sm" disabled={action.busy} onClick={() => void call(`/fleet/${encodeURIComponent(instance.id)}/restart`, undefined, `${instance.id} restarted`)}>Restart</Button>
+                          <Button size="sm" disabled={action.busy} onClick={() => void fleetLifecycle(instance, 'stop')}>Stop</Button>
+                          <Button size="sm" disabled={action.busy} onClick={() => void fleetLifecycle(instance, 'restart')}>Restart</Button>
                         </>
                       ) : (
                         <Button
@@ -456,7 +485,7 @@ export function FleetScreen() {
                           variant="primary"
                           disabled={action.busy || instance.state === 'starting' || openAiRunning}
                           title={openAiRunning ? 'Stop the OpenAI tunnel supervisor first' : undefined}
-                          onClick={() => void call(`/fleet/${encodeURIComponent(instance.id)}/start`, undefined, `${instance.id} starting`)}
+                          onClick={() => void fleetLifecycle(instance, 'start')}
                         >
                           Start local
                         </Button>
