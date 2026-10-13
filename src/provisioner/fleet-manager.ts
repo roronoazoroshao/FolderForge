@@ -771,6 +771,69 @@ export class FleetManager {
     return cloneInstance(record);
   }
 
+  /**
+   * One-click mode switch from a RUNNING sandbox to trusted-host.
+   * Stop is never evidence of termination by itself: a sandboxed child
+   * may outlive its supervisor. Preserve the original PID and an explicit
+   * uncertain state until the host OS confirms that process exited.
+   */
+  async stopForTrustedHostTransition(
+    id: string,
+    opts: { timeoutMs?: number } = {},
+  ): Promise<void> {
+    const timeoutMs = opts.timeoutMs ?? 1_500;
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 10_000) {
+      throw new Error('INVALID_FLEET_TRANSITION_TIMEOUT');
+    }
+    const record = this.mutable(id);
+    if (record.openAiTunnel?.state === 'running' ||
+        record.openAiTunnel?.state === 'starting') {
+      throw new Error('OPENAI_TUNNEL_TRANSITION_UNSUPPORTED');
+    }
+    if (record.state === 'stopped' || record.state === 'failed') return;
+    if (record.state === 'stopping' && record.lastError === 'FLEET_PROFILE_STOP_UNVERIFIED') {
+      throw new Error('FLEET_PROFILE_STOP_UNVERIFIED');
+    }
+    if (record.state !== 'running' && record.state !== 'starting') {
+      throw new Error('FLEET_PROFILE_STOP_UNVERIFIED');
+    }
+    const originalPid = record.pid;
+    const originalSession = record.sessionId;
+    // A session without a PID cannot be independently proven terminated.
+    if (originalPid === undefined || originalSession === undefined || !this.stopFn) {
+      record.state = 'stopping';
+      record.lastError = 'FLEET_PROFILE_STOP_UNVERIFIED';
+      this.persist();
+      throw new Error('FLEET_PROFILE_STOP_UNVERIFIED');
+    }
+    this.stop(id);
+    const start = this.now();
+    while (this.isAliveFn(originalPid) && this.now() - start < timeoutMs) {
+      await new Promise<void>(resolve => setTimeout(resolve, 25));
+    }
+    if (this.isAliveFn(originalPid)) {
+      const current = this.mutable(id);
+      current.state = 'stopping';
+      current.pid = originalPid;
+      current.sessionId = originalSession;
+      current.lastError = 'FLEET_PROFILE_STOP_UNVERIFIED';
+      this.touch(current);
+      this.persist();
+      throw new Error('FLEET_PROFILE_STOP_UNVERIFIED');
+    }
+    const latest = this.mutable(id);
+    if (latest.state === 'running' || latest.state === 'starting') {
+      throw new Error('FLEET_PROFILE_STOP_UNVERIFIED');
+    }
+    latest.state = 'stopped';
+    delete latest.pid;
+    delete latest.sessionId;
+    delete latest.leaseId;
+    delete latest.lastError;
+    this.touch(latest);
+    this.persist();
+  }
+
   setAuth(
     id: string,
     input: { mode: FleetAuthMode; apiKey?: string; oauth?: Partial<FleetOAuthConfig> },
