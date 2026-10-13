@@ -178,14 +178,24 @@ export function FleetScreen() {
       if (!owner.verified || !owner.csrfToken) {
         throw new Error('Owner session not verified. Open Mission Control from the app on this computer.');
       }
-      await api(`/fleet/${encodeURIComponent(instance.id)}/one-click-trusted-host`, {
+      const outcome = await api<{
+        status: 'persisted';
+        activation?: { status: 'start_requested' | 'not_started' | 'failed'; message?: string };
+      }>(`/fleet/${encodeURIComponent(instance.id)}/one-click-trusted-host`, {
         method: 'POST',
         sensitive: true,
         headers: { 'x-ssh-operator-csrf': owner.csrfToken },
         body: { toolsPreset: 'full', policyMode: 'danger', terminalExecution: 'trusted-host' },
       });
       fleet.reload();
-      toast('success', 'AI host access saved. The instance must restart before the new mode is active.');
+      if (outcome.activation?.status === 'failed') {
+        toast('error', 'Access saved, but AI could not start automatically: ' +
+          (outcome.activation.message ?? 'Please inspect instance status.'));
+      } else {
+        toast('success', outcome.activation?.status === 'start_requested'
+          ? 'Access saved and AI startup requested. Check instance status for readiness.'
+          : 'Access saved. The running service may need a controlled restart.');
+      }
     } catch (error) {
       toast('error', error instanceof Error ? error.message : String(error));
     } finally {
@@ -610,13 +620,22 @@ function ConfigModal(props: { instance: FleetInstance; onClose: () => void; onSa
           'A verified local operator session is required; a normal browser link is insufficient.',
         );
       }
-      await api(`/fleet/${id}/one-click-trusted-host`, {
+      const outcome = await api<{
+        activation?: { status: 'start_requested' | 'not_started' | 'failed'; message?: string };
+      }>(`/fleet/${id}/one-click-trusted-host`, {
         method: 'POST',
         sensitive: true,
         headers: { 'x-ssh-operator-csrf': session.csrfToken },
         body: tuple,
       });
-      toast('success', 'AI host access saved. Restart the instance to activate the new configuration.');
+      if (outcome.activation?.status === 'failed') {
+        setHostError('Access saved, but startup failed: ' +
+          (outcome.activation.message ?? 'Inspect instance status.'));
+      } else {
+        toast('success', outcome.activation?.status === 'start_requested'
+          ? 'Access saved and AI startup requested; checking readiness may take time.'
+          : 'AI access saved. An active instance may need a controlled restart.');
+      }
       props.onSaved();
     } catch (error) {
       setHostError(error instanceof Error ? error.message : String(error));
