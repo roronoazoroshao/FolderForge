@@ -187,6 +187,12 @@ describe('Fleet trusted-host execution boundary', () => {
     expect(recovered.get(instance.id).state).not.toBe('stopped');
     expect(recovered.get(instance.id).pid).toBe(99881);
     expect(recovered.get(instance.id).lastError).toMatch(/FLEET_PROFILE_STOP_UNVERIFIED/);
+    // The recovered status is failed, but the orphan is *still alive*.
+    // No one-click or legacy update may elevate this Fleet record.
+    await expect(recovered.stopForTrustedHostTransition(instance.id, { timeoutMs: 10 }))
+      .rejects.toThrow('FLEET_PROFILE_STOP_UNVERIFIED');
+    expect(() => recovered.updateProfileAtomically(instance.id, tuple, {} as TrustedHostConsentService))
+      .toThrow('FLEET_CHILD_TERMINATION_UNVERIFIED');
     alive = false;
     const after = new FleetManager(root, { isAlive: () => alive });
     expect(after.get(instance.id).state).toBe('stopped');
