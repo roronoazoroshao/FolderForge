@@ -6,6 +6,24 @@ All notable changes to FolderForge are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/), and the project follows
 semantic versioning.
 
+## [3.1.0] - 2026-10-13
+
+### Added
+- **One-Click Trusted Host in Mission Control Fleet**: from an OS-verified owner session, allow or revoke AI host execution from the interface without copying or running a separate `approve`/`revoke` command.
+- Automatically establish a protected local owner browser handoff on supported macOS/Linux desktop Control Panel launches; retain SSH operator session binding when using the verified remote workflow.
+- Auto-create a per-instance MCP token when enabling an otherwise unauthenticated instance. The token and privileged Fleet profile are persisted atomically with crash recovery; the UI offers an optional one-time connection-key view instead of a mandatory token-copy interruption.
+- Request startup of stopped Fleet instances following owner confirmation, and offer verified Start/Restart controls for subsequent runs.
+
+### Security
+- Bind host consent to a live OS owner/SSH authority, installation identity, session cookie and session-scoped CSRF; no arbitrary localhost tab, forwarded header or API token alone can mint a host grant.
+- Maintain cross-origin denial, SSH identity-header stripping, scoped grant revocation and fail-closed PID verification for old running children and crash recovery. Privileged Start/Restart requires live owner session evidence.
+- Expand adversarial integration, actual OpenSSH and real Chromium click-to-enable/start/revoke acceptance coverage (#86).
+
+### Compatibility and limitations
+- Windows native one-click host authorization remains unsupported and fails closed. The existing sandbox execution mode remains available.
+- Owner authority does not override operating-system restrictions or hard tool-policy denials. A verified owner session is still required; users opening a random browser URL do not receive host privileges automatically.
+- Release removes the mandatory 24-hour production-soak receipt requirement while retaining exact-commit CI, annotated tag, version consistency and release verification (#88).
+
 ## [3.0.3] - 2026-10-11
 
 ### Fixed
