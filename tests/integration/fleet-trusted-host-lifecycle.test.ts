@@ -92,6 +92,33 @@ describe('Fleet trusted-host execution boundary', () => {
     expect(fleet.get(instance.id).state).toBe('stopped');
   });
 
+  it('fences concurrent starts during an autonomous sandbox-to-host transition', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ff-transition-start-race-'));
+    roots.push(root);
+    const project = join(root, 'project');
+    mkdirSync(project);
+    let alive = true;
+    let fleet: FleetManager;
+    const blocked: string[] = [];
+    fleet = new FleetManager(root, {
+      mainJs: process.execPath,
+      spawn: () => ({ sessionId: 'old-child', pid: 99882 }),
+      stopSession: () => {
+        expect(fleet.get(instance.id).state).toBe('stopping');
+        try { fleet.start(instance.id); }
+        catch (error) { blocked.push(String(error)); }
+        alive = false;
+      },
+      isAlive: () => alive,
+    });
+    const { instance } = fleet.create({ projectPath: project, authMode: 'api-key' });
+    fleet.start(instance.id);
+    await fleet.stopForTrustedHostTransition(instance.id, { timeoutMs: 100 });
+    expect(blocked).toHaveLength(1);
+    expect(blocked[0]).toMatch(/STOPPING|STOP_UNVERIFIED/);
+    expect(fleet.get(instance.id).state).toBe('stopped');
+  });
+
   it('never grants a host profile if a sandbox child PID remains alive after stop', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ff-uncertain-transition-'));
     roots.push(root);
