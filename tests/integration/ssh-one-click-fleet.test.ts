@@ -109,6 +109,22 @@ describe('SSH-verified one-click Fleet enrollment', () => {
     expect(repeated.status).toBe(200);
   });
 
+  it('is idempotent for an already-authorized running child without stopping or issuing a new grant', async () => {
+    const h = await setup();
+    const headers = { cookie: h.cookie, 'x-ssh-operator-csrf': h.view!.csrfToken };
+    const first = await h.enable(headers);
+    expect(first.status).toBe(200);
+    const realGet = h.container.fleet.get.bind(h.container.fleet);
+    vi.spyOn(h.container.fleet, 'get').mockImplementation(id => ({
+      ...realGet(id), state: 'running', pid: 99333, sessionId: 'live-existing',
+    }));
+    const stop = vi.spyOn(h.container.fleet, 'stopForTrustedHostTransition');
+    const second = await h.enable(headers);
+    expect(second.status).toBe(200);
+    expect((await second.json() as { newlyApproved: boolean }).newlyApproved).toBe(false);
+    expect(stop).not.toHaveBeenCalled();
+  });
+
   it('automatically requests a stopped child start after the one-click profile is committed', async () => {
     const h = await setup();
     const started = vi.spyOn(h.container.fleet, 'start').mockImplementation(id =>
