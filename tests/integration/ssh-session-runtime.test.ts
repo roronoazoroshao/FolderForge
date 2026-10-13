@@ -50,6 +50,34 @@ describe.skipIf(process.platform !== 'linux' && process.platform !== 'darwin')(
       expect(existsSync(running.socketPath)).toBe(false);
     });
 
+    it('binds a native local-owner app open to a distinct source and revokes its OS-owned lease', async () => {
+      const h = harness();
+      const runtime = await startSshOperatorRuntime(h.options);
+      try {
+        expect(existsSync(runtime.localSocketPath)).toBe(true);
+        const local = await openSshOperatorIpcClient(runtime.localSocketPath, h.options.serviceUid);
+        const proof = local.openFromHost(h.options.serviceUid);
+        const session = runtime.broker.exchangeBootstrap(proof.bootstrapSecret);
+        expect(runtime.broker.assertLiveSession(session.sessionId)).toMatchObject({
+          source: 'local-operator-launch',
+          installationId: h.options.installationId,
+          serviceUid: h.options.serviceUid,
+        });
+        const fakeSsh = await openSshOperatorIpcClient(runtime.socketPath, h.options.serviceUid);
+        const sshProof = fakeSsh.openFromHost(h.options.serviceUid);
+        const sshSession = runtime.broker.exchangeBootstrap(sshProof.bootstrapSecret);
+        expect(runtime.broker.assertLiveSession(sshSession.sessionId).source).toBe('ssh-remote-exec');
+        local.revokeLease(proof.leaseId);
+        fakeSsh.revokeLease(sshProof.leaseId);
+        await new Promise(resolve => setTimeout(resolve, 30));
+        expect(() => runtime.broker.assertLiveSession(session.sessionId)).toThrow();
+        expect(() => runtime.broker.assertLiveSession(sshSession.sessionId)).toThrow();
+      } finally {
+        await runtime.close();
+      }
+      expect(existsSync(runtime.localSocketPath)).toBe(false);
+    });
+
     it('verifies a separate helper PROCESS talks to the same Dashboard broker (not CLI/sshd E2E)', async () => {
       const h = harness();
       const running = await startSshOperatorRuntime(h.options);
