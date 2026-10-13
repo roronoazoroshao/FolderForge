@@ -93,7 +93,7 @@ describe('SSH operator browser sessions (no ambient loopback elevation)', () => 
     const loggedOut = await fetch(h.base + '/operator/ssh-session/logout', {
       method: 'POST', headers: {
         origin: h.base, 'sec-fetch-site': 'same-origin',
-        cookie: credential, 'x-ssh-operator-csrf': view.csrfToken,
+        cookie: credential, 'x-folderforge-operator-csrf': view.csrfToken,
       },
     });
     expect(loggedOut.status).toBe(200);
