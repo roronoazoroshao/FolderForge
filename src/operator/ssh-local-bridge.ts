@@ -16,6 +16,7 @@ export interface SshLocalBridgeOptions {
   takeBootstrap: () => string | null;
   now?: () => number;
   invitationTtlMs?: number;
+  landingPath?: '/' | '/app/';
 }
 
 export interface SshLocalBridge {
@@ -95,6 +96,8 @@ export async function createSshLocalBridge(
   }
   const now = opts.now ?? Date.now;
   const ttl = opts.invitationTtlMs ?? 60_000;
+  const landingPath = opts.landingPath ?? '/';
+  if (landingPath !== '/' && landingPath !== '/app/') throw new Error('INVALID_SSH_BRIDGE_LANDING');
   if (!Number.isSafeInteger(ttl) || ttl < 1 || ttl > 60_000) {
     throw new Error('INVALID_SSH_INVITATION_TTL');
   }
@@ -137,7 +140,7 @@ export async function createSshLocalBridge(
         catch { deny(res, 502); return; }
         if (!cookie) { deny(res, 403); return; }
         res.writeHead(303, {
-          location: '/',
+          location: landingPath,
           'set-cookie': cookie,
           'cache-control': 'no-store',
           'referrer-policy': 'no-referrer',
