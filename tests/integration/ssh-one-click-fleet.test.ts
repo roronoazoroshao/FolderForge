@@ -215,6 +215,7 @@ describe('SSH-verified one-click Fleet enrollment', () => {
     const headers = { cookie: h.cookie, 'x-ssh-operator-csrf': h.view!.csrfToken };
     const approved = await h.enable(headers);
     expect(approved.status).toBe(200);
+    expect(approved.headers.get('cache-control')).toBe('no-store');
     const response = await approved.json() as {
       status: string; credential?: { kind: string; value: string };
     };
