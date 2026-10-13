@@ -922,6 +922,25 @@ async function handle(
           policyMode: body.policyMode,
           terminalExecution: 'trusted-host' as const,
         };
+        const before = container.fleet.get(instanceId);
+        const sameSavedTuple =
+          before.toolsPreset === tuple.toolsPreset &&
+          before.policyMode === tuple.policyMode &&
+          before.terminalExecution === tuple.terminalExecution;
+        let alreadyGranted = false;
+        if (sameSavedTuple) {
+          try {
+            service.assertAuthorized(instanceId, tuple);
+            alreadyGranted = true;
+          } catch { /* Do not trust the saved tuple without a live scoped grant. */ }
+        }
+        // A deliberate owner click may need to transition an older running
+        // sandbox child. Never elevate while the old PID remains alive or the
+        // stop outcome cannot be verified. Already-enabled children are left
+        // untouched to keep one-click retry idempotent.
+        if (!alreadyGranted && ['running', 'starting'].includes(before.state)) {
+          await container.fleet.stopForTrustedHostTransition(instanceId);
+        }
         const result = service.applyVerifiedSshProfile(
           instanceId, tuple, operator, opts.sshOperatorBroker!, verifiedSshAuthority!,
           (approved) => { container.fleet.updateProfileAtomically(instanceId, approved, service); },
