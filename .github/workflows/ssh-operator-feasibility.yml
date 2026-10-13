@@ -61,6 +61,8 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci --ignore-scripts
+      - name: Build actual Mission Control SPA for browser acceptance
+        run: npm run build:mission-control
       - name: Install real Chromium and runtime dependencies
         run: node node_modules/playwright-core/cli.js install --with-deps chromium
       - name: Require actual browser E2E (no silent skip)
