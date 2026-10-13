@@ -878,7 +878,7 @@ async function handle(
     // session; a localhost request or ordinary Dashboard token never confers
     // host execution authority. Require cookie + session-specific CSRF.
     let verifiedSshAuthority: ReturnType<SshOperatorWebSessions['requirePrivilegedWrite']> | null = null;
-    if (oneClickRoute && method === 'POST') {
+    if (oneClickRoute && (method === 'POST' || method === 'DELETE')) {
       if (!sshOperatorWebSessions || !opts.sshOperatorBroker) {
         return sendJson(res, 403, { error: 'VERIFIED_OWNER_SESSION_REQUIRED' });
       }
@@ -889,6 +889,24 @@ async function handle(
       }
     }
     try {
+      if (method === 'GET' && oneClickRoute) {
+        return sendJson(res, 200, {
+          ...service.status(instanceId),
+          runtime: container.fleet.effectiveExecutionStatus(instanceId),
+        });
+      }
+      if (method === 'DELETE' && oneClickRoute) {
+        // Same verified owner/cookie-CSRF as grant issuance. Revocation takes
+        // precedence over any process-stop outcome; never advertise stopped
+        // until the Fleet PID/session reconciliation can verify it.
+        service.revokeFromLocal(instanceId);
+        const affected = container.fleet.reconcileRevokedTrustedHosts();
+        return sendJson(res, 200, {
+          status: 'revoked',
+          stopAffected: affected.includes(instanceId),
+          runtime: container.fleet.effectiveExecutionStatus(instanceId),
+        });
+      }
       if (method === 'POST' && oneClickRoute) {
         if (!(req.headers['content-type'] ?? '').toString().startsWith('application/json')) {
           return sendJson(res, 415, { error: 'INVALID_CONTENT_TYPE' });
