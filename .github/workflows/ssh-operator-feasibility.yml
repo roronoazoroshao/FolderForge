@@ -63,8 +63,17 @@ jobs:
       - run: npm ci --ignore-scripts
       - name: Build Godot adapter imported by real Dashboard tool registry
         run: npm run build:adapter-godot
+      - name: Install the actual Mission Control frontend dependencies
+        run: npm ci --prefix packages/mission-control --ignore-scripts
       - name: Build actual Mission Control SPA for browser acceptance
-        run: npm run build:mission-control
+        run: |
+          npm run build:mission-control
+          test -s packages/mission-control/dist/index.html
+          # Never accept the placeholder: Chromium must exercise the real React UI.
+          if grep -q "optional frontend bundle is not installed" packages/mission-control/dist/index.html; then
+            echo "Real Mission Control SPA was not built" >&2
+            exit 1
+          fi
       - name: Install real Chromium and runtime dependencies
         run: node node_modules/playwright-core/cli.js install --with-deps chromium
       - name: Require actual browser E2E (no silent skip)
