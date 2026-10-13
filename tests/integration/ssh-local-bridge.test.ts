@@ -12,7 +12,7 @@ afterEach(async () => {
 });
 
 async function fixture(upstreamCredential?: string) {
-  const seen: Array<{ url: string; host: string; origin: string; bootstrap: string; claimedUid: string; cookie: string; authorization: string }> = [];
+  const seen: Array<{ url: string; host: string; origin: string; bootstrap: string; claimedUid: string; cookie: string; authorization: string; csrf: string }> = [];
   const target = createServer((req, res) => {
     seen.push({
       url: req.url || '',
@@ -22,6 +22,7 @@ async function fixture(upstreamCredential?: string) {
       claimedUid: String(req.headers['x-ssh-user'] || ''),
       cookie: String(req.headers.cookie || ''),
       authorization: String(req.headers.authorization || ''),
+      csrf: String(req.headers['x-folderforge-operator-csrf'] || ''),
     });
     if (req.url === '/operator/ssh-session/exchange') {
       if (upstreamCredential && req.headers.authorization !== 'Bearer ' + upstreamCredential) {
@@ -160,6 +161,28 @@ describe('SSH desktop bridge: browser-intent binding', () => {
       body: 'pair=' + h.token,
     });
     expect(replay.status).toBe(403);
+  });
+
+  it('forwards only the dedicated owner-session CSRF field while stripping spoofed SSH identity', async () => {
+    const h = await fixture();
+    const csrf = 'v'.repeat(43);
+    const sent = await fetch(h.origin + '/fleet/flt_12345678/one-click-trusted-host', {
+      method: 'POST',
+      headers: {
+        origin: h.origin,
+        'sec-fetch-site': 'same-origin',
+        'content-type': 'application/json',
+        'x-folderforge-operator-csrf': csrf,
+        'x-ssh-user': 'forged-root',
+        'x-folderforge-ssh-bootstrap': 'forged',
+      },
+      body: '{}',
+    });
+    expect(sent.status).toBe(200);
+    const seen = h.seen[h.seen.length - 1];
+    expect(seen?.csrf).toBe(csrf);
+    expect(seen?.claimedUid).toBe('');
+    expect(seen?.bootstrap).toBe('');
   });
 
   it('does not turn an untrusted remote origin into a same-origin Dashboard write', async () => {
