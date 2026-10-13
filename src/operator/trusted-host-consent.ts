@@ -134,8 +134,17 @@ export class TrustedHostConsentService {
     if (requested && requested.expiresAt <= this.deps.now()) {
       return { status: 'expired', instanceId, requestId: requested.requestId };
     }
-    // Do not guess that persisted Fleet settings mean a live process is elevated.
-    void record;
+    // A saved tuple is NOT authority. Check the actual scope-bound operator
+    // grant after an earlier intent was consumed; this also allows the UI to
+    // distinguish a revoked permission from one that is genuinely enabled.
+    if (!requested && record.terminalExecution === 'trusted-host' &&
+        this.deps.store.validateGrant(identity, {
+          toolsPreset: record.toolsPreset,
+          policyMode: record.policyMode,
+          terminalExecution: 'trusted-host',
+        })) {
+      return { status: 'approved', instanceId };
+    }
     return { status: 'not_requested', instanceId };
   }
 
