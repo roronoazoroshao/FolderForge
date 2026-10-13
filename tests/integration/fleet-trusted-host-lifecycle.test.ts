@@ -98,9 +98,8 @@ describe('Fleet trusted-host execution boundary', () => {
     const project = join(root, 'project');
     mkdirSync(project);
     let alive = true;
-    let fleet: FleetManager;
     const blocked: string[] = [];
-    fleet = new FleetManager(root, {
+    const fleet = new FleetManager(root, {
       mainJs: process.execPath,
       spawn: () => ({ sessionId: 'old-child', pid: 99882 }),
       stopSession: () => {
