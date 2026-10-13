@@ -70,10 +70,21 @@ export async function openLocalOwnerBrowser(args: readonly string[]): Promise<vo
         : fail(new Error('LOCAL_OWNER_BROWSER_UNAVAILABLE')));
     });
     await new Promise<void>(done => {
-      const timer = setTimeout(done, 8 * 60 * 60 * 1000);
-      const finish = () => { clearTimeout(timer); done(); };
+      let finished = false;
+      const finish = () => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timer);
+        process.off('SIGINT', finish);
+        process.off('SIGTERM', finish);
+        done();
+      };
+      const timer = setTimeout(finish, 8 * 60 * 60 * 1000);
       process.once('SIGINT', finish);
       process.once('SIGTERM', finish);
+      // Closing/stopping the Control Panel must also terminate its detached
+      // browser bridge promptly, not leave a useless eight-hour proxy.
+      void ipc.disconnected.then(finish);
     });
   } finally {
     invitation?.cleanup();
