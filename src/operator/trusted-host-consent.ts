@@ -231,6 +231,10 @@ export class TrustedHostConsentService {
     this.assertWritable();
     const record = this.deps.fleet.get(instanceId);
     const requiresTokenUpgrade = record.authMode === 'none';
+    if (record.pid !== undefined || record.sessionId !== undefined ||
+        record.lastError?.startsWith('FLEET_PROFILE_STOP_UNVERIFIED')) {
+      throw new Error('FLEET_CHILD_TERMINATION_UNVERIFIED');
+    }
     if (['running', 'starting', 'stopping'].includes(record.state) ||
         record.openAiTunnel?.state === 'running' ||
         record.openAiTunnel?.state === 'starting') {
