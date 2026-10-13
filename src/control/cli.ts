@@ -118,6 +118,8 @@ export interface ControlDeps {
   terminate: (pid: number) => void;
   /** Open a URL in the default browser (best-effort). */
   openUrl: (url: string) => void;
+  /** Open an OS-owner proof browser without terminal approval commands. */
+  openVerifiedBrowser?: (port: number, projectRoot: string) => void;
   /** Absolute node binary path used in the boot-service ExecStart. */
   execPath: string;
   /** User home directory (parent of the XDG fallback for the unit file). */
@@ -207,6 +209,32 @@ function defaultOpenUrl(url: string, platform: NodeJS.Platform): void {
   } catch {
     // Opening a browser is best-effort; the URL is always printed.
   }
+}
+
+function defaultOpenVerifiedBrowser(
+  port: number, projectRoot: string, mainJs: string,
+): void {
+  const child = spawn(process.execPath, [
+    mainJs, 'operator', 'dashboard-session', 'open-local',
+    '--port', String(port), '--project', projectRoot,
+  ], {
+    detached: true, stdio: 'ignore', windowsHide: true, shell: false,
+  });
+  child.once('error', error =>
+    logger.warn({ error: String(error) }, 'Unable to launch local owner browser'));
+  child.unref();
+}
+
+function openControlBrowser(deps: ControlDeps, port: number, projectRoot: string, url: string): void {
+  if (deps.openVerifiedBrowser) {
+    try {
+      deps.openVerifiedBrowser(port, projectRoot);
+      return;
+    } catch (error) {
+      logger.warn({ error: String(error) }, 'Verified local browser launch failed');
+    }
+  }
+  deps.openUrl(url);
 }
 
 function controlStatePath(projectRoot: string): string {
@@ -691,7 +719,7 @@ async function controlStart(
   writeControlState(projectRoot, state);
 
   const url = dynamicAppUrl(port, credential);
-  if (options.open ?? deps.stdoutIsTty) deps.openUrl(url);
+  if (options.open ?? deps.stdoutIsTty) openControlBrowser(deps, port, projectRoot, url);
   return {
     output:
       `Mission Control plane started (pid ${pid}, project ${projectRoot}).\n` +
@@ -960,7 +988,7 @@ async function controlOpen(
       existing.port,
       loadControlAuth(projectRoot)?.credential,
     );
-    deps.openUrl(url);
+    openControlBrowser(deps, existing.port, projectRoot, url);
     return { output: `${url}\n`, exitCode: 0 };
   }
   return {
@@ -1336,6 +1364,12 @@ export async function executeControlCli(
     execSystemctl: defaultSystemctl,
     stdoutIsTty: Boolean(process.stdout.isTTY),
     platform,
+    ...((!overrides.openUrl && !overrides.spawnServe &&
+      (platform === 'darwin' ||
+        (platform === 'linux' && Boolean(process.env.DISPLAY || process.env.WAYLAND_DISPLAY))))
+      ? { openVerifiedBrowser: (port: number, root: string) =>
+        defaultOpenVerifiedBrowser(port, root, fileURLToPath(new URL('../main.js', import.meta.url))) }
+      : {}),
     ...overrides,
   };
 
