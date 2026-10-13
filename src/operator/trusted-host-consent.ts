@@ -201,7 +201,7 @@ export class TrustedHostConsentService {
     commit: (tuple: FleetProfileTuple) => void,
   ): { newlyApproved: boolean } {
     broker.assertAuthorityLive(authority);
-    if (authority.source !== 'ssh-remote-exec' ||
+    if (!['ssh-remote-exec', 'local-operator-launch'].includes(authority.source) ||
         authority.installationId !== this.deps.installationId ||
         authority.serviceUid !== this.deps.serviceUid) {
       throw new Error('SSH_OPERATOR_INSTALLATION_MISMATCH');
