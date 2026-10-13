@@ -938,7 +938,10 @@ async function handle(
         // sandbox child. Never elevate while the old PID remains alive or the
         // stop outcome cannot be verified. Already-enabled children are left
         // untouched to keep one-click retry idempotent.
-        if (!alreadyGranted && ['running', 'starting'].includes(before.state)) {
+        if (!alreadyGranted &&
+            (['running', 'starting', 'stopping'].includes(before.state) ||
+              before.pid !== undefined || before.sessionId !== undefined ||
+              before.lastError?.startsWith('FLEET_PROFILE_STOP_UNVERIFIED'))) {
           await container.fleet.stopForTrustedHostTransition(instanceId);
         }
         let oneTimeToken: string | undefined;
