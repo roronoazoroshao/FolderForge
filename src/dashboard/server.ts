@@ -976,6 +976,7 @@ async function handle(
             };
           }
         }
+        res.setHeader('cache-control', 'no-store');
         return sendJson(res, 200, {
           status: 'persisted', newlyApproved: result.newlyApproved,
           activation,
