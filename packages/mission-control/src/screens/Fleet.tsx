@@ -181,6 +181,7 @@ export function FleetScreen() {
       }
       const outcome = await api<{
         status: 'persisted';
+        credential?: { kind: 'token'; value: string };
         activation?: { status: 'start_requested' | 'not_started' | 'failed'; message?: string };
       }>(`/fleet/${encodeURIComponent(instance.id)}/one-click-trusted-host`, {
         method: 'POST',
@@ -188,6 +189,12 @@ export function FleetScreen() {
         headers: { 'x-ssh-operator-csrf': owner.csrfToken },
         body: { toolsPreset: 'full', policyMode: 'danger', terminalExecution: 'trusted-host' },
       });
+      if (outcome.credential?.kind === 'token') {
+        setCredential({
+          id: instance.id, kind: 'token', value: outcome.credential.value,
+          reason: 'created',
+        });
+      }
       setGrantsByInstance(previous => ({ ...previous, [instance.id]: 'approved' }));
       fleet.reload();
       if (outcome.activation?.status === 'failed') {
@@ -592,7 +599,14 @@ export function FleetScreen() {
       <FolderPicker open={pickerOpen} onClose={() => setPickerOpen(false)} onSelect={(selected) => setPath(selected)} />
 
       {configFor ? (
-        <ConfigModal instance={configFor} onClose={() => setConfigFor(null)} onSaved={() => { setConfigFor(null); fleet.reload(); }} />
+        <ConfigModal
+          instance={configFor}
+          onClose={() => setConfigFor(null)}
+          onSaved={() => { setConfigFor(null); fleet.reload(); }}
+          onCredential={(value) => setCredential({
+            id: configFor.id, kind: 'token', value, reason: 'created',
+          })}
+        />
       ) : null}
       {authFor ? (
         <AuthModal
@@ -659,7 +673,10 @@ function CredentialModal(props: { credential: OneTimeCredential; onClose: () => 
   );
 }
 
-function ConfigModal(props: { instance: FleetInstance; onClose: () => void; onSaved: () => void }) {
+function ConfigModal(props: {
+  instance: FleetInstance; onClose: () => void; onSaved: () => void;
+  onCredential: (value: string) => void;
+}) {
   const toast = useToast();
   const action = useAction();
   const [preset, setPreset] = useState(props.instance.toolsPreset);
@@ -689,6 +706,7 @@ function ConfigModal(props: { instance: FleetInstance; onClose: () => void; onSa
         );
       }
       const outcome = await api<{
+        credential?: { kind: 'token'; value: string };
         activation?: { status: 'start_requested' | 'not_started' | 'failed'; message?: string };
       }>(`/fleet/${id}/one-click-trusted-host`, {
         method: 'POST',
@@ -696,6 +714,9 @@ function ConfigModal(props: { instance: FleetInstance; onClose: () => void; onSa
         headers: { 'x-ssh-operator-csrf': session.csrfToken },
         body: tuple,
       });
+      if (outcome.credential?.kind === 'token') {
+        props.onCredential(outcome.credential.value);
+      }
       if (outcome.activation?.status === 'failed') {
         setHostError('Access saved, but startup failed: ' +
           (outcome.activation.message ?? 'Inspect instance status.'));
