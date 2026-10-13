@@ -3,6 +3,7 @@ import { realpathSync } from 'node:fs';
 import type { FleetInstance, FleetManager } from '../provisioner/fleet-manager.js';
 import { FLEET_POLICY_MODES, FLEET_TOOLS_PRESETS } from '../provisioner/fleet-manager.js';
 import { TrustedHostStore } from './trusted-host-store.js';
+import type { SshSessionBroker, SshOperatorAuthority } from './ssh-session-broker.js';
 import { scopeDigest, type ConsentIdentity, type FleetProfileTuple } from './trusted-host-scope.js';
 
 export interface OperatorPrincipal {
@@ -179,6 +180,62 @@ export class TrustedHostConsentService {
     const grant = this.deps.store.readGrantByScope(digest);
     if (!grant) throw new Error('TRUSTED_HOST_CONSENT_REQUIRED');
     this.assertAuthorizedForIntent(instanceId, tuple, grant.requestId);
+  }
+
+  /**
+   * One-click Trusted Host enrollment is restricted to a genuinely live
+   * server-owned SSH operator browser session. Neither localhost, a Dashboard
+   * bearer token, request headers nor URL parameters are valid substitutes.
+   *
+   * The operator's one explicit UI action stages, approves and applies one
+   * exact per-instance profile; a failed apply invalidates the freshly minted
+   * grant before the request can report success. Runtime activation remains a
+   * separate, accurately reported lifecycle step (no forced restart).
+   */
+  applyVerifiedSshProfile(
+    instanceId: string,
+    tuple: FleetProfileTuple,
+    principal: OperatorPrincipal,
+    broker: SshSessionBroker,
+    authority: SshOperatorAuthority,
+    commit: (tuple: FleetProfileTuple) => void,
+  ): { newlyApproved: boolean } {
+    broker.assertAuthorityLive(authority);
+    if (authority.source !== 'ssh-remote-exec' ||
+        authority.installationId !== this.deps.installationId ||
+        authority.serviceUid !== this.deps.serviceUid) {
+      throw new Error('SSH_OPERATOR_INSTALLATION_MISMATCH');
+    }
+    this.checkOperator(principal);
+    this.assertWritable();
+    const record = this.deps.fleet.get(instanceId);
+    if (record.authMode === 'none') throw new Error('TRUSTED_HOST_AUTH_REQUIRED');
+    if (['running', 'starting', 'stopping'].includes(record.state) ||
+        record.openAiTunnel?.state === 'running' ||
+        record.openAiTunnel?.state === 'starting') {
+      throw new Error('FLEET_INSTANCE_ACTIVE');
+    }
+    const requested = this.requestProfile(instanceId, tuple, principal);
+    if (requested.status === 'approved') return { newlyApproved: false };
+    const pending = this.deps.store.readPending(requested.requestId);
+    if (!pending || pending.instanceId !== instanceId) {
+      throw new Error('CONSENT_REQUEST_UNAVAILABLE');
+    }
+    // The remote helper's SSH channel must still be connected immediately
+    // before issuing a durable host-execution capability.
+    broker.assertAuthorityLive(authority);
+    this.deps.store.consumeLocalApproval(pending.requestId, pending.scopeHash);
+    try {
+      this.applyApprovedProfile(instanceId, pending.requestId, commit);
+    } catch (error) {
+      // Prefer revocation (including any other older grants for this instance)
+      // over leaving a capability live following an ambiguous failed update.
+      this.deps.store.revoke(pending.identity);
+      this.deps.recordAudit('trusted_host_verified_ssh_apply_failed_revoked');
+      throw error;
+    }
+    this.deps.recordAudit('trusted_host_verified_ssh_one_click_approved');
+    return { newlyApproved: true };
   }
 
   /** A network caller may request application only AFTER separate local approval. */
