@@ -545,112 +545,136 @@ function ConfigModal(props: { instance: FleetInstance; onClose: () => void; onSa
   const [preset, setPreset] = useState(props.instance.toolsPreset);
   const [policy, setPolicy] = useState(props.instance.policyMode);
   const [terminalExecution, setTerminalExecution] = useState(props.instance.terminalExecution ?? 'sandbox-required');
-  const [hostRequest, setHostRequest] = useState<{ requestId: string; status: 'pending' | 'approved' | 'expired' | 'persisted' } | null>(null);
-  const [hostError, setHostError] = useState<string | null>(null);
+  const [advanced, setAdvanced] = useState(false);
   const [hostBusy, setHostBusy] = useState(false);
-  const save = async () => {
+  const [hostError, setHostError] = useState<string | null>(null);
+
+  // No host command appears in the everyday user flow. The browser must be
+  // bound to a live server-owned SSH/operator session; loopback alone is not
+  // evidence that the caller owns the machine.
+  const applyFromVerifiedOwnerSession = async (
+    tuple: { toolsPreset: string; policyMode: string; terminalExecution: 'trusted-host' },
+  ) => {
+    setHostError(null);
+    setHostBusy(true);
+    const id = encodeURIComponent(props.instance.id);
+    try {
+      const session = await api<{ verified: boolean; csrfToken?: string }>(
+        '/operator/ssh-session/status', { sensitive: true },
+      );
+      if (!session.verified || !session.csrfToken) {
+        throw new Error(
+          'Cannot verify this browser as the machine owner. Host access is not enabled. ' +
+          'A verified local operator session is required; a normal browser link is insufficient.',
+        );
+      }
+      await api(`/fleet/${id}/one-click-trusted-host`, {
+        method: 'POST',
+        sensitive: true,
+        headers: { 'x-ssh-operator-csrf': session.csrfToken },
+        body: tuple,
+      });
+      toast('success', 'AI host access saved. Restart the instance to activate the new configuration.');
+      props.onSaved();
+    } catch (error) {
+      setHostError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setHostBusy(false);
+    }
+  };
+
+  const saveAdvanced = async () => {
     const id = encodeURIComponent(props.instance.id);
     if (terminalExecution === 'trusted-host' && (preset !== props.instance.toolsPreset ||
         policy !== props.instance.policyMode ||
         terminalExecution !== (props.instance.terminalExecution ?? 'sandbox-required'))) {
-      setHostError(null);
-      setHostBusy(true);
-      try {
-        const result = await api<{ requestId: string; status: 'pending' | 'approved' }>(
-          `/fleet/${id}/profile-intents`, {
-            method: 'POST', sensitive: true,
-            body: { toolsPreset: preset, policyMode: policy, terminalExecution },
-          });
-        setHostRequest({ requestId: result.requestId, status: result.status });
-        return;
-      } catch (error) {
-        setHostError(error instanceof Error ? error.message : String(error));
-        return;
-      } finally {
-        setHostBusy(false);
-      }
-    }
-    if (preset !== props.instance.toolsPreset && !(await action.run(`/fleet/${id}/preset`, { toolsPreset: preset }))) return;
-    if (
-      policy !== props.instance.policyMode &&
-      !(await action.run(`/fleet/${id}/policy`, { policyMode: policy }))
-    )
+      await applyFromVerifiedOwnerSession({
+        toolsPreset: preset, policyMode: policy, terminalExecution: 'trusted-host',
+      });
       return;
+    }
+    if (preset !== props.instance.toolsPreset &&
+        !(await action.run(`/fleet/${id}/preset`, { toolsPreset: preset }))) return;
+    if (policy !== props.instance.policyMode &&
+        !(await action.run(`/fleet/${id}/policy`, { policyMode: policy }))) return;
     if (terminalExecution !== (props.instance.terminalExecution ?? 'sandbox-required') &&
-      !(await action.run(`/fleet/${id}/terminal`, { terminalExecution }))) return;
+        !(await action.run(`/fleet/${id}/terminal`, { terminalExecution }))) return;
     toast('success', `${props.instance.id} updated — restart to apply`);
     props.onSaved();
   };
 
-  useEffect(() => {
-    if (!hostRequest || (hostRequest.status !== 'pending' && hostRequest.status !== 'approved')) return;
-    let disposed = false;
-    let inFlight = false;
-    const requestId = hostRequest.requestId;
-    const id = encodeURIComponent(props.instance.id);
-    const check = async () => {
-      if (inFlight || disposed) return;
-      inFlight = true;
-      try {
-        const result = await api<{ status: 'pending' | 'approved' | 'expired' }>(
-          `/fleet/${id}/profile-intents/${encodeURIComponent(requestId)}`, { sensitive: true });
-        if (disposed) return;
-        if (result.status === 'expired') {
-          setHostRequest({ requestId, status: 'expired' });
-          setHostError('Local confirmation expired. Save again to create a new request.');
-        } else if (result.status === 'approved') {
-          await api(`/fleet/${id}/profile-intents/${encodeURIComponent(requestId)}/apply`, {
-            method: 'POST', sensitive: true,
-          });
-          if (disposed) return;
-          setHostRequest({ requestId, status: 'persisted' });
-          toast('success', `${props.instance.id} saved — stop/start the instance to apply`);
-          props.onSaved();
-        }
-      } catch (error) {
-        if (!disposed) setHostError(error instanceof Error ? error.message : String(error));
-      } finally {
-        inFlight = false;
-      }
-    };
-    void check();
-    const interval = setInterval(() => void check(), 2000);
-    return () => { disposed = true; clearInterval(interval); };
-  }, [hostRequest?.requestId, hostRequest?.status, props.instance.id]);
+  const savedFullAccess = props.instance.toolsPreset === 'full' &&
+    props.instance.policyMode === 'danger' && props.instance.terminalExecution === 'trusted-host';
 
   return (
-    <Modal open title={`Configure ${props.instance.id}`} onClose={props.onClose}>
+    <Modal open title="AI access to this computer" onClose={props.onClose}>
       <div className="grid gap-3">
-        <Field label="Tool preset"><Select value={preset} onChange={(event) => setPreset(event.target.value)}>{PRESETS.map((value) => <option key={value}>{value}</option>)}</Select></Field>
-        <Field label="Policy mode"><Select value={policy} onChange={(event) => setPolicy(event.target.value)}>{POLICIES.map((value) => <option key={value}>{value}</option>)}</Select></Field>
-        <Field label="Terminal execution">
-          <Select value={terminalExecution} onChange={(event) => setTerminalExecution(event.target.value as typeof EXECUTION_PROFILES[number])}
-            aria-label="Terminal execution profile">
-            <option value="sandbox-required">Sandbox required for danger shell</option>
-            <option value="trusted-host">Trusted host execution (operator opt-in)</option>
-          </Select>
-        </Field>
-        {terminalExecution === 'trusted-host' ? (
-          <Banner tone="warn">Trusted Host can execute commands as the FolderForge OS account. A separate, interactive confirmation on the Linux or macOS server running FolderForge is mandatory before it can be saved. No YAML editing is required; authenticated access, hard denies and audit remain enforced.</Banner>
+        <div className="rounded-xl border border-border-soft p-4">
+          <h3 className="font-semibold text-base">Allow AI to work on this computer</h3>
+          <p className="mt-2 text-sm text-muted">
+            Allow AI to edit files and run commands with your FolderForge account privileges,
+            within configured workspaces. The operating system's permissions and hard safety
+            denials remain enforced. Review activity or disable access whenever needed.
+          </p>
+          {savedFullAccess ? (
+            <Banner tone="info">Full-access settings are saved. An already running MCP instance may need to restart before they take effect.</Banner>
+          ) : null}
+          <div className="mt-3">
+            <Button
+              variant="primary"
+              busy={hostBusy}
+              disabled={hostBusy}
+              onClick={() => void applyFromVerifiedOwnerSession({
+                toolsPreset: 'full', policyMode: 'danger', terminalExecution: 'trusted-host',
+              })}
+            >
+              <ShieldCheck size={15} aria-hidden />
+              {savedFullAccess ? 'Verify and reapply AI access' : 'Allow AI access'}
+            </Button>
+          </div>
+        </div>
+
+        <Button variant="ghost" size="sm" onClick={() => setAdvanced(!advanced)}>
+          <Settings2 size={14} aria-hidden />
+          {advanced ? 'Hide advanced settings' : 'Advanced settings'}
+        </Button>
+        {advanced ? (
+          <div className="grid gap-3">
+            <Field label="Tool preset">
+              <Select value={preset} onChange={(event) => setPreset(event.target.value)}>
+                {PRESETS.map(value => <option key={value}>{value}</option>)}
+              </Select>
+            </Field>
+            <Field label="Policy mode">
+              <Select value={policy} onChange={(event) => setPolicy(event.target.value)}>
+                {POLICIES.map(value => <option key={value}>{value}</option>)}
+              </Select>
+            </Field>
+            <Field label="Terminal execution">
+              <Select
+                value={terminalExecution}
+                onChange={(event) =>
+                  setTerminalExecution(event.target.value as typeof EXECUTION_PROFILES[number])
+                }
+                aria-label="Terminal execution profile"
+              >
+                <option value="sandbox-required">Sandbox required</option>
+                <option value="trusted-host">Trusted host (verified operator session)</option>
+              </Select>
+            </Field>
+            <Banner tone="info">
+              Changes to a running MCP instance take effect after a controlled restart.
+            </Banner>
+            <Button variant="primary" busy={action.busy || hostBusy} onClick={() => void saveAdvanced()}>
+              Save advanced settings
+            </Button>
+          </div>
         ) : null}
-        {policy === 'danger' ? (
-          <Banner tone="warn">Danger mode bypasses all manual approvals, including HIGH/CRITICAL and policy-as-code approval rules. Hard denies, authorization, containment, audit, and rate limits remain enforced.</Banner>
-        ) : null}
-        <Banner tone="info">Preset and policy changes apply on the next local start/restart and on future OpenAI Tunnel launches.</Banner>
-        {hostRequest && hostRequest.status !== 'persisted' ? (
-          <Banner tone={hostRequest.status === 'expired' ? 'warn' : 'info'}>
-            <div className="grid gap-2">
-              <span>{hostRequest.status === 'expired' ? 'Confirmation expired.' : 'Awaiting approval from the operator on the FolderForge host.'}</span>
-              <Code className="block break-all select-all">{`folderforge operator trusted-host approve ${hostRequest.requestId}`}</Code>
-              <Button size="sm" variant="ghost" onClick={() => navigator.clipboard.writeText(`folderforge operator trusted-host approve ${hostRequest.requestId}`).catch(() => undefined)}>
-                <Copy size={13} aria-hidden /> Copy local command
-              </Button>
-              <span>Run this command in an interactive terminal on the Linux or macOS host running FolderForge. The Dashboard cannot approve it remotely.</span>
-            </div>
-          </Banner>
-        ) : null}
+
         <ErrorNote message={hostError ?? action.error} />
-        <div className="flex justify-end gap-2"><Button variant="ghost" onClick={props.onClose}>Cancel</Button><Button variant="primary" busy={action.busy || hostBusy} onClick={() => void save()}>Save changes</Button></div>
+        <div className="flex justify-end">
+          <Button variant="ghost" onClick={props.onClose}>Close</Button>
+        </div>
       </div>
     </Modal>
   );
