@@ -107,7 +107,8 @@ describe.skipIf(!required)(
         now: Date.now, isWriteFrozen: () => false, recordAudit: () => {},
       });
       vi.spyOn(container, 'trustedHostConsentService').mockReturnValue(service);
-      vi.spyOn(container.fleet, 'start').mockImplementation(id => container.fleet.get(id));
+      const started = vi.spyOn(container.fleet, 'start')
+        .mockImplementation(id => container.fleet.get(id));
       const broker = new SshSessionBroker({
         serviceUid: uid, installationId, operatorRoot: join(root, 'ssh'),
         projectRoots: [project], now: Date.now,
@@ -224,6 +225,24 @@ describe.skipIf(!required)(
       // one explicit enable click. The token remains optional to inspect.
       expect(await page.getByText(/Shown exactly once — copy it now/i).count()).toBe(0);
       expect(await page.getByRole('button', { name: /Show connection key/i }).count()).toBe(1);
+      // A new child launch after a persistent grant MUST still use the live
+      // owner browser proof. This clicks the real UI route, not direct HTTP.
+      expect(started).toHaveBeenCalledTimes(1);
+      await page.getByRole('button', { name: /Start local/i }).click();
+      await expect.poll(() => started.mock.calls.length, { timeout: 8_000 }).toBe(2);
+      // One-click revocation must also work without opening a terminal.
+      await page.getByRole('button', { name: /Turn off AI access/i }).click();
+      await expect.poll(() => {
+        try {
+          service.assertAuthorized(instance.id, {
+            toolsPreset: 'full', policyMode: 'danger', terminalExecution: 'trusted-host',
+          });
+          return true;
+        } catch { return false; }
+      }, { timeout: 8_000 }).toBe(false);
+      await expect.poll(() => page.getByRole('button', {
+        name: /Allow AI to operate on this computer/i,
+      }).count(), { timeout: 8_000 }).toBe(1);
       await context.close();
     }, 40_000);
 
