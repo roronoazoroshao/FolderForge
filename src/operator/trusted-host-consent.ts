@@ -50,15 +50,16 @@ function fleetRevision(record: FleetInstance): string {
 export class TrustedHostConsentService {
   constructor(private readonly deps: TrustedHostConsentOptions) {}
 
-  private identityFor(instanceId: string): ConsentIdentity {
+  private identityFor(instanceId: string, tokenUpgrade = false): ConsentIdentity {
     const record = this.deps.fleet.get(instanceId);
-    if (record.authMode === 'none') throw new Error('TRUSTED_HOST_AUTH_REQUIRED');
+    if (record.authMode === 'none' && !tokenUpgrade) throw new Error('TRUSTED_HOST_AUTH_REQUIRED');
+    if (tokenUpgrade && record.authMode !== 'none') throw new Error('INVALID_TOKEN_UPGRADE');
     const identity: ConsentIdentity = {
       installationId: this.deps.installationId,
       serviceUid: this.deps.serviceUid,
       instanceId: record.id,
       workspaceRealpath: realpathSync(record.projectPath),
-      authMode: record.authMode,
+      authMode: tokenUpgrade ? 'token' : record.authMode,
       revocationGeneration: 0,
     };
     identity.revocationGeneration = this.deps.store.currentRevocationGeneration(identity);
@@ -79,7 +80,7 @@ export class TrustedHostConsentService {
     if (this.deps.isWriteFrozen()) throw new Error('WRITE_FREEZE_ACTIVE');
   }
 
-  requestProfile(instanceId: string, tuple: FleetProfileTuple, principal: OperatorPrincipal): PendingView {
+  requestProfile(instanceId: string, tuple: FleetProfileTuple, principal: OperatorPrincipal, tokenUpgrade = false): PendingView {
     this.checkOperator(principal);
     this.assertWritable();
     if (!(FLEET_TOOLS_PRESETS as readonly string[]).includes(tuple.toolsPreset) ||
@@ -88,7 +89,7 @@ export class TrustedHostConsentService {
       throw new Error('INVALID_TRUSTED_HOST_PROFILE');
     }
     const record = this.deps.fleet.get(instanceId);
-    const identity = this.identityFor(instanceId);
+    const identity = this.identityFor(instanceId, tokenUpgrade);
     const digest = scopeDigest(tuple, identity);
     const approved = this.deps.store.readGrantByScope(digest);
     if (approved && this.deps.store.validateGrant(identity, tuple) &&
@@ -119,6 +120,10 @@ export class TrustedHostConsentService {
 
   status(instanceId: string, requestId?: string): RedactedConsentView {
     const record = this.deps.fleet.get(instanceId);
+    if (record.authMode === 'none' && !requestId) {
+      // "No auth" is a supported one-click onboarding state, never a grant.
+      return { status: 'not_requested', instanceId };
+    }
     const identity = this.identityFor(instanceId);
     const requested = requestId
       ? this.deps.store.readIntentRecord(requestId)
@@ -166,10 +171,15 @@ export class TrustedHostConsentService {
 
   assertAuthorizedForIntent(instanceId: string, tuple: FleetProfileTuple, requestId: string): void {
     this.assertWritable();
-    this.assertAuthorized(instanceId, tuple);
     const intent = this.deps.store.readIntentRecord(requestId);
     const instance = this.deps.fleet.get(instanceId);
-    const identity = this.identityFor(instanceId);
+    // An owner-verified no-auth upgrade stages a prospective token identity;
+    // after commit the same identity becomes the real instance identity.
+    const tokenUpgrade = instance.authMode === 'none' && intent?.identity.authMode === 'token';
+    const identity = this.identityFor(instanceId, tokenUpgrade);
+    if (!this.deps.store.validateGrant(identity, tuple)) {
+      throw new Error('TRUSTED_HOST_CONSENT_REQUIRED');
+    }
     if (!intent || intent.instanceId !== instanceId || intent.scopeHash !== scopeDigest(tuple, identity)) {
       throw new Error('CONSENT_SCOPE_MISMATCH');
     }
@@ -178,16 +188,18 @@ export class TrustedHostConsentService {
     }
   }
 
-  authorizationDigest(instanceId: string, tuple: FleetProfileTuple): string {
-    return scopeDigest(tuple, this.identityFor(instanceId));
+  authorizationDigest(instanceId: string, tuple: FleetProfileTuple, tokenUpgrade = false): string {
+    return scopeDigest(tuple, this.identityFor(instanceId, tokenUpgrade));
   }
 
   /** Apply gate: the approved digest must also bind an unchanged pending-intent CAS revision. */
   assertAuthorizedForDigest(instanceId: string, tuple: FleetProfileTuple, digest: string): void {
-    const identity = this.identityFor(instanceId);
-    if (scopeDigest(tuple, identity) !== digest) throw new Error('CONSENT_SCOPE_MISMATCH');
     const grant = this.deps.store.readGrantByScope(digest);
     if (!grant) throw new Error('TRUSTED_HOST_CONSENT_REQUIRED');
+    const record = this.deps.fleet.get(instanceId);
+    const tokenUpgrade = record.authMode === 'none' && grant.identity.authMode === 'token';
+    const identity = this.identityFor(instanceId, tokenUpgrade);
+    if (scopeDigest(tuple, identity) !== digest) throw new Error('CONSENT_SCOPE_MISMATCH');
     this.assertAuthorizedForIntent(instanceId, tuple, grant.requestId);
   }
 
@@ -207,7 +219,7 @@ export class TrustedHostConsentService {
     principal: OperatorPrincipal,
     broker: SshSessionBroker,
     authority: SshOperatorAuthority,
-    commit: (tuple: FleetProfileTuple) => void,
+    commit: (tuple: FleetProfileTuple, upgradeAuth: boolean) => void,
   ): { newlyApproved: boolean } {
     broker.assertAuthorityLive(authority);
     if (!['ssh-remote-exec', 'local-operator-launch'].includes(authority.source) ||
@@ -218,13 +230,13 @@ export class TrustedHostConsentService {
     this.checkOperator(principal);
     this.assertWritable();
     const record = this.deps.fleet.get(instanceId);
-    if (record.authMode === 'none') throw new Error('TRUSTED_HOST_AUTH_REQUIRED');
+    const requiresTokenUpgrade = record.authMode === 'none';
     if (['running', 'starting', 'stopping'].includes(record.state) ||
         record.openAiTunnel?.state === 'running' ||
         record.openAiTunnel?.state === 'starting') {
       throw new Error('FLEET_INSTANCE_ACTIVE');
     }
-    const requested = this.requestProfile(instanceId, tuple, principal);
+    const requested = this.requestProfile(instanceId, tuple, principal, requiresTokenUpgrade);
     if (requested.status === 'approved') return { newlyApproved: false };
     const pending = this.deps.store.readPending(requested.requestId);
     if (!pending || pending.instanceId !== instanceId) {
@@ -235,7 +247,8 @@ export class TrustedHostConsentService {
     broker.assertAuthorityLive(authority);
     this.deps.store.consumeLocalApproval(pending.requestId, pending.scopeHash);
     try {
-      this.applyApprovedProfile(instanceId, pending.requestId, commit);
+      this.applyApprovedProfile(instanceId, pending.requestId, approved =>
+        commit(approved, requiresTokenUpgrade));
     } catch (error) {
       // Prefer revocation (including any other older grants for this instance)
       // over leaving a capability live following an ambiguous failed update.
