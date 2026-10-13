@@ -97,6 +97,7 @@ export function FleetScreen() {
   const [credential, setCredential] = useState<OneTimeCredential | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [quickAccessBusy, setQuickAccessBusy] = useState<string | null>(null);
   const [configFor, setConfigFor] = useState<FleetInstance | null>(null);
   const [authFor, setAuthFor] = useState<FleetInstance | null>(null);
   const [tunnelFor, setTunnelFor] = useState<FleetInstance | null>(null);
@@ -166,6 +167,30 @@ export function FleetScreen() {
       if (label) toast('success', label);
     }
     return ok;
+  };
+
+  const enableFullAiAccess = async (instance: FleetInstance) => {
+    setQuickAccessBusy(instance.id);
+    try {
+      const owner = await api<{ verified: boolean; csrfToken?: string }>(
+        '/operator/ssh-session/status', { sensitive: true },
+      );
+      if (!owner.verified || !owner.csrfToken) {
+        throw new Error('Owner session not verified. Open Mission Control from the app on this computer.');
+      }
+      await api(`/fleet/${encodeURIComponent(instance.id)}/one-click-trusted-host`, {
+        method: 'POST',
+        sensitive: true,
+        headers: { 'x-ssh-operator-csrf': owner.csrfToken },
+        body: { toolsPreset: 'full', policyMode: 'danger', terminalExecution: 'trusted-host' },
+      });
+      fleet.reload();
+      toast('success', 'AI host access saved. The instance must restart before the new mode is active.');
+    } catch (error) {
+      toast('error', error instanceof Error ? error.message : String(error));
+    } finally {
+      setQuickAccessBusy(null);
+    }
   };
 
   const rotate = async (instance: FleetInstance) => {
@@ -423,6 +448,23 @@ export function FleetScreen() {
                   ) : null}
 
                   <div className="flex flex-wrap gap-1.5 border-t border-border-soft pt-1">
+                    {instance.toolsPreset === 'full' &&
+                      instance.policyMode === 'danger' &&
+                      instance.terminalExecution === 'trusted-host' ? (
+                      <Button size="sm" variant="ghost" onClick={() => setConfigFor(instance)}>
+                        <ShieldCheck size={13} aria-hidden /> Review saved AI access
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        busy={quickAccessBusy === instance.id}
+                        disabled={quickAccessBusy !== null}
+                        onClick={() => void enableFullAiAccess(instance)}
+                      >
+                        <ShieldCheck size={13} aria-hidden /> Allow AI to operate on this computer
+                      </Button>
+                    )}
                     <Button size="sm" variant="ghost" onClick={() => setConfigFor(instance)}><Settings2 size={13} aria-hidden /> Configure</Button>
                     <Button size="sm" variant="ghost" onClick={() => setAuthFor(instance)}><ShieldCheck size={13} aria-hidden /> Auth</Button>
                     {(instance.authMode === 'token' || instance.authMode === 'api-key') ? (
