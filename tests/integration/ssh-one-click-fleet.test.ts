@@ -181,6 +181,35 @@ describe('SSH-verified one-click Fleet enrollment', () => {
     });
   });
 
+  it('does not let an arbitrary localhost request restart a previously approved host-execution child', async () => {
+    const h = await setup();
+    const start = vi.spyOn(h.container.fleet, 'start').mockImplementation(id =>
+      h.container.fleet.get(id),
+    );
+    const headers = { cookie: h.cookie, 'x-folderforge-operator-csrf': h.view!.csrfToken };
+    const approval = await h.enable(headers);
+    expect(approval.status).toBe(200);
+    const endpoint = h.base + '/fleet/' + h.instance.id + '/start';
+    const attack = await fetch(endpoint, { method: 'POST',
+      headers: { origin: 'https://malicious.example' },
+    });
+    expect(attack.status).toBe(403);
+    const localhostNoProof = await fetch(endpoint, { method: 'POST',
+      headers: { origin: h.base, 'sec-fetch-site': 'same-origin' },
+    });
+    expect(localhostNoProof.status).toBe(403);
+    expect(start).toHaveBeenCalledTimes(1); // automatic start only
+    const authorized = await fetch(endpoint, { method: 'POST',
+      headers: { ...headers, origin: h.base, 'sec-fetch-site': 'same-origin' },
+    });
+    expect(authorized.status).toBe(200);
+    expect(start).toHaveBeenCalledTimes(2);
+    const restart = await fetch(h.base + '/fleet/' + h.instance.id + '/restart', {
+      method: 'POST', headers: { origin: h.base, 'sec-fetch-site': 'same-origin' },
+    });
+    expect(restart.status).toBe(403);
+  });
+
   it('disables previously granted host access from the same verified UI without terminal revoke', async () => {
     const h = await setup();
     const headers = {
