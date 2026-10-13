@@ -12,7 +12,7 @@ afterEach(async () => {
 });
 
 async function fixture() {
-  const seen: Array<{ url: string; host: string; origin: string; bootstrap: string; claimedUid: string }> = [];
+  const seen: Array<{ url: string; host: string; origin: string; bootstrap: string; claimedUid: string; cookie: string }> = [];
   const target = createServer((req, res) => {
     seen.push({
       url: req.url || '',
@@ -20,6 +20,7 @@ async function fixture() {
       origin: String(req.headers.origin || ''),
       bootstrap: String(req.headers['x-folderforge-ssh-bootstrap'] || ''),
       claimedUid: String(req.headers['x-ssh-user'] || ''),
+      cookie: String(req.headers.cookie || ''),
     });
     if (req.url === '/operator/ssh-session/exchange') {
       res.writeHead(200, {
@@ -104,6 +105,7 @@ describe('SSH desktop bridge: browser-intent binding', () => {
     // The cross-site navigation exception deliberately strips cookies, and
     // cannot be used to forward a manually supplied admin session.
     expect(h.seen[h.seen.length - 1]?.bootstrap).toBe('');
+    expect(h.seen[h.seen.length - 1]?.cookie).toBe('');
   });
 
   it('exchanges once only after a POST body carries the separate desktop invitation proof', async () => {
