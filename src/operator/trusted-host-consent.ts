@@ -230,6 +230,19 @@ export class TrustedHostConsentService {
     this.checkOperator(principal);
     this.assertWritable();
     const record = this.deps.fleet.get(instanceId);
+    // Repeating the owner's click on an already-authorized live instance is
+    // read-only and safe. The PID fence below is for NEW elevations only.
+    // Check the bound scope again; never trust persisted settings alone.
+    if (record.authMode !== 'none' &&
+        record.toolsPreset === tuple.toolsPreset &&
+        record.policyMode === tuple.policyMode &&
+        record.terminalExecution === tuple.terminalExecution) {
+      try {
+        if (this.deps.store.validateGrant(this.identityFor(instanceId), tuple)) {
+          return { newlyApproved: false };
+        }
+      } catch { /* A stale or revoked grant is not idempotent authority. */ }
+    }
     const requiresTokenUpgrade = record.authMode === 'none';
     if (record.pid !== undefined || record.sessionId !== undefined ||
         record.lastError?.startsWith('FLEET_PROFILE_STOP_UNVERIFIED')) {
