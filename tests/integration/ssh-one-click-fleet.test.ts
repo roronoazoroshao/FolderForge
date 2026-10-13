@@ -65,7 +65,7 @@ async function setup(authMode: 'api-key' | 'none' = 'api-key', withBroker = true
         'content-type': 'application/json', ...headers },
       body: JSON.stringify(body),
     });
-  return { root, container, instance, store, broker, base, bootstrap, view, cookie, enable, profile };
+  return { root, container, instance, service, store, broker, base, bootstrap, view, cookie, enable, profile };
 }
 
 describe('SSH-verified one-click Fleet enrollment', () => {
@@ -102,7 +102,7 @@ describe('SSH-verified one-click Fleet enrollment', () => {
     expect(data.runtime).toBeDefined();
     expect(JSON.stringify(data)).not.toContain(h.view!.csrfToken);
     expect(h.container.fleet.get(h.instance.id)).toMatchObject(h.profile);
-    const grant = h.store.readGrantByScope(h.store.readIntentRecord(h.store.findPendingByInstance(h.instance.id)?.requestId ?? '')?.scopeHash ?? (() => { throw new Error('missing approved intent'); })());
+    const grant = h.store.readGrantByScope(h.service.authorizationDigest(h.instance.id, h.profile as { toolsPreset: string; policyMode: string; terminalExecution: 'trusted-host' }));
     expect(grant).not.toBeNull();
     // An unchanged enabled profile should be safely idempotent without another approval.
     const repeated = await h.enable({ cookie: h.cookie, 'x-ssh-operator-csrf': h.view!.csrfToken });
