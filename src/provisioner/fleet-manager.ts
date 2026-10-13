@@ -1556,11 +1556,15 @@ export class FleetManager {
         instance.state === 'stopping' &&
         (instance.lastError === 'REVOKED_EXECUTION_UNCERTAIN' ||
           instance.lastError === 'TRUSTED_HOST_STOP_UNCERTAIN');
+      const transitionUncertain = instance.state === 'stopping' &&
+        instance.lastError === 'FLEET_PROFILE_STOP_UNVERIFIED';
       const normalized: FleetInstance = {
         ...instance,
         authMode: instance.authMode ?? 'token',
-        // Never report a pre-crash revocation as stopped until PID absence is proven.
-        state: revokedUncertain ? 'failed' : normalizeRestartState(instance.state),
+        // Never report a pre-crash revocation or a sandbox-to-host transition
+        // as stopped until the original child PID is proven absent.
+        state: revokedUncertain || transitionUncertain
+          ? 'failed' : normalizeRestartState(instance.state),
       };
       if (instance.oauth) normalized.oauth = cloneOauth(instance.oauth)!;
       // Accept legacy state but ensure JSON persistence omits the retired field.
@@ -1570,7 +1574,19 @@ export class FleetManager {
       if (wasActive) {
         normalized.lastError = 'Control plane restarted while instance state was active.';
       }
-      if (revokedUncertain) {
+      if (transitionUncertain) {
+        const pid = normalized.pid;
+        if (pid !== undefined && !this.isAliveFn(pid)) {
+          normalized.state = 'stopped';
+          delete normalized.pid;
+          delete normalized.leaseId;
+          delete normalized.lastError;
+        } else {
+          // A missing PID is not proof of process exit. Keep the explicit
+          // unsafe state and deny profile changes/start until resolved.
+          normalized.lastError = 'FLEET_PROFILE_STOP_UNVERIFIED_AFTER_RESTART';
+        }
+      } else if (revokedUncertain) {
         const pid = normalized.pid;
         if (pid !== undefined && !this.isAliveFn(pid)) {
           normalized.state = 'stopped';
