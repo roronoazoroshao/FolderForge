@@ -114,7 +114,10 @@ describe.skipIf(!required)(
       const page = await context.newPage();
       await page.goto(invite.url);
       await page.waitForURL(bridge.origin + '/app/', { timeout: 10_000 });
-      await page.reload();
+      // The file:// initiated landing may not send SameSite=Strict yet.
+      // It must still render the app shell, rather than a denied bridge page.
+      expect(await page.locator('body').innerText()).not.toContain('SSH_DESKTOP_BINDING_DENIED');
+      await page.goto(bridge.origin + '/app/');
       expect(await page.locator('body').innerText()).toContain('owner app session');
       expect(exchanges).toBe(1);
       await context.close();
