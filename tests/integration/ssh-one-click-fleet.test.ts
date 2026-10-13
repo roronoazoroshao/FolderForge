@@ -109,6 +109,47 @@ describe('SSH-verified one-click Fleet enrollment', () => {
     expect(repeated.status).toBe(200);
   });
 
+  it('automatically requests a stopped child start after the one-click profile is committed', async () => {
+    const h = await setup();
+    const started = vi.spyOn(h.container.fleet, 'start').mockImplementation(id =>
+      h.container.fleet.get(id),
+    );
+    const enabled = await h.enable({
+      cookie: h.cookie, 'x-ssh-operator-csrf': h.view!.csrfToken,
+    });
+    expect(enabled.status).toBe(200);
+    const response = await enabled.json() as {
+      status: string;
+      activation: { status: string };
+    };
+    expect(response.status).toBe('persisted');
+    expect(response.activation.status).toBe('start_requested');
+    expect(started).toHaveBeenCalledTimes(1);
+    expect(started).toHaveBeenCalledWith(h.instance.id);
+    expect(h.container.fleet.get(h.instance.id)).toMatchObject(h.profile);
+  });
+
+  it('does not lie about runtime readiness when automatic child startup fails', async () => {
+    const h = await setup();
+    vi.spyOn(h.container.fleet, 'start').mockImplementation(() => {
+      throw new Error('TEST_SPAWN_UNAVAILABLE');
+    });
+    const enabled = await h.enable({
+      cookie: h.cookie, 'x-ssh-operator-csrf': h.view!.csrfToken,
+    });
+    expect(enabled.status).toBe(200);
+    const response = await enabled.json() as {
+      status: string;
+      activation: { status: string; message: string };
+    };
+    expect(response.status).toBe('persisted');
+    expect(response.activation).toMatchObject({
+      status: 'failed', message: 'TEST_SPAWN_UNAVAILABLE',
+    });
+    expect(h.container.fleet.get(h.instance.id).terminalExecution).toBe('trusted-host');
+    expect(h.container.fleet.get(h.instance.id).state).not.toBe('running');
+  });
+
   it('enables from an OS-owned local Control Panel launch without a separate SSH command', async () => {
     const h = await setup('api-key', true, 'local-operator-launch');
     const authorized = await h.enable({
