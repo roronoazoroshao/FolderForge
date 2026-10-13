@@ -550,6 +550,10 @@ export class FleetManager {
   /** Coherent, synchronous all-or-nothing application; the startup grant is checked separately. */
   updateProfileAtomically(id: string, tuple: FleetProfileTuple, consent: TrustedHostConsentService): FleetInstance {
     const record = this.mutable(id);
+    if (record.pid !== undefined || record.sessionId !== undefined ||
+        record.lastError?.startsWith('FLEET_PROFILE_STOP_UNVERIFIED')) {
+      throw new Error('FLEET_CHILD_TERMINATION_UNVERIFIED');
+    }
     if (record.state === 'running' || record.state === 'starting' || record.state === 'stopping' ||
         record.openAiTunnel?.state === 'running' || record.openAiTunnel?.state === 'starting') {
       throw new Error('FLEET_INSTANCE_ACTIVE');
@@ -579,6 +583,10 @@ export class FleetManager {
   ): { instance: FleetInstance; token: string } {
     const record = this.mutable(id);
     if (record.authMode !== 'none') throw new Error('FLEET_AUTH_ALREADY_CONFIGURED');
+    if (record.pid !== undefined || record.sessionId !== undefined ||
+        record.lastError?.startsWith('FLEET_PROFILE_STOP_UNVERIFIED')) {
+      throw new Error('FLEET_CHILD_TERMINATION_UNVERIFIED');
+    }
     if (record.state === 'running' || record.state === 'starting' || record.state === 'stopping' ||
         record.openAiTunnel?.state === 'running' || record.openAiTunnel?.state === 'starting') {
       throw new Error('FLEET_INSTANCE_ACTIVE');
@@ -826,9 +834,28 @@ export class FleetManager {
         record.openAiTunnel?.state === 'starting') {
       throw new Error('OPENAI_TUNNEL_TRANSITION_UNSUPPORTED');
     }
-    if (record.state === 'stopped' || record.state === 'failed') return;
-    if (record.state === 'stopping' && record.lastError === 'FLEET_PROFILE_STOP_UNVERIFIED') {
-      throw new Error('FLEET_PROFILE_STOP_UNVERIFIED');
+    // A restart may have converted STOPPING to FAILED while retaining an
+    // old process PID. NEVER treat either state as proof of termination.
+    if (record.state === 'stopped' || record.state === 'failed' ||
+        record.state === 'stopping') {
+      if (record.pid !== undefined && this.isAliveFn(record.pid)) {
+        throw new Error('FLEET_PROFILE_STOP_UNVERIFIED');
+      }
+      if (record.pid === undefined && (record.sessionId !== undefined ||
+          record.lastError?.startsWith('FLEET_PROFILE_STOP_UNVERIFIED'))) {
+        throw new Error('FLEET_PROFILE_STOP_UNVERIFIED');
+      }
+      if (record.pid !== undefined || record.state === 'stopping' ||
+          record.lastError?.startsWith('FLEET_PROFILE_STOP_UNVERIFIED')) {
+        record.state = 'stopped';
+        delete record.pid;
+        delete record.sessionId;
+        delete record.leaseId;
+        delete record.lastError;
+        this.touch(record);
+        this.persist();
+      }
+      return;
     }
     if (record.state !== 'running' && record.state !== 'starting') {
       throw new Error('FLEET_PROFILE_STOP_UNVERIFIED');
