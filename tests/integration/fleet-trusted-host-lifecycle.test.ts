@@ -141,6 +141,32 @@ describe('Fleet trusted-host execution boundary', () => {
     expect(() => fleet.start(instance.id)).toThrow();
   });
 
+  it('does not normalize a crash during STOP_PENDING to a safe stopped state', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ff-pending-crash-'));
+    roots.push(root);
+    const project = join(root, 'project');
+    mkdirSync(project);
+    let rebootSnapshot: ReturnType<FleetManager['get']> | undefined;
+    let id = '';
+    const fleet = new FleetManager(root, {
+      mainJs: process.execPath,
+      spawn: () => ({ sessionId: 'old-running', pid: 99883 }),
+      stopSession: () => {
+        const restarted = new FleetManager(root, { isAlive: () => true });
+        rebootSnapshot = restarted.get(id);
+      },
+      isAlive: () => true,
+    });
+    const { instance } = fleet.create({ projectPath: project, authMode: 'api-key' });
+    id = instance.id;
+    fleet.start(id);
+    await expect(fleet.stopForTrustedHostTransition(id, { timeoutMs: 10 }))
+      .rejects.toThrow('FLEET_PROFILE_STOP_UNVERIFIED');
+    expect(rebootSnapshot?.state).not.toBe('stopped');
+    expect(rebootSnapshot?.pid).toBe(99883);
+    expect(rebootSnapshot?.lastError).toMatch(/FLEET_PROFILE_STOP_UNVERIFIED/);
+  });
+
   it('preserves uncertain sandbox stop across parent restart until the PID is proven gone', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ff-reboot-pid-'));
     roots.push(root);
