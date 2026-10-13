@@ -11,8 +11,8 @@ afterEach(async () => {
   await Promise.all(servers.splice(0).map(server => new Promise<void>(resolve => server.close(() => resolve()))));
 });
 
-async function fixture() {
-  const seen: Array<{ url: string; host: string; origin: string; bootstrap: string; claimedUid: string; cookie: string }> = [];
+async function fixture(upstreamCredential?: string) {
+  const seen: Array<{ url: string; host: string; origin: string; bootstrap: string; claimedUid: string; cookie: string; authorization: string }> = [];
   const target = createServer((req, res) => {
     seen.push({
       url: req.url || '',
@@ -21,8 +21,14 @@ async function fixture() {
       bootstrap: String(req.headers['x-folderforge-ssh-bootstrap'] || ''),
       claimedUid: String(req.headers['x-ssh-user'] || ''),
       cookie: String(req.headers.cookie || ''),
+      authorization: String(req.headers.authorization || ''),
     });
     if (req.url === '/operator/ssh-session/exchange') {
+      if (upstreamCredential && req.headers.authorization !== 'Bearer ' + upstreamCredential) {
+        res.writeHead(401, { 'content-type': 'application/json' });
+        res.end('{"error":"UNAUTHORIZED"}');
+        return;
+      }
       res.writeHead(200, {
         'content-type': 'application/json',
         'set-cookie': 'ff_ssh_operator_session=opaque; HttpOnly; SameSite=Strict; Path=/',
@@ -40,7 +46,9 @@ async function fixture() {
   const token = 'b'.repeat(43);
   let secret: string | null = 's'.repeat(43);
   const bridge = await createSshLocalBridge({
-    forwardPort, invitationToken: token, takeBootstrap: () => {
+    forwardPort, invitationToken: token,
+    ...(upstreamCredential ? { upstreamCredential } : {}),
+    takeBootstrap: () => {
       const value = secret;
       secret = null;
       return value;
@@ -51,6 +59,26 @@ async function fixture() {
 }
 
 describe('SSH desktop bridge: browser-intent binding', () => {
+  it('authenticates the internal owner-only bootstrap without leaking the Dashboard bearer secret', async () => {
+    const dashboardCredential = 'c'.repeat(43);
+    const h = await fixture(dashboardCredential);
+    const response = await fetch(h.origin + '/__folderforge/activate', {
+      method: 'POST', redirect: 'manual',
+      headers: { origin: 'null', 'content-type': 'application/x-www-form-urlencoded' },
+      body: 'pair=' + h.token,
+    });
+    expect(response.status).toBe(303);
+    expect(response.headers.get('location')).toBe('/');
+    expect(response.headers.get('set-cookie')).not.toContain(dashboardCredential);
+    const exchange = h.seen.find(entry => entry.url === '/operator/ssh-session/exchange');
+    expect(exchange?.authorization).toBe('Bearer ' + dashboardCredential);
+    const normal = await fetch(h.origin + '/app/', {
+      headers: { 'x-folderforge-ssh-bootstrap': 'forged' },
+    });
+    expect(normal.status).toBe(200);
+    expect(h.seen[h.seen.length - 1]?.authorization).toBe('');
+  });
+
   it('refuses missing/forged URL or header proof and never exchanges on a simple GET', async () => {
     const h = await fixture();
     const before = await fetch(h.origin + '/');
