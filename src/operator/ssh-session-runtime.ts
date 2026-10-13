@@ -9,9 +9,15 @@ export function sshOperatorIpcSocketPath(operatorRoot: string): string {
   return join(resolve(operatorRoot), 'ssh-operator.sock');
 }
 
+/** Separate owner-only IPC path; type is bound by the listening socket. */
+export function localOwnerIpcSocketPath(operatorRoot: string): string {
+  return join(resolve(operatorRoot), 'local-owner.sock');
+}
+
 export interface SshOperatorRuntime {
   readonly broker: SshSessionBroker;
   readonly socketPath: string;
+  readonly localSocketPath: string;
   close(): Promise<void>;
 }
 
@@ -52,9 +58,21 @@ export async function startSshOperatorRuntime(opts: {
   const ipc = await startSshOperatorIpcServer(
     broker, sshOperatorIpcSocketPath(root),
   );
+  let localIpc: Awaited<ReturnType<typeof startSshOperatorIpcServer>>;
+  try {
+    localIpc = await startSshOperatorIpcServer(
+      broker, localOwnerIpcSocketPath(root), 'local-operator-launch',
+    );
+  } catch (error) {
+    await ipc.close();
+    throw error;
+  }
   return {
     broker,
     socketPath: ipc.socketPath,
-    close: ipc.close,
+    localSocketPath: localIpc.socketPath,
+    close: async () => {
+      try { await localIpc.close(); } finally { await ipc.close(); }
+    },
   };
 }
