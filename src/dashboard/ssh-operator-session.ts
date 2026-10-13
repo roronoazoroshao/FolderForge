@@ -75,7 +75,7 @@ export class SshOperatorWebSessions {
     if (!this.originAllowed(req, true)) throw new Error('SSH_OPERATOR_ORIGIN_DENIED');
     const current = this.current(req);
     if (!current) throw new Error('SSH_OPERATOR_SESSION_REQUIRED');
-    const presented = req.headers['x-ssh-operator-csrf'];
+    const presented = req.headers['x-folderforge-operator-csrf'];
     const expected = this.csrfBySession.get(this.key(current.sessionId));
     if (typeof presented !== 'string' || !expected || !safeEqual(presented, expected)) {
       throw new Error('SSH_OPERATOR_CSRF_DENIED');
