@@ -71,6 +71,31 @@ describe('SSH desktop bridge: browser-intent binding', () => {
     expect(h.seen.some(req => req.url.endsWith('/exchange'))).toBe(false);
   });
 
+  it('does not accept cross-site app navigations until the owner has paired', async () => {
+    const h = await fixture();
+    const headers = {
+      'sec-fetch-site': 'cross-site',
+      'sec-fetch-mode': 'navigate',
+      'sec-fetch-dest': 'document',
+    };
+    const before = await fetch(h.origin + '/app/', { headers });
+    expect(before.status).toBe(403);
+    const paired = await fetch(h.origin + '/__folderforge/activate', {
+      method: 'POST', redirect: 'manual',
+      headers: { origin: 'null', 'content-type': 'application/x-www-form-urlencoded' },
+      body: 'pair=' + h.token,
+    });
+    expect(paired.status).toBe(303);
+    const after = await fetch(h.origin + '/app/', {
+      headers: { ...headers, cookie: 'ff_ssh_operator_session=forged' },
+    });
+    expect(after.status).toBe(200);
+    expect(h.seen[h.seen.length - 1]?.url).toBe('/app/');
+    // The cross-site navigation exception deliberately strips cookies, and
+    // cannot be used to forward a manually supplied admin session.
+    expect(h.seen[h.seen.length - 1]?.bootstrap).toBe('');
+  });
+
   it('exchanges once only after a POST body carries the separate desktop invitation proof', async () => {
     const h = await fixture();
     const exchange = await fetch(h.origin + '/__folderforge/activate', {
