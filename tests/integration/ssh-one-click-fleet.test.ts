@@ -194,13 +194,27 @@ describe('SSH-verified one-click Fleet enrollment', () => {
     })).toThrow('TRUSTED_HOST_CONSENT_REQUIRED');
   });
 
-  it('fails closed for no-auth MCP instances: no temporary unsafe elevation', async () => {
+  it('atomically upgrades anonymous MCP to a new token and scoped trusted-host profile with no user CLI', async () => {
     const h = await setup('none');
-    const denied = await h.enable({ cookie: h.cookie, 'x-ssh-operator-csrf': h.view!.csrfToken });
-    expect(denied.status).toBe(409);
-    expect(h.container.fleet.get(h.instance.id).authMode).toBe('none');
-    expect(h.container.fleet.get(h.instance.id).terminalExecution).toBe('sandbox-required');
-    expect(h.store.findPendingByInstance(h.instance.id)).toBeNull();
+    const headers = { cookie: h.cookie, 'x-ssh-operator-csrf': h.view!.csrfToken };
+    const approved = await h.enable(headers);
+    expect(approved.status).toBe(200);
+    const response = await approved.json() as {
+      status: string; credential?: { kind: string; value: string };
+    };
+    expect(response.status).toBe('persisted');
+    expect(response.credential?.kind).toBe('token');
+    expect(response.credential?.value).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    const stored = h.container.fleet.get(h.instance.id);
+    expect(stored.authMode).toBe('token');
+    expect(stored.terminalExecution).toBe('trusted-host');
+    expect(stored.tokenSha256).not.toContain(response.credential!.value);
+    expect(() => h.service.assertAuthorized(h.instance.id, h.profile as {
+      toolsPreset: string; policyMode: string; terminalExecution: 'trusted-host';
+    })).not.toThrow();
+    const repeat = await h.enable(headers);
+    expect(repeat.status).toBe(200);
+    expect((await repeat.json() as { credential?: unknown }).credential).toBeUndefined();
   });
 
   it('fails closed if no SSH-backed session broker is installed', async () => {
