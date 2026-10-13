@@ -40,6 +40,9 @@ import { fileURLToPath } from 'node:url';
 import { ENV_NAME_PATTERN, TUNNEL_ID_PATTERN } from '../chatgpt/openai-tunnel.js';
 import { startDashboard } from '../dashboard/server.js';
 import { detectConsentPlatform } from '../operator/trusted-host-platform.js';
+import { defaultHostConsentRoot } from '../operator/trusted-host-cli.js';
+import { TrustedHostStore } from '../operator/trusted-host-store.js';
+import { startSshOperatorRuntime, type SshOperatorRuntime } from '../operator/ssh-session-runtime.js';
 import { startTrustedHostRevocationMonitor } from '../operator/trusted-host-monitor.js';
 import { logger } from '../core/logger.js';
 import { readFolderForgeVersion } from '../core/version.js';
@@ -1162,8 +1165,35 @@ async function controlServe(
     },
   });
 
+  // Control Panel is the common nontechnical launch path. It must own the
+  // exact same protected operator IPC that the standalone Dashboard uses;
+  // ordinary browser requests do NOT receive any host authority.
+  let ownerRuntime: SshOperatorRuntime | null = null;
+  if (detectConsentPlatform(process.platform) !== 'unsupported' &&
+      typeof process.getuid === 'function' &&
+      container.trustedHostConsentService() !== null) {
+    try {
+      const root = defaultHostConsentRoot();
+      const uid = process.getuid();
+      const store = new TrustedHostStore({
+        operatorRoot: root, currentUid: uid, now: Date.now,
+      });
+      ownerRuntime = await startSshOperatorRuntime({
+        operatorRoot: root, serviceUid: uid,
+        installationId: store.getOrCreateInstallationId(),
+        projectRoots: [
+          config.workspace.defaultProject, ...config.workspace.allowedDirectories,
+        ],
+        now: Date.now,
+      });
+    } catch (error) {
+      logger.warn({ error: String(error) }, 'Local operator proof unavailable (fail-closed)');
+    }
+  }
+
   const server = startDashboard(container, registry, {
     host: config.server.dashboard.host,
+    ...(ownerRuntime ? { sshOperatorBroker: ownerRuntime.broker } : {}),
     port: config.server.dashboard.port,
     ...(dashboardAuth ? { token: dashboardAuth.credential, requireAuth: true } : {}),
   });
@@ -1215,6 +1245,7 @@ async function controlServe(
           stopManagedProcessTrees(container, 1_500),
           container.adapters.stopAllAndWait(1_500),
           container.browserEmulation.close(),
+          ...(ownerRuntime ? [ownerRuntime.close()] : []),
         ]).then(() => {
           clearServeStateIfOurs(options.projectRoot, process.pid);
           resolvePromise();
