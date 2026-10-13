@@ -165,6 +165,35 @@ describe('SSH-verified one-click Fleet enrollment', () => {
     });
   });
 
+  it('disables previously granted host access from the same verified UI without terminal revoke', async () => {
+    const h = await setup();
+    const headers = {
+      origin: h.base,
+      'sec-fetch-site': 'same-origin',
+      cookie: h.cookie,
+      'x-ssh-operator-csrf': h.view!.csrfToken,
+    };
+    // No verified browser context -> no revocation either.
+    const rejected = await fetch(h.base + '/fleet/' + h.instance.id + '/one-click-trusted-host', {
+      method: 'DELETE', headers: { origin: h.base },
+    });
+    expect(rejected.status).toBe(403);
+    const granted = await h.enable(headers);
+    expect(granted.status).toBe(200);
+    const statusUrl = h.base + '/fleet/' + h.instance.id + '/one-click-trusted-host';
+    const before = await fetch(statusUrl, { headers });
+    expect((await before.json() as { status: string }).status).toBe('approved');
+    const revoked = await fetch(statusUrl, { method: 'DELETE', headers });
+    expect(revoked.status).toBe(200);
+    const body = await revoked.json() as { status: string };
+    expect(body.status).toBe('revoked');
+    const after = await fetch(statusUrl, { headers });
+    expect((await after.json() as { status: string }).status).not.toBe('approved');
+    expect(() => h.service.assertAuthorized(h.instance.id, h.profile as {
+      toolsPreset: string; policyMode: string; terminalExecution: 'trusted-host';
+    })).toThrow('TRUSTED_HOST_CONSENT_REQUIRED');
+  });
+
   it('fails closed for no-auth MCP instances: no temporary unsafe elevation', async () => {
     const h = await setup('none');
     const denied = await h.enable({ cookie: h.cookie, 'x-ssh-operator-csrf': h.view!.csrfToken });
