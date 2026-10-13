@@ -186,7 +186,7 @@ export function FleetScreen() {
       }>(`/fleet/${encodeURIComponent(instance.id)}/one-click-trusted-host`, {
         method: 'POST',
         sensitive: true,
-        headers: { 'x-ssh-operator-csrf': owner.csrfToken },
+        headers: { 'x-folderforge-operator-csrf': owner.csrfToken },
         body: { toolsPreset: 'full', policyMode: 'danger', terminalExecution: 'trusted-host' },
       });
       if (outcome.credential?.kind === 'token') {
@@ -224,7 +224,7 @@ export function FleetScreen() {
       const disabled = await api<{ status: 'revoked'; stopAffected?: boolean }>(
         `/fleet/${encodeURIComponent(instance.id)}/one-click-trusted-host`, {
           method: 'DELETE', sensitive: true,
-          headers: { 'x-ssh-operator-csrf': owner.csrfToken },
+          headers: { 'x-folderforge-operator-csrf': owner.csrfToken },
         },
       );
       if (disabled.status !== 'revoked') throw new Error('Permission revocation was not confirmed.');
@@ -711,7 +711,7 @@ function ConfigModal(props: {
       }>(`/fleet/${id}/one-click-trusted-host`, {
         method: 'POST',
         sensitive: true,
-        headers: { 'x-ssh-operator-csrf': session.csrfToken },
+        headers: { 'x-folderforge-operator-csrf': session.csrfToken },
         body: tuple,
       });
       if (outcome.credential?.kind === 'token') {
