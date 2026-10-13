@@ -1605,7 +1605,8 @@ export class FleetManager {
         (instance.lastError === 'REVOKED_EXECUTION_UNCERTAIN' ||
           instance.lastError === 'TRUSTED_HOST_STOP_UNCERTAIN');
       const transitionUncertain = instance.state === 'stopping' &&
-        instance.lastError === 'FLEET_PROFILE_STOP_UNVERIFIED';
+        (instance.lastError === 'FLEET_PROFILE_STOP_UNVERIFIED' ||
+          instance.lastError === 'FLEET_PROFILE_STOP_PENDING');
       const normalized: FleetInstance = {
         ...instance,
         authMode: instance.authMode ?? 'token',
