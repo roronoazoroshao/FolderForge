@@ -534,6 +534,10 @@ async function controlStart(
   if (existing && deps.pidAlive(existing.pid)) {
     if (await deps.probe(existing.port, '/status', 1_000)) {
       const auth = loadControlAuth(projectRoot);
+      if (options.open ?? deps.stdoutIsTty) {
+        openControlBrowser(deps, existing.port, projectRoot,
+          dynamicAppUrl(existing.port, auth?.credential));
+      }
       return {
         output:
           `Mission Control is already running (pid ${existing.pid}).\n` +
