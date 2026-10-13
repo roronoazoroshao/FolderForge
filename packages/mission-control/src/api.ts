@@ -21,7 +21,7 @@ export function setToken(token: string): void {
 
 export async function api<T = unknown>(
   path: string,
-  options?: { method?: string; body?: unknown; sensitive?: boolean },
+  options?: { method?: string; body?: unknown; sensitive?: boolean; headers?: Record<string, string> },
 ): Promise<T> {
   const url = new URL(path, location.origin);
   const token = getToken();
@@ -29,6 +29,7 @@ export async function api<T = unknown>(
   const headers: Record<string, string> = {};
   if (options?.body !== undefined) headers['content-type'] = 'application/json';
   if (token && options?.sensitive) headers.authorization = `Bearer ${token}`;
+  if (options?.headers) Object.assign(headers, options.headers);
   const response = await fetch(url.toString(), {
     method: options?.method ?? 'GET',
     headers: Object.keys(headers).length ? headers : undefined,
