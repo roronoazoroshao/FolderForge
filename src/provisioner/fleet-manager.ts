@@ -713,6 +713,9 @@ export class FleetManager {
     if (record.state === 'running' || record.state === 'starting') {
       throw new Error(`Instance ${id} is already ${record.state}.`);
     }
+    if (record.state === 'stopping' && record.terminalExecution !== 'trusted-host') {
+      throw new Error('FLEET_INSTANCE_STOPPING');
+    }
     if (record.terminalExecution === 'trusted-host' &&
         (record.state === 'stopping' || record.lastError?.includes('STOP_UNCERTAIN'))) {
       throw new Error(`Instance ${id} cannot start while execution termination is unverified.`);
@@ -839,7 +842,19 @@ export class FleetManager {
       this.persist();
       throw new Error('FLEET_PROFILE_STOP_UNVERIFIED');
     }
-    this.stop(id);
+    // Publish the durable STOPPING fence *before* sending a stop signal.
+    // Using stop() here would mark a sandbox child "stopped" immediately
+    // without waiting for its PID, exposing a concurrent start race.
+    record.state = 'stopping';
+    record.lastError = 'FLEET_PROFILE_STOP_PENDING';
+    this.touch(record);
+    this.persist();
+    try {
+      this.stopFn(originalSession);
+    } catch {
+      // A failed supervisor signal is not proof of exit. The PID check below
+      // is still authoritative and either converges or fails closed.
+    }
     // Monotonic loop bound must not depend on Fleet's injected event clock:
     // test clocks and clock adjustments can otherwise extend a stop forever.
     const start = performance.now();
