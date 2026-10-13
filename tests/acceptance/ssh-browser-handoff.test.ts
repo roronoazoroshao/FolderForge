@@ -137,12 +137,37 @@ describe.skipIf(!required)(
       browsers.push(browser);
       const context = await browser.newContext();
       const page = await context.newPage();
+      const browserErrors: string[] = [];
+      page.on('pageerror', error => browserErrors.push(error.message));
+      page.on('console', message => {
+        if (message.type() === 'error') browserErrors.push(message.text());
+      });
+      page.on('response', response => {
+        if (response.status() >= 400) browserErrors.push(
+          response.status() + ' ' + new URL(response.url()).pathname);
+      });
       await page.goto(invite.url);
       await page.waitForURL(bridge.origin + '/app/', { timeout: 10_000 });
-      await page.goto(bridge.origin + '/app/fleet');
-      await expect.poll(() => page.getByRole('button', {
-        name: /Allow AI to operate on this computer/i,
-      }).count(), { timeout: 12_000 }).toBe(1);
+      const fleetNavigation = await page.goto(bridge.origin + '/app/fleet');
+      try {
+        await expect.poll(() => page.getByRole('button', {
+          name: /Allow AI to operate on this computer/i,
+        }).count(), { timeout: 12_000 }).toBe(1);
+      } catch (error) {
+        // On CI, print diagnostic-only paths/content (never cookies or tokens).
+        const fleetFetch = await page.evaluate(async () => {
+          const result = await fetch('/fleet');
+          return { status: result.status, body: (await result.text()).slice(0, 450) };
+        });
+        console.error('FLEET_OWNER_UI_E2E_DIAGNOSTICS', JSON.stringify({
+          route: new URL(page.url()).pathname,
+          navigationStatus: fleetNavigation?.status(),
+          title: await page.title(),
+          renderedText: (await page.locator('body').innerText()).slice(0, 800),
+          fleetFetch, browserErrors: browserErrors.slice(0, 20),
+        }));
+        throw error;
+      }
       await page.getByRole('button', {
         name: /Allow AI to operate on this computer/i,
       }).click();
