@@ -21,7 +21,7 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-async function setup(authMode: 'api-key' | 'none' = 'api-key', withBroker = true) {
+async function setup(authMode: 'api-key' | 'none' = 'api-key', withBroker = true, proofSource: 'ssh-remote-exec' | 'local-operator-launch' = 'ssh-remote-exec') {
   const root = mkdtempSync(join(tmpdir(), 'ff-ssh-oneclick-'));
   roots.push(root);
   const config = defaultConfig(root);
@@ -51,7 +51,7 @@ async function setup(authMode: 'api-key' | 'none' = 'api-key', withBroker = true
   const base = 'http://127.0.0.1:' + (server.address() as AddressInfo).port;
   const url = base + '/fleet/' + instance.id + '/one-click-trusted-host';
   const profile = { toolsPreset: 'full', policyMode: 'danger', terminalExecution: 'trusted-host' };
-  const bootstrap = broker.openFromHost(uid);
+  const bootstrap = broker.openFromHost(uid, proofSource);
   const proof = await fetch(base + '/operator/ssh-session/exchange', {
     method: 'POST',
     headers: { origin: base, 'sec-fetch-site': 'same-origin',
@@ -107,6 +107,21 @@ describe('SSH-verified one-click Fleet enrollment', () => {
     // An unchanged enabled profile should be safely idempotent without another approval.
     const repeated = await h.enable({ cookie: h.cookie, 'x-ssh-operator-csrf': h.view!.csrfToken });
     expect(repeated.status).toBe(200);
+  });
+
+  it('enables from an OS-owned local Control Panel launch without a separate SSH command', async () => {
+    const h = await setup('api-key', true, 'local-operator-launch');
+    const authorized = await h.enable({
+      cookie: h.cookie, 'x-ssh-operator-csrf': h.view!.csrfToken,
+    });
+    expect(authorized.status).toBe(200);
+    expect(h.container.fleet.get(h.instance.id)).toMatchObject(h.profile);
+    const status = await fetch(h.base + '/operator/ssh-session/status', {
+      headers: { cookie: h.cookie },
+    });
+    expect(await status.json()).toMatchObject({
+      verified: true, source: 'local-operator-launch',
+    });
   });
 
   it('fails closed for no-auth MCP instances: no temporary unsafe elevation', async () => {
