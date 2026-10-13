@@ -100,7 +100,7 @@ export async function openSshOperatorIpcClient(
   socketPath: string,
   expectedUid: number,
   opts: { handshakeTimeoutMs?: number } = {},
-): Promise<SshHelperBroker> {
+): Promise<SshHelperBroker & { disconnected: Promise<void> }> {
   // The broker must return its bootstrap proof within a bounded interval.
   // Never let a stalled host-owned IPC service hang the SSH launcher indefinitely.
   const handshakeTimeoutMs = opts.handshakeTimeoutMs ?? 5_000;
@@ -122,6 +122,7 @@ export async function openSshOperatorIpcClient(
   }
 
   const socket = createConnection(path);
+  const disconnected = new Promise<void>(resolveClose => socket.once('close', () => resolveClose()));
   const bootstrap = await new Promise<SshHelperBootstrap>((resolveReady, rejectReady) => {
     let bytes = '';
     let resolved = false;
@@ -168,6 +169,7 @@ export async function openSshOperatorIpcClient(
 
   let delivered = false;
   return {
+    disconnected,
     serviceUid: expectedUid,
     openFromHost: (uid: number) => {
       if (uid !== expectedUid) throw new Error('WRONG_OPERATOR_UID');
