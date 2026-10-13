@@ -189,7 +189,7 @@ export function startDashboard(
       return;
     }
     const principal = dashboardPrincipal(req, credential, requireAuth);
-    handle(req, res, container, registry, principal, opts).catch((err) => {
+    handle(req, res, container, registry, principal, opts, sshOperatorWebSessions).catch((err) => {
       logger.error({ err: String(err) }, "Dashboard request failed");
       sendJson(res, 500, { error: "internal_error", message: String(err) });
     });
@@ -821,6 +821,7 @@ async function handle(
   registry: ToolRegistry,
   principal: ToolPrincipal,
   opts: DashboardOptions,
+  sshOperatorWebSessions: SshOperatorWebSessions | null,
 ): Promise<void> {
   const method = req.method ?? "GET";
   const url = new URL(req.url ?? "/", "http://localhost");
@@ -833,7 +834,8 @@ async function handle(
   // URL query tokens never authorize these privileged routes.
   const profileRoute = /^\/fleet\/(flt_[0-9a-f]{8})\/profile-intents(?:\/(req_[A-Za-z0-9_-]{3,72})(?:\/(apply))?)?$/.exec(path);
   const authorityRoute = /^\/fleet\/(flt_[0-9a-f]{8})\/execution-authority$/.exec(path);
-  if (profileRoute || authorityRoute) {
+  const oneClickRoute = /^\/fleet\/(flt_[0-9a-f]{8})\/one-click-trusted-host$/.exec(path);
+  if (profileRoute || authorityRoute || oneClickRoute) {
     const authorization = req.headers.authorization;
     const presented = typeof authorization === 'string' && authorization.startsWith('Bearer ')
       ? authorization.slice(7).trim() : '';
@@ -865,14 +867,53 @@ async function handle(
     }
     const service = container.trustedHostConsentService();
     if (!service) return sendJson(res, 503, { error: 'LOCAL_CONFIRMATION_UNAVAILABLE' });
-    const instanceId = (profileRoute?.[1] ?? authorityRoute?.[1])!;
+    const instanceId = (profileRoute?.[1] ?? authorityRoute?.[1] ?? oneClickRoute?.[1])!;
     const requestId = profileRoute?.[2];
     const isApply = profileRoute?.[3] === 'apply';
     const operator = {
       id: adminPrincipalFromCredential(verifiedBearer ? presented : undefined).id,
       role: 'admin',
     };
+    // Privileged one-click enrollment can use ONLY a live SSH-backed browser
+    // session; a localhost request or ordinary Dashboard token never confers
+    // host execution authority. Require cookie + session-specific CSRF.
+    let verifiedSshAuthority: ReturnType<SshOperatorWebSessions['requirePrivilegedWrite']> | null = null;
+    if (oneClickRoute && method === 'POST') {
+      if (!sshOperatorWebSessions || !opts.sshOperatorBroker) {
+        return sendJson(res, 403, { error: 'VERIFIED_OWNER_SESSION_REQUIRED' });
+      }
+      try {
+        verifiedSshAuthority = sshOperatorWebSessions.requirePrivilegedWrite(req);
+      } catch {
+        return sendJson(res, 403, { error: 'VERIFIED_OWNER_SESSION_REQUIRED' });
+      }
+    }
     try {
+      if (method === 'POST' && oneClickRoute) {
+        if (!(req.headers['content-type'] ?? '').toString().startsWith('application/json')) {
+          return sendJson(res, 415, { error: 'INVALID_CONTENT_TYPE' });
+        }
+        const body = await readJsonBody(req);
+        if (!body || Object.keys(body).length !== 3 ||
+            typeof body.toolsPreset !== 'string' || typeof body.policyMode !== 'string' ||
+            body.terminalExecution !== 'trusted-host') {
+          return sendJson(res, 400, { error: 'INVALID_FLEET_PROFILE' });
+        }
+        const tuple = {
+          toolsPreset: body.toolsPreset,
+          policyMode: body.policyMode,
+          terminalExecution: 'trusted-host' as const,
+        };
+        const result = service.applyVerifiedSshProfile(
+          instanceId, tuple, operator, opts.sshOperatorBroker!, verifiedSshAuthority!,
+          (approved) => { container.fleet.updateProfileAtomically(instanceId, approved, service); },
+        );
+        return sendJson(res, 200, {
+          status: 'persisted', newlyApproved: result.newlyApproved,
+          instance: publicFleetInstance(container.fleet.get(instanceId)),
+          runtime: container.fleet.effectiveExecutionStatus(instanceId),
+        });
+      }
       if (method === 'POST' && profileRoute && !requestId) {
         if (!(req.headers['content-type'] ?? '').toString().startsWith('application/json')) {
           return sendJson(res, 415, { error: 'INVALID_CONTENT_TYPE' });
