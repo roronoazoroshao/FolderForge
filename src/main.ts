@@ -43,6 +43,7 @@ import { defaultTunnelDeps, executeTunnelCli } from "./control/tunnel.js";
 import { executeShareCli } from "./share/cli.js";
 import { executeHostOperatorCli, defaultHostConsentRoot } from "./operator/trusted-host-cli.js";
 import { executeSshDashboardCli } from "./operator/ssh-dashboard-launcher.js";
+import { openLocalOwnerBrowser } from "./operator/local-owner-launcher.js";
 import { TrustedHostStore } from "./operator/trusted-host-store.js";
 import { isSshDashboardHelperCommand, runSshDashboardHelper } from "./operator/ssh-session-helper.js";
 import { openSshOperatorIpcClient } from "./operator/ssh-operator-ipc.js";
@@ -378,6 +379,13 @@ function printHelp(): void {
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
+  // App-open helper: spawned under the actual user's OS account by
+  // 'folderforge control start/open'. Never callable through Dashboard HTTP.
+  if (argv[0] === "operator" && argv[1] === "dashboard-session" &&
+      argv[2] === "open-local") {
+    await openLocalOwnerBrowser(argv.slice(3));
+    return;
+  }
   if (argv[0] === "dashboard" && argv[1] === "ssh") {
     await executeSshDashboardCli(argv.slice(2));
     return;
