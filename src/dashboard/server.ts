@@ -941,9 +941,19 @@ async function handle(
         if (!alreadyGranted && ['running', 'starting'].includes(before.state)) {
           await container.fleet.stopForTrustedHostTransition(instanceId);
         }
+        let oneTimeToken: string | undefined;
         const result = service.applyVerifiedSshProfile(
           instanceId, tuple, operator, opts.sshOperatorBroker!, verifiedSshAuthority!,
-          (approved) => { container.fleet.updateProfileAtomically(instanceId, approved, service); },
+          (approved, upgradeAuth) => {
+            if (upgradeAuth) {
+              const enrolled = container.fleet.enableSecureProfileAtomically(
+                instanceId, approved, service,
+              );
+              oneTimeToken = enrolled.token;
+            } else {
+              container.fleet.updateProfileAtomically(instanceId, approved, service);
+            }
+          },
         );
         // The owner's ONE enable action should start a stopped Fleet child,
         // not require another manual "Start local" step. Persisted authority
@@ -966,6 +976,7 @@ async function handle(
         return sendJson(res, 200, {
           status: 'persisted', newlyApproved: result.newlyApproved,
           activation,
+          ...(oneTimeToken ? { credential: { kind: 'token', value: oneTimeToken } } : {}),
           instance: publicFleetInstance(container.fleet.get(instanceId)),
           runtime: container.fleet.effectiveExecutionStatus(instanceId),
         });
