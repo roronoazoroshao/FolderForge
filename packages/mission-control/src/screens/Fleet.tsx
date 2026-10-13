@@ -98,6 +98,7 @@ export function FleetScreen() {
   const [formError, setFormError] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [quickAccessBusy, setQuickAccessBusy] = useState<string | null>(null);
+  const [grantsByInstance, setGrantsByInstance] = useState<Record<string, 'approved' | 'not_requested' | 'unavailable'>>({});
   const [configFor, setConfigFor] = useState<FleetInstance | null>(null);
   const [authFor, setAuthFor] = useState<FleetInstance | null>(null);
   const [tunnelFor, setTunnelFor] = useState<FleetInstance | null>(null);
@@ -187,6 +188,7 @@ export function FleetScreen() {
         headers: { 'x-ssh-operator-csrf': owner.csrfToken },
         body: { toolsPreset: 'full', policyMode: 'danger', terminalExecution: 'trusted-host' },
       });
+      setGrantsByInstance(previous => ({ ...previous, [instance.id]: 'approved' }));
       fleet.reload();
       if (outcome.activation?.status === 'failed') {
         toast('error', 'Access saved, but AI could not start automatically: ' +
@@ -196,6 +198,34 @@ export function FleetScreen() {
           ? 'Access saved and AI startup requested. Check instance status for readiness.'
           : 'Access saved. The running service may need a controlled restart.');
       }
+    } catch (error) {
+      toast('error', error instanceof Error ? error.message : String(error));
+    } finally {
+      setQuickAccessBusy(null);
+    }
+  };
+
+  const disableFullAiAccess = async (instance: FleetInstance) => {
+    setQuickAccessBusy(instance.id);
+    try {
+      const owner = await api<{ verified: boolean; csrfToken?: string }>(
+        '/operator/ssh-session/status', { sensitive: true },
+      );
+      if (!owner.verified || !owner.csrfToken) {
+        throw new Error('Owner session not verified. Open Mission Control from the app on this computer.');
+      }
+      const disabled = await api<{ status: 'revoked'; stopAffected?: boolean }>(
+        `/fleet/${encodeURIComponent(instance.id)}/one-click-trusted-host`, {
+          method: 'DELETE', sensitive: true,
+          headers: { 'x-ssh-operator-csrf': owner.csrfToken },
+        },
+      );
+      if (disabled.status !== 'revoked') throw new Error('Permission revocation was not confirmed.');
+      setGrantsByInstance(previous => ({ ...previous, [instance.id]: 'not_requested' }));
+      fleet.reload();
+      toast('success', disabled.stopAffected
+        ? 'AI access revoked. A running process is being stopped; check its final status.'
+        : 'AI access revoked. Future host execution is blocked.');
     } catch (error) {
       toast('error', error instanceof Error ? error.message : String(error));
     } finally {
@@ -227,6 +257,29 @@ export function FleetScreen() {
   };
 
   const instances = fleet.data?.instances ?? [];
+  useEffect(() => {
+    const records = fleet.data?.instances ?? [];
+    let cancelled = false;
+    void Promise.all(records.map(async record => {
+      try {
+        const result = await api<{ status: string }>(
+          `/fleet/${encodeURIComponent(record.id)}/one-click-trusted-host`,
+          { sensitive: true },
+        );
+        return { id: record.id, grant: result.status === 'approved'
+          ? 'approved' as const : 'not_requested' as const };
+      } catch {
+        return { id: record.id, grant: 'unavailable' as const };
+      }
+    })).then(results => {
+      if (cancelled) return;
+      setGrantsByInstance(Object.fromEntries(
+        results.map(result => [result.id, result.grant]),
+      ));
+    });
+    return () => { cancelled = true; };
+  }, [fleet.data?.instances]);
+
   const oauthMissing = authMode === 'oauth' && (!oauthResource.trim() || !oauthIssuer.trim());
 
   return (
@@ -457,19 +510,34 @@ export function FleetScreen() {
                     </div>
                   ) : null}
 
+                  {grantsByInstance[instance.id] === 'unavailable' ? (
+                    <p className="text-xs text-muted">
+                      Computer-owner verification is unavailable here. Open Mission Control
+                      directly on your own desktop to enable access.
+                    </p>
+                  ) : grantsByInstance[instance.id] !== 'approved' ? (
+                    <p className="text-xs text-muted">
+                      Enabling AI access permits file changes and command execution
+                      as this computer's FolderForge user, within configured workspaces.
+                    </p>
+                  ) : null}
                   <div className="flex flex-wrap gap-1.5 border-t border-border-soft pt-1">
-                    {instance.toolsPreset === 'full' &&
-                      instance.policyMode === 'danger' &&
-                      instance.terminalExecution === 'trusted-host' ? (
-                      <Button size="sm" variant="ghost" onClick={() => setConfigFor(instance)}>
-                        <ShieldCheck size={13} aria-hidden /> Review saved AI access
+                    {grantsByInstance[instance.id] === 'approved' ? (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        busy={quickAccessBusy === instance.id}
+                        disabled={quickAccessBusy !== null}
+                        onClick={() => void disableFullAiAccess(instance)}
+                      >
+                        <ShieldCheck size={13} aria-hidden /> Turn off AI access
                       </Button>
                     ) : (
                       <Button
                         size="sm"
                         variant="primary"
                         busy={quickAccessBusy === instance.id}
-                        disabled={quickAccessBusy !== null}
+                        disabled={quickAccessBusy !== null || grantsByInstance[instance.id] === 'unavailable'}
                         onClick={() => void enableFullAiAccess(instance)}
                       >
                         <ShieldCheck size={13} aria-hidden /> Allow AI to operate on this computer
