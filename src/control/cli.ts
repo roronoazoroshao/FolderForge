@@ -40,6 +40,9 @@ import { fileURLToPath } from 'node:url';
 import { ENV_NAME_PATTERN, TUNNEL_ID_PATTERN } from '../chatgpt/openai-tunnel.js';
 import { startDashboard } from '../dashboard/server.js';
 import { detectConsentPlatform } from '../operator/trusted-host-platform.js';
+import { defaultHostConsentRoot } from '../operator/trusted-host-cli.js';
+import { TrustedHostStore } from '../operator/trusted-host-store.js';
+import { startSshOperatorRuntime, type SshOperatorRuntime } from '../operator/ssh-session-runtime.js';
 import { startTrustedHostRevocationMonitor } from '../operator/trusted-host-monitor.js';
 import { logger } from '../core/logger.js';
 import { readFolderForgeVersion } from '../core/version.js';
@@ -115,6 +118,8 @@ export interface ControlDeps {
   terminate: (pid: number) => void;
   /** Open a URL in the default browser (best-effort). */
   openUrl: (url: string) => void;
+  /** Open an OS-owner proof browser without terminal approval commands. */
+  openVerifiedBrowser?: (port: number, projectRoot: string) => void;
   /** Absolute node binary path used in the boot-service ExecStart. */
   execPath: string;
   /** User home directory (parent of the XDG fallback for the unit file). */
@@ -204,6 +209,32 @@ function defaultOpenUrl(url: string, platform: NodeJS.Platform): void {
   } catch {
     // Opening a browser is best-effort; the URL is always printed.
   }
+}
+
+function defaultOpenVerifiedBrowser(
+  port: number, projectRoot: string, mainJs: string,
+): void {
+  const child = spawn(process.execPath, [
+    mainJs, 'operator', 'dashboard-session', 'open-local',
+    '--port', String(port), '--project', projectRoot,
+  ], {
+    detached: true, stdio: 'ignore', windowsHide: true, shell: false,
+  });
+  child.once('error', error =>
+    logger.warn({ error: String(error) }, 'Unable to launch local owner browser'));
+  child.unref();
+}
+
+function openControlBrowser(deps: ControlDeps, port: number, projectRoot: string, url: string): void {
+  if (deps.openVerifiedBrowser) {
+    try {
+      deps.openVerifiedBrowser(port, projectRoot);
+      return;
+    } catch (error) {
+      logger.warn({ error: String(error) }, 'Verified local browser launch failed');
+    }
+  }
+  deps.openUrl(url);
 }
 
 function controlStatePath(projectRoot: string): string {
@@ -503,6 +534,10 @@ async function controlStart(
   if (existing && deps.pidAlive(existing.pid)) {
     if (await deps.probe(existing.port, '/status', 1_000)) {
       const auth = loadControlAuth(projectRoot);
+      if (options.open ?? deps.stdoutIsTty) {
+        openControlBrowser(deps, existing.port, projectRoot,
+          dynamicAppUrl(existing.port, auth?.credential));
+      }
       return {
         output:
           `Mission Control is already running (pid ${existing.pid}).\n` +
@@ -688,7 +723,7 @@ async function controlStart(
   writeControlState(projectRoot, state);
 
   const url = dynamicAppUrl(port, credential);
-  if (options.open ?? deps.stdoutIsTty) deps.openUrl(url);
+  if (options.open ?? deps.stdoutIsTty) openControlBrowser(deps, port, projectRoot, url);
   return {
     output:
       `Mission Control plane started (pid ${pid}, project ${projectRoot}).\n` +
@@ -957,7 +992,7 @@ async function controlOpen(
       existing.port,
       loadControlAuth(projectRoot)?.credential,
     );
-    deps.openUrl(url);
+    openControlBrowser(deps, existing.port, projectRoot, url);
     return { output: `${url}\n`, exitCode: 0 };
   }
   return {
@@ -1162,8 +1197,35 @@ async function controlServe(
     },
   });
 
+  // Control Panel is the common nontechnical launch path. It must own the
+  // exact same protected operator IPC that the standalone Dashboard uses;
+  // ordinary browser requests do NOT receive any host authority.
+  let ownerRuntime: SshOperatorRuntime | null = null;
+  if (detectConsentPlatform(process.platform) !== 'unsupported' &&
+      typeof process.getuid === 'function' &&
+      container.trustedHostConsentService() !== null) {
+    try {
+      const root = defaultHostConsentRoot();
+      const uid = process.getuid();
+      const store = new TrustedHostStore({
+        operatorRoot: root, currentUid: uid, now: Date.now,
+      });
+      ownerRuntime = await startSshOperatorRuntime({
+        operatorRoot: root, serviceUid: uid,
+        installationId: store.getOrCreateInstallationId(),
+        projectRoots: [
+          config.workspace.defaultProject, ...config.workspace.allowedDirectories,
+        ],
+        now: Date.now,
+      });
+    } catch (error) {
+      logger.warn({ error: String(error) }, 'Local operator proof unavailable (fail-closed)');
+    }
+  }
+
   const server = startDashboard(container, registry, {
     host: config.server.dashboard.host,
+    ...(ownerRuntime ? { sshOperatorBroker: ownerRuntime.broker } : {}),
     port: config.server.dashboard.port,
     ...(dashboardAuth ? { token: dashboardAuth.credential, requireAuth: true } : {}),
   });
@@ -1215,6 +1277,7 @@ async function controlServe(
           stopManagedProcessTrees(container, 1_500),
           container.adapters.stopAllAndWait(1_500),
           container.browserEmulation.close(),
+          ...(ownerRuntime ? [ownerRuntime.close()] : []),
         ]).then(() => {
           clearServeStateIfOurs(options.projectRoot, process.pid);
           resolvePromise();
@@ -1305,6 +1368,12 @@ export async function executeControlCli(
     execSystemctl: defaultSystemctl,
     stdoutIsTty: Boolean(process.stdout.isTTY),
     platform,
+    ...((!overrides.openUrl && !overrides.spawnServe &&
+      (platform === 'darwin' ||
+        (platform === 'linux' && Boolean(process.env.DISPLAY || process.env.WAYLAND_DISPLAY))))
+      ? { openVerifiedBrowser: (port: number, root: string) =>
+        defaultOpenVerifiedBrowser(port, root, fileURLToPath(new URL('../main.js', import.meta.url))) }
+      : {}),
     ...overrides,
   };
 

@@ -32,6 +32,8 @@ import {
   type ChatGptLifecycleSnapshot,
 } from "../chatgpt/lifecycle.js";
 import type { Container } from "../runtime/container.js";
+import type { SshSessionBroker } from "../operator/ssh-session-broker.js";
+import { SshOperatorWebSessions } from "./ssh-operator-session.js";
 import type { ToolRegistry } from "../tools/registry.js";
 import type { PolicyMode, ToolPrincipal } from "../core/types.js";
 import { adminPrincipalFromCredential } from "../core/principal.js";
@@ -63,6 +65,8 @@ import { readFolderForgeVersion } from "../core/version.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export interface DashboardOptions {
+  /** Enabled only by the host-owned SSH helper runtime; absent by default. */
+  sshOperatorBroker?: SshSessionBroker;
   host: string;
   port: number;
   /**
@@ -155,6 +159,8 @@ export function startDashboard(
     throw new Error("Dashboard bound to a non-loopback host requires a token");
   }
 
+  const sshOperatorWebSessions = opts.sshOperatorBroker
+    ? new SshOperatorWebSessions(opts.sshOperatorBroker) : null;
   const server = createServer((req, res) => {
     const credential = extractDashboardCredential(req);
     if (
@@ -173,8 +179,17 @@ export function startDashboard(
       );
       return;
     }
+    if (sshOperatorWebSessions?.isRoute(req)) {
+      // This route never recognizes ordinary Dashboard credentials as SSH
+      // authority. The proof must come from a live server-owned SSH lease.
+      sshOperatorWebSessions.handle(req, res).catch((err) => {
+        logger.error({ err: String(err) }, "SSH operator session request failed");
+        if (!res.headersSent) sendJson(res, 500, { error: 'SSH_SESSION_INTERNAL_ERROR' });
+      });
+      return;
+    }
     const principal = dashboardPrincipal(req, credential, requireAuth);
-    handle(req, res, container, registry, principal, opts).catch((err) => {
+    handle(req, res, container, registry, principal, opts, sshOperatorWebSessions).catch((err) => {
       logger.error({ err: String(err) }, "Dashboard request failed");
       sendJson(res, 500, { error: "internal_error", message: String(err) });
     });
@@ -806,6 +821,7 @@ async function handle(
   registry: ToolRegistry,
   principal: ToolPrincipal,
   opts: DashboardOptions,
+  sshOperatorWebSessions: SshOperatorWebSessions | null,
 ): Promise<void> {
   const method = req.method ?? "GET";
   const url = new URL(req.url ?? "/", "http://localhost");
@@ -818,7 +834,8 @@ async function handle(
   // URL query tokens never authorize these privileged routes.
   const profileRoute = /^\/fleet\/(flt_[0-9a-f]{8})\/profile-intents(?:\/(req_[A-Za-z0-9_-]{3,72})(?:\/(apply))?)?$/.exec(path);
   const authorityRoute = /^\/fleet\/(flt_[0-9a-f]{8})\/execution-authority$/.exec(path);
-  if (profileRoute || authorityRoute) {
+  const oneClickRoute = /^\/fleet\/(flt_[0-9a-f]{8})\/one-click-trusted-host$/.exec(path);
+  if (profileRoute || authorityRoute || oneClickRoute) {
     const authorization = req.headers.authorization;
     const presented = typeof authorization === 'string' && authorization.startsWith('Bearer ')
       ? authorization.slice(7).trim() : '';
@@ -850,14 +867,124 @@ async function handle(
     }
     const service = container.trustedHostConsentService();
     if (!service) return sendJson(res, 503, { error: 'LOCAL_CONFIRMATION_UNAVAILABLE' });
-    const instanceId = (profileRoute?.[1] ?? authorityRoute?.[1])!;
+    const instanceId = (profileRoute?.[1] ?? authorityRoute?.[1] ?? oneClickRoute?.[1])!;
     const requestId = profileRoute?.[2];
     const isApply = profileRoute?.[3] === 'apply';
     const operator = {
       id: adminPrincipalFromCredential(verifiedBearer ? presented : undefined).id,
       role: 'admin',
     };
+    // Privileged one-click enrollment can use ONLY a live SSH-backed browser
+    // session; a localhost request or ordinary Dashboard token never confers
+    // host execution authority. Require cookie + session-specific CSRF.
+    let verifiedSshAuthority: ReturnType<SshOperatorWebSessions['requirePrivilegedWrite']> | null = null;
+    if (oneClickRoute && (method === 'POST' || method === 'DELETE')) {
+      if (!sshOperatorWebSessions || !opts.sshOperatorBroker) {
+        return sendJson(res, 403, { error: 'VERIFIED_OWNER_SESSION_REQUIRED' });
+      }
+      try {
+        verifiedSshAuthority = sshOperatorWebSessions.requirePrivilegedWrite(req);
+      } catch {
+        return sendJson(res, 403, { error: 'VERIFIED_OWNER_SESSION_REQUIRED' });
+      }
+    }
     try {
+      if (method === 'GET' && oneClickRoute) {
+        return sendJson(res, 200, {
+          ...service.status(instanceId),
+          runtime: container.fleet.effectiveExecutionStatus(instanceId),
+        });
+      }
+      if (method === 'DELETE' && oneClickRoute) {
+        // Same verified owner/cookie-CSRF as grant issuance. Revocation takes
+        // precedence over any process-stop outcome; never advertise stopped
+        // until the Fleet PID/session reconciliation can verify it.
+        service.revokeFromLocal(instanceId);
+        const affected = container.fleet.reconcileRevokedTrustedHosts();
+        return sendJson(res, 200, {
+          status: 'revoked',
+          stopAffected: affected.includes(instanceId),
+          runtime: container.fleet.effectiveExecutionStatus(instanceId),
+        });
+      }
+      if (method === 'POST' && oneClickRoute) {
+        if (!(req.headers['content-type'] ?? '').toString().startsWith('application/json')) {
+          return sendJson(res, 415, { error: 'INVALID_CONTENT_TYPE' });
+        }
+        const body = await readJsonBody(req);
+        if (!body || Object.keys(body).length !== 3 ||
+            typeof body.toolsPreset !== 'string' || typeof body.policyMode !== 'string' ||
+            body.terminalExecution !== 'trusted-host') {
+          return sendJson(res, 400, { error: 'INVALID_FLEET_PROFILE' });
+        }
+        const tuple = {
+          toolsPreset: body.toolsPreset,
+          policyMode: body.policyMode,
+          terminalExecution: 'trusted-host' as const,
+        };
+        const before = container.fleet.get(instanceId);
+        const sameSavedTuple =
+          before.toolsPreset === tuple.toolsPreset &&
+          before.policyMode === tuple.policyMode &&
+          before.terminalExecution === tuple.terminalExecution;
+        let alreadyGranted = false;
+        if (sameSavedTuple) {
+          try {
+            service.assertAuthorized(instanceId, tuple);
+            alreadyGranted = true;
+          } catch { /* Do not trust the saved tuple without a live scoped grant. */ }
+        }
+        // A deliberate owner click may need to transition an older running
+        // sandbox child. Never elevate while the old PID remains alive or the
+        // stop outcome cannot be verified. Already-enabled children are left
+        // untouched to keep one-click retry idempotent.
+        if (!alreadyGranted &&
+            (['running', 'starting', 'stopping'].includes(before.state) ||
+              before.pid !== undefined || before.sessionId !== undefined ||
+              before.lastError?.startsWith('FLEET_PROFILE_STOP_UNVERIFIED'))) {
+          await container.fleet.stopForTrustedHostTransition(instanceId);
+        }
+        let oneTimeToken: string | undefined;
+        const result = service.applyVerifiedSshProfile(
+          instanceId, tuple, operator, opts.sshOperatorBroker!, verifiedSshAuthority!,
+          (approved, upgradeAuth) => {
+            if (upgradeAuth) {
+              const enrolled = container.fleet.enableSecureProfileAtomically(
+                instanceId, approved, service,
+              );
+              oneTimeToken = enrolled.token;
+            } else {
+              container.fleet.updateProfileAtomically(instanceId, approved, service);
+            }
+          },
+        );
+        // The owner's ONE enable action should start a stopped Fleet child,
+        // not require another manual "Start local" step. Persisted authority
+        // is independent of startup success: never claim a running process
+        // if spawn, lifecycle or health verification fails.
+        const current = container.fleet.get(instanceId);
+        let activation: { status: 'start_requested' | 'not_started' | 'failed'; message?: string } =
+          { status: 'not_started' };
+        if (current.state === 'stopped' || current.state === 'failed') {
+          try {
+            container.fleet.start(instanceId);
+            activation = { status: 'start_requested' };
+          } catch (error) {
+            activation = {
+              status: 'failed',
+              message: error instanceof Error ? error.message : 'INSTANCE_START_FAILED',
+            };
+          }
+        }
+        res.setHeader('cache-control', 'no-store');
+        return sendJson(res, 200, {
+          status: 'persisted', newlyApproved: result.newlyApproved,
+          activation,
+          ...(oneTimeToken ? { credential: { kind: 'token', value: oneTimeToken } } : {}),
+          instance: publicFleetInstance(container.fleet.get(instanceId)),
+          runtime: container.fleet.effectiveExecutionStatus(instanceId),
+        });
+      }
       if (method === 'POST' && profileRoute && !requestId) {
         if (!(req.headers['content-type'] ?? '').toString().startsWith('application/json')) {
           return sendJson(res, 415, { error: 'INVALID_CONTENT_TYPE' });
@@ -1503,6 +1630,23 @@ async function handle(
   if (method === "POST" && fleetLifecycleMatch) {
     const id = decodeURIComponent(fleetLifecycleMatch[1]!);
     const action = fleetLifecycleMatch[2]!;
+    // A persistent trusted-host grant must not turn the OLD tokenless
+    // localhost lifecycle endpoint into ambient authority to launch an
+    // OS-privileged child. Recheck the live owner session and CSRF at every
+    // start/restart, including after crashes and subsequent app launches.
+    if (action !== "stop") {
+      const instance = container.fleet.get(id);
+      if (instance.terminalExecution === 'trusted-host') {
+        if (!sshOperatorWebSessions || !opts.sshOperatorBroker) {
+          return sendJson(res, 403, { error: 'VERIFIED_OWNER_SESSION_REQUIRED' });
+        }
+        try {
+          sshOperatorWebSessions.requirePrivilegedWrite(req);
+        } catch {
+          return sendJson(res, 403, { error: 'VERIFIED_OWNER_SESSION_REQUIRED' });
+        }
+      }
+    }
     const tool =
       action === "start"
         ? "provision_start"

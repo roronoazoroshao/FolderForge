@@ -3,6 +3,7 @@ import { realpathSync } from 'node:fs';
 import type { FleetInstance, FleetManager } from '../provisioner/fleet-manager.js';
 import { FLEET_POLICY_MODES, FLEET_TOOLS_PRESETS } from '../provisioner/fleet-manager.js';
 import { TrustedHostStore } from './trusted-host-store.js';
+import type { SshSessionBroker, SshOperatorAuthority } from './ssh-session-broker.js';
 import { scopeDigest, type ConsentIdentity, type FleetProfileTuple } from './trusted-host-scope.js';
 
 export interface OperatorPrincipal {
@@ -49,15 +50,16 @@ function fleetRevision(record: FleetInstance): string {
 export class TrustedHostConsentService {
   constructor(private readonly deps: TrustedHostConsentOptions) {}
 
-  private identityFor(instanceId: string): ConsentIdentity {
+  private identityFor(instanceId: string, tokenUpgrade = false): ConsentIdentity {
     const record = this.deps.fleet.get(instanceId);
-    if (record.authMode === 'none') throw new Error('TRUSTED_HOST_AUTH_REQUIRED');
+    if (record.authMode === 'none' && !tokenUpgrade) throw new Error('TRUSTED_HOST_AUTH_REQUIRED');
+    if (tokenUpgrade && record.authMode !== 'none') throw new Error('INVALID_TOKEN_UPGRADE');
     const identity: ConsentIdentity = {
       installationId: this.deps.installationId,
       serviceUid: this.deps.serviceUid,
       instanceId: record.id,
       workspaceRealpath: realpathSync(record.projectPath),
-      authMode: record.authMode,
+      authMode: tokenUpgrade ? 'token' : record.authMode,
       revocationGeneration: 0,
     };
     identity.revocationGeneration = this.deps.store.currentRevocationGeneration(identity);
@@ -78,7 +80,7 @@ export class TrustedHostConsentService {
     if (this.deps.isWriteFrozen()) throw new Error('WRITE_FREEZE_ACTIVE');
   }
 
-  requestProfile(instanceId: string, tuple: FleetProfileTuple, principal: OperatorPrincipal): PendingView {
+  requestProfile(instanceId: string, tuple: FleetProfileTuple, principal: OperatorPrincipal, tokenUpgrade = false): PendingView {
     this.checkOperator(principal);
     this.assertWritable();
     if (!(FLEET_TOOLS_PRESETS as readonly string[]).includes(tuple.toolsPreset) ||
@@ -87,7 +89,7 @@ export class TrustedHostConsentService {
       throw new Error('INVALID_TRUSTED_HOST_PROFILE');
     }
     const record = this.deps.fleet.get(instanceId);
-    const identity = this.identityFor(instanceId);
+    const identity = this.identityFor(instanceId, tokenUpgrade);
     const digest = scopeDigest(tuple, identity);
     const approved = this.deps.store.readGrantByScope(digest);
     if (approved && this.deps.store.validateGrant(identity, tuple) &&
@@ -118,6 +120,10 @@ export class TrustedHostConsentService {
 
   status(instanceId: string, requestId?: string): RedactedConsentView {
     const record = this.deps.fleet.get(instanceId);
+    if (record.authMode === 'none' && !requestId) {
+      // "No auth" is a supported one-click onboarding state, never a grant.
+      return { status: 'not_requested', instanceId };
+    }
     const identity = this.identityFor(instanceId);
     const requested = requestId
       ? this.deps.store.readIntentRecord(requestId)
@@ -133,8 +139,17 @@ export class TrustedHostConsentService {
     if (requested && requested.expiresAt <= this.deps.now()) {
       return { status: 'expired', instanceId, requestId: requested.requestId };
     }
-    // Do not guess that persisted Fleet settings mean a live process is elevated.
-    void record;
+    // A saved tuple is NOT authority. Check the actual scope-bound operator
+    // grant after an earlier intent was consumed; this also allows the UI to
+    // distinguish a revoked permission from one that is genuinely enabled.
+    if (!requested && record.terminalExecution === 'trusted-host' &&
+        this.deps.store.validateGrant(identity, {
+          toolsPreset: record.toolsPreset,
+          policyMode: record.policyMode,
+          terminalExecution: 'trusted-host',
+        })) {
+      return { status: 'approved', instanceId };
+    }
     return { status: 'not_requested', instanceId };
   }
 
@@ -156,10 +171,15 @@ export class TrustedHostConsentService {
 
   assertAuthorizedForIntent(instanceId: string, tuple: FleetProfileTuple, requestId: string): void {
     this.assertWritable();
-    this.assertAuthorized(instanceId, tuple);
     const intent = this.deps.store.readIntentRecord(requestId);
     const instance = this.deps.fleet.get(instanceId);
-    const identity = this.identityFor(instanceId);
+    // An owner-verified no-auth upgrade stages a prospective token identity;
+    // after commit the same identity becomes the real instance identity.
+    const tokenUpgrade = instance.authMode === 'none' && intent?.identity.authMode === 'token';
+    const identity = this.identityFor(instanceId, tokenUpgrade);
+    if (!this.deps.store.validateGrant(identity, tuple)) {
+      throw new Error('TRUSTED_HOST_CONSENT_REQUIRED');
+    }
     if (!intent || intent.instanceId !== instanceId || intent.scopeHash !== scopeDigest(tuple, identity)) {
       throw new Error('CONSENT_SCOPE_MISMATCH');
     }
@@ -168,17 +188,93 @@ export class TrustedHostConsentService {
     }
   }
 
-  authorizationDigest(instanceId: string, tuple: FleetProfileTuple): string {
-    return scopeDigest(tuple, this.identityFor(instanceId));
+  authorizationDigest(instanceId: string, tuple: FleetProfileTuple, tokenUpgrade = false): string {
+    return scopeDigest(tuple, this.identityFor(instanceId, tokenUpgrade));
   }
 
   /** Apply gate: the approved digest must also bind an unchanged pending-intent CAS revision. */
   assertAuthorizedForDigest(instanceId: string, tuple: FleetProfileTuple, digest: string): void {
-    const identity = this.identityFor(instanceId);
-    if (scopeDigest(tuple, identity) !== digest) throw new Error('CONSENT_SCOPE_MISMATCH');
     const grant = this.deps.store.readGrantByScope(digest);
     if (!grant) throw new Error('TRUSTED_HOST_CONSENT_REQUIRED');
+    const record = this.deps.fleet.get(instanceId);
+    const tokenUpgrade = record.authMode === 'none' && grant.identity.authMode === 'token';
+    const identity = this.identityFor(instanceId, tokenUpgrade);
+    if (scopeDigest(tuple, identity) !== digest) throw new Error('CONSENT_SCOPE_MISMATCH');
     this.assertAuthorizedForIntent(instanceId, tuple, grant.requestId);
+  }
+
+  /**
+   * One-click Trusted Host enrollment is restricted to a genuinely live
+   * server-owned SSH operator browser session. Neither localhost, a Dashboard
+   * bearer token, request headers nor URL parameters are valid substitutes.
+   *
+   * The operator's one explicit UI action stages, approves and applies one
+   * exact per-instance profile; a failed apply invalidates the freshly minted
+   * grant before the request can report success. Runtime activation remains a
+   * separate, accurately reported lifecycle step (no forced restart).
+   */
+  applyVerifiedSshProfile(
+    instanceId: string,
+    tuple: FleetProfileTuple,
+    principal: OperatorPrincipal,
+    broker: SshSessionBroker,
+    authority: SshOperatorAuthority,
+    commit: (tuple: FleetProfileTuple, upgradeAuth: boolean) => void,
+  ): { newlyApproved: boolean } {
+    broker.assertAuthorityLive(authority);
+    if (!['ssh-remote-exec', 'local-operator-launch'].includes(authority.source) ||
+        authority.installationId !== this.deps.installationId ||
+        authority.serviceUid !== this.deps.serviceUid) {
+      throw new Error('SSH_OPERATOR_INSTALLATION_MISMATCH');
+    }
+    this.checkOperator(principal);
+    this.assertWritable();
+    const record = this.deps.fleet.get(instanceId);
+    // Repeating the owner's click on an already-authorized live instance is
+    // read-only and safe. The PID fence below is for NEW elevations only.
+    // Check the bound scope again; never trust persisted settings alone.
+    if (record.authMode !== 'none' &&
+        record.toolsPreset === tuple.toolsPreset &&
+        record.policyMode === tuple.policyMode &&
+        record.terminalExecution === tuple.terminalExecution) {
+      try {
+        if (this.deps.store.validateGrant(this.identityFor(instanceId), tuple)) {
+          return { newlyApproved: false };
+        }
+      } catch { /* A stale or revoked grant is not idempotent authority. */ }
+    }
+    const requiresTokenUpgrade = record.authMode === 'none';
+    if (record.pid !== undefined || record.sessionId !== undefined ||
+        record.lastError?.startsWith('FLEET_PROFILE_STOP_UNVERIFIED')) {
+      throw new Error('FLEET_CHILD_TERMINATION_UNVERIFIED');
+    }
+    if (['running', 'starting', 'stopping'].includes(record.state) ||
+        record.openAiTunnel?.state === 'running' ||
+        record.openAiTunnel?.state === 'starting') {
+      throw new Error('FLEET_INSTANCE_ACTIVE');
+    }
+    const requested = this.requestProfile(instanceId, tuple, principal, requiresTokenUpgrade);
+    if (requested.status === 'approved') return { newlyApproved: false };
+    const pending = this.deps.store.readPending(requested.requestId);
+    if (!pending || pending.instanceId !== instanceId) {
+      throw new Error('CONSENT_REQUEST_UNAVAILABLE');
+    }
+    // The remote helper's SSH channel must still be connected immediately
+    // before issuing a durable host-execution capability.
+    broker.assertAuthorityLive(authority);
+    this.deps.store.consumeLocalApproval(pending.requestId, pending.scopeHash);
+    try {
+      this.applyApprovedProfile(instanceId, pending.requestId, approved =>
+        commit(approved, requiresTokenUpgrade));
+    } catch (error) {
+      // Prefer revocation (including any other older grants for this instance)
+      // over leaving a capability live following an ambiguous failed update.
+      this.deps.store.revoke(pending.identity);
+      this.deps.recordAudit('trusted_host_verified_ssh_apply_failed_revoked');
+      throw error;
+    }
+    this.deps.recordAudit('trusted_host_verified_ssh_one_click_approved');
+    return { newlyApproved: true };
   }
 
   /** A network caller may request application only AFTER separate local approval. */

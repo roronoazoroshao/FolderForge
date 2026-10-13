@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { createHash } from 'node:crypto';
 import { lstatSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -25,6 +26,81 @@ function fixture(phase?: 'prepared' | 'yaml-renamed' | 'state-renamed' | 'commit
   return { root, tx, before, statePath, yamlPath, instance };
 }
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+
+function anonymousFixture(phase?: 'prepared' | 'yaml-renamed' | 'state-renamed' | 'committed') {
+  const root = mkdtempSync(join(tmpdir(), 'ff-profile-token-tx-'));
+  roots.push(root);
+  const project = join(root, 'project');
+  mkdirSync(project);
+  const fleet = new FleetManager(root);
+  const { instance } = fleet.create({ projectPath: project, authMode: 'none' });
+  const statePath = join(root, '.folderforge', 'fleet.json');
+  const yamlPath = join(root, '.folderforge', 'fleet', `${instance.id}.yaml`);
+  const before = { json: readFileSync(statePath, 'utf8'), yaml: readFileSync(yamlPath, 'utf8') };
+  const token = 'q'.repeat(43);
+  const tokenSha256 = createHash('sha256').update(token).digest('hex');
+  const upgrade = {
+    token, tokenSha256,
+    renderYaml: (_record: unknown, secret: string) =>
+      before.yaml
+        .replace('      mode: "none"', '      mode: "token"\n    token: "' + secret + '"\n    requireAuth: true')
+        .replace('  defaultMode: "dev"', '  defaultMode: "danger"')
+        .replace('    requireInDanger: true', '    requireInDanger: false'),
+  };
+  const tx = new FleetProfileTransaction({
+    root, authorize: (_id, _tuple, digest) => {
+      if (digest !== 'allowed-digest') throw new Error('CONSENT_REQUIRED');
+    },
+    onPhase: name => {
+      if (name === phase) throw new Error('FAULT_AT_' + name);
+    },
+  });
+  return { root, instance, statePath, yamlPath, before, tx, token, tokenSha256, upgrade };
+}
+
+
+describe('atomic no-auth credential + trusted-host grant profile', () => {
+  it('commits token auth, matching token hash, and full danger profile in a single journal', () => {
+    const h = anonymousFixture();
+    const state = h.tx.commit(h.instance.id, tuple, 'allowed-digest', h.upgrade);
+    expect(state).toMatchObject({ authMode: 'token', tokenSha256: h.tokenSha256, ...tuple });
+    expect(JSON.parse(readFileSync(h.statePath, 'utf8')).instances[0].authMode).toBe('token');
+    expect(readFileSync(h.statePath, 'utf8')).not.toContain(h.token);
+    const yaml = readFileSync(h.yamlPath, 'utf8');
+    expect(yaml).toContain(h.token);
+    expect(yaml).toContain('    requireAuth: true');
+    expect(yaml).toContain('    requireInDanger: false');
+  });
+  it.each(['prepared', 'yaml-renamed', 'state-renamed'] as const)(
+    'recovers BOTH auth and privilege state to anonymous sandbox after crash at %s', phase => {
+      const h = anonymousFixture(phase);
+      expect(() => h.tx.commit(h.instance.id, tuple, 'allowed-digest', h.upgrade))
+        .toThrow('FAULT_AT_' + phase);
+      const recovery = new FleetProfileTransaction({ root: h.root, authorize: () => {} });
+      recovery.recoverBeforeReadOrStart();
+      expect(readFileSync(h.yamlPath, 'utf8')).toBe(h.before.yaml);
+      expect(readFileSync(h.statePath, 'utf8')).toBe(h.before.json);
+      expect(readFileSync(h.yamlPath, 'utf8')).not.toContain(h.token);
+    },
+  );
+  it('rolls committed auth+profile forward together after crash at committed', () => {
+    const h = anonymousFixture('committed');
+    expect(() => h.tx.commit(h.instance.id, tuple, 'allowed-digest', h.upgrade))
+      .toThrow('FAULT_AT_committed');
+    new FleetProfileTransaction({ root: h.root, authorize: () => {} }).recoverBeforeReadOrStart();
+    expect(JSON.parse(readFileSync(h.statePath, 'utf8')).instances[0])
+      .toMatchObject({ authMode: 'token', terminalExecution: 'trusted-host' });
+    expect(readFileSync(h.yamlPath, 'utf8')).toContain(h.token);
+  });
+  it('refuses an invalid digest/token pair before any write', () => {
+    const h = anonymousFixture();
+    expect(() => h.tx.commit(h.instance.id, tuple, 'allowed-digest', {
+      ...h.upgrade, tokenSha256: 'f'.repeat(64),
+    })).toThrow('INVALID_FLEET_TOKEN_UPGRADE');
+    expect(readFileSync(h.yamlPath, 'utf8')).toBe(h.before.yaml);
+    expect(readFileSync(h.statePath, 'utf8')).toBe(h.before.json);
+  });
+});
 
 describe('crash-consistent Fleet profile transaction', () => {
   it('documents and gates platform directory fsync without weakening macOS/APFS', () => {

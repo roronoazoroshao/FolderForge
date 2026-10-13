@@ -126,6 +126,26 @@ describe("folderforge control", () => {
     expect(state.port).toBe(7400);
   });
 
+  it("opens the verified owner browser directly on start/open without a terminal approve step", async () => {
+    const root = trackedRoot();
+    const ownerOpened: Array<{ port: number; project: string }> = [];
+    const { deps, opened } = makeDeps({
+      openVerifiedBrowser: (port, project) => ownerOpened.push({ port, project }),
+    });
+    const started = await executeControlCli(["start", "--project", root, "--open"], deps);
+    expect(started.exitCode).toBe(0);
+    expect(ownerOpened).toEqual([{ port: 7332, project: root }]);
+    expect(opened).toEqual([]);
+    const launched = await executeControlCli(["open", "--project", root], deps);
+    expect(launched.exitCode).toBe(0);
+    expect(ownerOpened).toHaveLength(2);
+    // Re-running start on an active plane also opens the authenticated UI.
+    const reused = await executeControlCli(["start", "--project", root, "--open"], deps);
+    expect(reused.exitCode).toBe(0);
+    expect(ownerOpened).toHaveLength(3);
+    expect(opened).toEqual([]);
+  });
+
   it("start is idempotent while the plane is alive", async () => {
     const root = trackedRoot();
     const { deps, spawned } = makeDeps();

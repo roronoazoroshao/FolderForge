@@ -550,6 +550,10 @@ export class FleetManager {
   /** Coherent, synchronous all-or-nothing application; the startup grant is checked separately. */
   updateProfileAtomically(id: string, tuple: FleetProfileTuple, consent: TrustedHostConsentService): FleetInstance {
     const record = this.mutable(id);
+    if (record.pid !== undefined || record.sessionId !== undefined ||
+        record.lastError?.startsWith('FLEET_PROFILE_STOP_UNVERIFIED')) {
+      throw new Error('FLEET_CHILD_TERMINATION_UNVERIFIED');
+    }
     if (record.state === 'running' || record.state === 'starting' || record.state === 'stopping' ||
         record.openAiTunnel?.state === 'running' || record.openAiTunnel?.state === 'starting') {
       throw new Error('FLEET_INSTANCE_ACTIVE');
@@ -563,6 +567,43 @@ export class FleetManager {
       const updated = this.profileTransaction.commit(id, tuple, identity);
       Object.assign(record, updated);
       return cloneInstance(record);
+    } finally {
+      this.activeProfileAuthorization = undefined;
+    }
+  }
+
+  /**
+   * Generate a credential for an anonymous Fleet child within the same
+   * crash-recoverable journal as its new full/danger/trusted-host profile.
+   * The static token is returned once to the authenticated owner UI, never
+   * placed in Fleet's public JSON or process argv.
+   */
+  enableSecureProfileAtomically(
+    id: string, tuple: FleetProfileTuple, consent: TrustedHostConsentService,
+  ): { instance: FleetInstance; token: string } {
+    const record = this.mutable(id);
+    if (record.authMode !== 'none') throw new Error('FLEET_AUTH_ALREADY_CONFIGURED');
+    if (record.pid !== undefined || record.sessionId !== undefined ||
+        record.lastError?.startsWith('FLEET_PROFILE_STOP_UNVERIFIED')) {
+      throw new Error('FLEET_CHILD_TERMINATION_UNVERIFIED');
+    }
+    if (record.state === 'running' || record.state === 'starting' || record.state === 'stopping' ||
+        record.openAiTunnel?.state === 'running' || record.openAiTunnel?.state === 'starting') {
+      throw new Error('FLEET_INSTANCE_ACTIVE');
+    }
+    const token = generateToken();
+    const identity = consent.authorizationDigest(id, tuple, true);
+    this.activeProfileAuthorization = (actualId, actualTuple, digest) => {
+      if (actualId !== id || digest !== identity) throw new Error('CONSENT_SCOPE_MISMATCH');
+      consent.assertAuthorizedForDigest(actualId, actualTuple, digest);
+    };
+    try {
+      const updated = this.profileTransaction.commit(id, tuple, identity, {
+        token, tokenSha256: sha256(token),
+        renderYaml: instanceConfigYaml,
+      });
+      Object.assign(record, updated);
+      return { instance: cloneInstance(record), token };
     } finally {
       this.activeProfileAuthorization = undefined;
     }
@@ -680,6 +721,9 @@ export class FleetManager {
     if (record.state === 'running' || record.state === 'starting') {
       throw new Error(`Instance ${id} is already ${record.state}.`);
     }
+    if (record.state === 'stopping' && record.terminalExecution !== 'trusted-host') {
+      throw new Error('FLEET_INSTANCE_STOPPING');
+    }
     if (record.terminalExecution === 'trusted-host' &&
         (record.state === 'stopping' || record.lastError?.includes('STOP_UNCERTAIN'))) {
       throw new Error(`Instance ${id} cannot start while execution termination is unverified.`);
@@ -769,6 +813,102 @@ export class FleetManager {
     this.touch(record);
     this.persist();
     return cloneInstance(record);
+  }
+
+  /**
+   * One-click mode switch from a RUNNING sandbox to trusted-host.
+   * Stop is never evidence of termination by itself: a sandboxed child
+   * may outlive its supervisor. Preserve the original PID and an explicit
+   * uncertain state until the host OS confirms that process exited.
+   */
+  async stopForTrustedHostTransition(
+    id: string,
+    opts: { timeoutMs?: number } = {},
+  ): Promise<void> {
+    const timeoutMs = opts.timeoutMs ?? 1_500;
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 10_000) {
+      throw new Error('INVALID_FLEET_TRANSITION_TIMEOUT');
+    }
+    const record = this.mutable(id);
+    if (record.openAiTunnel?.state === 'running' ||
+        record.openAiTunnel?.state === 'starting') {
+      throw new Error('OPENAI_TUNNEL_TRANSITION_UNSUPPORTED');
+    }
+    // A restart may have converted STOPPING to FAILED while retaining an
+    // old process PID. NEVER treat either state as proof of termination.
+    if (record.state === 'stopped' || record.state === 'failed' ||
+        record.state === 'stopping') {
+      if (record.pid !== undefined && this.isAliveFn(record.pid)) {
+        throw new Error('FLEET_PROFILE_STOP_UNVERIFIED');
+      }
+      if (record.pid === undefined && (record.sessionId !== undefined ||
+          record.lastError?.startsWith('FLEET_PROFILE_STOP_UNVERIFIED'))) {
+        throw new Error('FLEET_PROFILE_STOP_UNVERIFIED');
+      }
+      if (record.pid !== undefined || record.state === 'stopping' ||
+          record.lastError?.startsWith('FLEET_PROFILE_STOP_UNVERIFIED')) {
+        record.state = 'stopped';
+        delete record.pid;
+        delete record.sessionId;
+        delete record.leaseId;
+        delete record.lastError;
+        this.touch(record);
+        this.persist();
+      }
+      return;
+    }
+    if (record.state !== 'running' && record.state !== 'starting') {
+      throw new Error('FLEET_PROFILE_STOP_UNVERIFIED');
+    }
+    const originalPid = record.pid;
+    const originalSession = record.sessionId;
+    // A session without a PID cannot be independently proven terminated.
+    if (originalPid === undefined || originalSession === undefined || !this.stopFn) {
+      record.state = 'stopping';
+      record.lastError = 'FLEET_PROFILE_STOP_UNVERIFIED';
+      this.persist();
+      throw new Error('FLEET_PROFILE_STOP_UNVERIFIED');
+    }
+    // Publish the durable STOPPING fence *before* sending a stop signal.
+    // Using stop() here would mark a sandbox child "stopped" immediately
+    // without waiting for its PID, exposing a concurrent start race.
+    record.state = 'stopping';
+    record.lastError = 'FLEET_PROFILE_STOP_PENDING';
+    this.touch(record);
+    this.persist();
+    try {
+      this.stopFn(originalSession);
+    } catch {
+      // A failed supervisor signal is not proof of exit. The PID check below
+      // is still authoritative and either converges or fails closed.
+    }
+    // Monotonic loop bound must not depend on Fleet's injected event clock:
+    // test clocks and clock adjustments can otherwise extend a stop forever.
+    const start = performance.now();
+    while (this.isAliveFn(originalPid) && performance.now() - start < timeoutMs) {
+      await new Promise<void>(resolve => setTimeout(resolve, 25));
+    }
+    if (this.isAliveFn(originalPid)) {
+      const current = this.mutable(id);
+      current.state = 'stopping';
+      current.pid = originalPid;
+      current.sessionId = originalSession;
+      current.lastError = 'FLEET_PROFILE_STOP_UNVERIFIED';
+      this.touch(current);
+      this.persist();
+      throw new Error('FLEET_PROFILE_STOP_UNVERIFIED');
+    }
+    const latest = this.mutable(id);
+    if (latest.state === 'running' || latest.state === 'starting') {
+      throw new Error('FLEET_PROFILE_STOP_UNVERIFIED');
+    }
+    latest.state = 'stopped';
+    delete latest.pid;
+    delete latest.sessionId;
+    delete latest.leaseId;
+    delete latest.lastError;
+    this.touch(latest);
+    this.persist();
   }
 
   setAuth(
@@ -1491,11 +1631,16 @@ export class FleetManager {
         instance.state === 'stopping' &&
         (instance.lastError === 'REVOKED_EXECUTION_UNCERTAIN' ||
           instance.lastError === 'TRUSTED_HOST_STOP_UNCERTAIN');
+      const transitionUncertain = instance.state === 'stopping' &&
+        (instance.lastError === 'FLEET_PROFILE_STOP_UNVERIFIED' ||
+          instance.lastError === 'FLEET_PROFILE_STOP_PENDING');
       const normalized: FleetInstance = {
         ...instance,
         authMode: instance.authMode ?? 'token',
-        // Never report a pre-crash revocation as stopped until PID absence is proven.
-        state: revokedUncertain ? 'failed' : normalizeRestartState(instance.state),
+        // Never report a pre-crash revocation or a sandbox-to-host transition
+        // as stopped until the original child PID is proven absent.
+        state: revokedUncertain || transitionUncertain
+          ? 'failed' : normalizeRestartState(instance.state),
       };
       if (instance.oauth) normalized.oauth = cloneOauth(instance.oauth)!;
       // Accept legacy state but ensure JSON persistence omits the retired field.
@@ -1505,7 +1650,19 @@ export class FleetManager {
       if (wasActive) {
         normalized.lastError = 'Control plane restarted while instance state was active.';
       }
-      if (revokedUncertain) {
+      if (transitionUncertain) {
+        const pid = normalized.pid;
+        if (pid !== undefined && !this.isAliveFn(pid)) {
+          normalized.state = 'stopped';
+          delete normalized.pid;
+          delete normalized.leaseId;
+          delete normalized.lastError;
+        } else {
+          // A missing PID is not proof of process exit. Keep the explicit
+          // unsafe state and deny profile changes/start until resolved.
+          normalized.lastError = 'FLEET_PROFILE_STOP_UNVERIFIED_AFTER_RESTART';
+        }
+      } else if (revokedUncertain) {
         const pid = normalized.pid;
         if (pid !== undefined && !this.isAliveFn(pid)) {
           normalized.state = 'stopped';

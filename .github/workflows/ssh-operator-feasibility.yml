@@ -1,0 +1,82 @@
+name: SSH operator feasibility
+on:
+  push:
+    branches: [feat/ssh-verified-one-click-trusted-host]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-actual-ssh:
+    name: Real OpenSSH UID and lease gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - name: Node 22
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install OpenSSH client and server
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y openssh-client openssh-server
+      - name: Install test dependencies
+        run: npm ci --ignore-scripts
+      - name: Assert real SSH evidence
+        env:
+          FOLDERFORGE_REQUIRE_SSH_E2E: '1'
+        run: npx vitest run tests/acceptance/ssh-operator-feasibility.test.ts --reporter=verbose
+
+  helper-contract:
+    name: SSH helper unit contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run build:adapter-godot
+      - name: Verify helper TDD contract
+        run: npx vitest run tests/integration/ssh-session-helper.test.ts tests/unit/ssh-session-broker.test.ts tests/integration/ssh-operator-ipc.test.ts tests/integration/ssh-session-runtime.test.ts tests/integration/ssh-local-bridge.test.ts tests/unit/ssh-dashboard-launcher.test.ts tests/integration/ssh-one-click-fleet.test.ts tests/integration/dashboard-ssh-session.test.ts --reporter=verbose
+
+  browser-handoff:
+    name: Real Chromium browser invitation and cookie handoff
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # tests/setup.ts isolates HOME; a fixed browser cache is required
+      # for Playwright install and the spawned test process to agree.
+      PLAYWRIGHT_BROWSERS_PATH: /tmp/folderforge-ci-playwright
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Build Godot adapter imported by real Dashboard tool registry
+        run: npm run build:adapter-godot
+      - name: Install the actual Mission Control frontend dependencies
+        run: npm ci --prefix packages/mission-control --ignore-scripts
+      - name: Build actual Mission Control SPA for browser acceptance
+        run: |
+          npm run build:mission-control
+          test -s packages/mission-control/dist/index.html
+          # Never accept the placeholder: Chromium must exercise the real React UI.
+          if grep -q "optional frontend bundle is not installed" packages/mission-control/dist/index.html; then
+            echo "Real Mission Control SPA was not built" >&2
+            exit 1
+          fi
+      - name: Install real Chromium and runtime dependencies
+        run: node node_modules/playwright-core/cli.js install --with-deps chromium
+      - name: Require actual browser E2E (no silent skip)
+        env:
+          FOLDERFORGE_REQUIRE_BROWSER_E2E: '1'
+        run: npx vitest run tests/acceptance/ssh-browser-handoff.test.ts --reporter=verbose

@@ -28,6 +28,15 @@ interface FleetState {
   instances: FleetInstance[];
 }
 
+/** Protected one-step upgrade: no separate auth/profile write may be visible
+ * outside the crash-recoverable YAML + Fleet JSON transaction. The raw token
+ * exists only in the generated 0600 YAML and, transiently, the 0600 journal. */
+export interface FleetTokenUpgrade {
+  token: string;
+  tokenSha256: string;
+  renderYaml: (instance: FleetInstance, credential: string) => string;
+}
+
 function sha(input: string): string {
   return createHash('sha256').update(input).digest('hex');
 }
@@ -232,7 +241,7 @@ export class FleetProfileTransaction {
     this.withLock(() => this.recoverLocked());
   }
 
-  commit(instanceId: string, tuple: FleetProfileTuple, approvedDigest: string): FleetInstance {
+  commit(instanceId: string, tuple: FleetProfileTuple, approvedDigest: string, tokenUpgrade?: FleetTokenUpgrade): FleetInstance {
     return this.withLock(() => {
       this.recoverLocked();
       // Authorization must be verified under the write lock, not before.
@@ -246,16 +255,36 @@ export class FleetProfileTransaction {
       if (state.schemaVersion !== 1 || !Array.isArray(state.instances)) throw new Error('INVALID_FLEET_STATE');
       const record = state.instances.find((r) => r.id === instanceId);
       if (!record) throw new Error('UNKNOWN_FLEET_INSTANCE');
-      if (tuple.terminalExecution === 'trusted-host' && record.authMode === 'none') {
+      if (tokenUpgrade) {
+        if (record.authMode !== 'none' ||
+            !/^[A-Za-z0-9_-]{43}$/.test(tokenUpgrade.token) ||
+            !/^[0-9a-f]{64}$/.test(tokenUpgrade.tokenSha256) ||
+            sha(tokenUpgrade.token) !== tokenUpgrade.tokenSha256) {
+          throw new Error('INVALID_FLEET_TOKEN_UPGRADE');
+        }
+      } else if (tuple.terminalExecution === 'trusted-host' && record.authMode === 'none') {
         throw new Error('TRUSTED_HOST_AUTH_REQUIRED');
       }
-      const updated: FleetInstance = { ...record, ...tuple, updatedAt: new Date().toISOString() };
+      const updated: FleetInstance = {
+        ...record, ...tuple,
+        ...(tokenUpgrade
+          ? { authMode: 'token' as const, tokenSha256: tokenUpgrade.tokenSha256 }
+          : {}),
+        updatedAt: new Date().toISOString(),
+      };
       const changed: FleetState = {
         schemaVersion: 1,
         instances: state.instances.map((r) => r.id === instanceId ? updated : r),
       };
       const afterState = JSON.stringify(changed, null, 2);
-      const afterYaml = updateYaml(beforeYaml, tuple);
+      const afterYaml = tokenUpgrade
+        ? tokenUpgrade.renderYaml(updated, tokenUpgrade.token)
+        : updateYaml(beforeYaml, tuple);
+      if (!afterYaml.includes('# Fleet-managed terminal execution profile') ||
+          !afterYaml.includes('    requireInDanger: false') ||
+          !afterYaml.includes('    requireAuth: true')) {
+        if (tokenUpgrade) throw new Error('INVALID_FLEET_TOKEN_YAML');
+      }
       const journal: ProfileJournal = {
         schemaVersion: 1, phase: 'PREPARED', instanceId, yamlPath,
         beforeYaml, afterYaml, beforeState, afterState,

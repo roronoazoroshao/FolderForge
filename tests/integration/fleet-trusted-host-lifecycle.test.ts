@@ -71,6 +71,150 @@ describe('Fleet trusted-host execution boundary', () => {
     expect(() => h.fleet.start(h.instance.id)).toThrow('TRUSTED_HOST_CONSENT_REQUIRED');
   });
 
+  it('automatically transitions a running sandbox child before one-click host profile changes', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ff-profile-transition-'));
+    roots.push(root);
+    const project = join(root, 'project');
+    mkdirSync(project);
+    let alive = true;
+    const calls: string[] = [];
+    const fleet = new FleetManager(root, {
+      mainJs: process.execPath,
+      spawn: () => ({ sessionId: 'sandbox-session', pid: 99111 }),
+      stopSession: () => { calls.push('stop'); alive = false; },
+      isAlive: () => alive,
+    });
+    const { instance } = fleet.create({ projectPath: project, authMode: 'api-key' });
+    fleet.start(instance.id);
+    expect(fleet.get(instance.id).state).toBe('running');
+    await fleet.stopForTrustedHostTransition(instance.id, { timeoutMs: 100 });
+    expect(calls).toEqual(['stop']);
+    expect(fleet.get(instance.id).state).toBe('stopped');
+  });
+
+  it('fences concurrent starts during an autonomous sandbox-to-host transition', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ff-transition-start-race-'));
+    roots.push(root);
+    const project = join(root, 'project');
+    mkdirSync(project);
+    let alive = true;
+    const blocked: string[] = [];
+    const fleet = new FleetManager(root, {
+      mainJs: process.execPath,
+      spawn: () => ({ sessionId: 'old-child', pid: 99882 }),
+      stopSession: () => {
+        expect(fleet.get(instance.id).state).toBe('stopping');
+        try { fleet.start(instance.id); }
+        catch (error) { blocked.push(String(error)); }
+        alive = false;
+      },
+      isAlive: () => alive,
+    });
+    const { instance } = fleet.create({ projectPath: project, authMode: 'api-key' });
+    fleet.start(instance.id);
+    await fleet.stopForTrustedHostTransition(instance.id, { timeoutMs: 100 });
+    expect(blocked).toHaveLength(1);
+    expect(blocked[0]).toMatch(/STOPPING|STOP_UNVERIFIED/);
+    expect(fleet.get(instance.id).state).toBe('stopped');
+  });
+
+  it('never grants a host profile if a sandbox child PID remains alive after stop', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ff-uncertain-transition-'));
+    roots.push(root);
+    const project = join(root, 'project');
+    mkdirSync(project);
+    const fleet = new FleetManager(root, {
+      mainJs: process.execPath,
+      spawn: () => ({ sessionId: 'live-sandbox', pid: 99112 }),
+      stopSession: () => { /* Deliberately ignores stop */ },
+      isAlive: () => true,
+    });
+    const { instance } = fleet.create({ projectPath: project, authMode: 'api-key' });
+    fleet.start(instance.id);
+    await expect(fleet.stopForTrustedHostTransition(instance.id, { timeoutMs: 30 }))
+      .rejects.toThrow('FLEET_PROFILE_STOP_UNVERIFIED');
+    const record = fleet.get(instance.id);
+    expect(record.state).toBe('stopping');
+    expect(record.pid).toBe(99112);
+    expect(record.terminalExecution).toBe('sandbox-required');
+    expect(() => fleet.start(instance.id)).toThrow();
+  });
+
+  it('does not normalize a crash during STOP_PENDING to a safe stopped state', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ff-pending-crash-'));
+    roots.push(root);
+    const project = join(root, 'project');
+    mkdirSync(project);
+    let rebootSnapshot: ReturnType<FleetManager['get']> | undefined;
+    let id = '';
+    const fleet = new FleetManager(root, {
+      mainJs: process.execPath,
+      spawn: () => ({ sessionId: 'old-running', pid: 99883 }),
+      stopSession: () => {
+        const restarted = new FleetManager(root, { isAlive: () => true });
+        rebootSnapshot = restarted.get(id);
+      },
+      isAlive: () => true,
+    });
+    const { instance } = fleet.create({ projectPath: project, authMode: 'api-key' });
+    id = instance.id;
+    fleet.start(id);
+    await expect(fleet.stopForTrustedHostTransition(id, { timeoutMs: 10 }))
+      .rejects.toThrow('FLEET_PROFILE_STOP_UNVERIFIED');
+    expect(rebootSnapshot?.state).not.toBe('stopped');
+    expect(rebootSnapshot?.pid).toBe(99883);
+    expect(rebootSnapshot?.lastError).toMatch(/FLEET_PROFILE_STOP_UNVERIFIED/);
+  });
+
+  it('preserves uncertain sandbox stop across parent restart until the PID is proven gone', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ff-reboot-pid-'));
+    roots.push(root);
+    const project = join(root, 'project');
+    mkdirSync(project);
+    let alive = true;
+    const fleet = new FleetManager(root, {
+      mainJs: process.execPath,
+      spawn: () => ({ sessionId: 'zombie-session', pid: 99881 }),
+      stopSession: () => {},
+      isAlive: () => alive,
+    });
+    const { instance } = fleet.create({ projectPath: project, authMode: 'api-key' });
+    fleet.start(instance.id);
+    await expect(fleet.stopForTrustedHostTransition(instance.id, { timeoutMs: 10 }))
+      .rejects.toThrow('FLEET_PROFILE_STOP_UNVERIFIED');
+    const recovered = new FleetManager(root, { isAlive: () => alive });
+    expect(recovered.get(instance.id).state).not.toBe('stopped');
+    expect(recovered.get(instance.id).pid).toBe(99881);
+    expect(recovered.get(instance.id).lastError).toMatch(/FLEET_PROFILE_STOP_UNVERIFIED/);
+    // The recovered status is failed, but the orphan is *still alive*.
+    // No one-click or legacy update may elevate this Fleet record.
+    await expect(recovered.stopForTrustedHostTransition(instance.id, { timeoutMs: 10 }))
+      .rejects.toThrow('FLEET_PROFILE_STOP_UNVERIFIED');
+    expect(() => recovered.updateProfileAtomically(instance.id, tuple, {} as TrustedHostConsentService))
+      .toThrow('FLEET_CHILD_TERMINATION_UNVERIFIED');
+    alive = false;
+    const after = new FleetManager(root, { isAlive: () => alive });
+    expect(after.get(instance.id).state).toBe('stopped');
+  });
+
+  it('refuses to transition active sessions with no observed PID', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ff-no-pid-transition-'));
+    roots.push(root);
+    const project = join(root, 'project');
+    mkdirSync(project);
+    const fleet = new FleetManager(root, {
+      mainJs: process.execPath,
+      spawn: () => ({ sessionId: 'hidden-session', pid: undefined }),
+      stopSession: () => {},
+      isAlive: () => false,
+    });
+    const { instance } = fleet.create({ projectPath: project, authMode: 'api-key' });
+    fleet.start(instance.id);
+    await expect(fleet.stopForTrustedHostTransition(instance.id, { timeoutMs: 10 }))
+      .rejects.toThrow('FLEET_PROFILE_STOP_UNVERIFIED');
+    expect(fleet.get(instance.id).terminalExecution).toBe('sandbox-required');
+  });
+
   it('never marks an elevated child stopped while a failed stop leaves PID alive', () => {
     const root = mkdtempSync(join(tmpdir(), 'ff-host-stop-failure-'));
     roots.push(root);
