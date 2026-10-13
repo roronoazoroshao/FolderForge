@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { createServer, type Server } from 'node:http';
+import { createServer, request as httpRequest, type Server } from 'node:http';
 import { once } from 'node:events';
 import { type AddressInfo } from 'node:net';
 import { createSshLocalBridge } from '../../src/operator/ssh-local-bridge.js';
@@ -86,10 +86,20 @@ describe('SSH desktop bridge: browser-intent binding', () => {
       body: 'pair=' + h.token,
     });
     expect(paired.status).toBe(303);
-    const after = await fetch(h.origin + '/app/', {
-      headers: { ...headers, cookie: 'ff_ssh_operator_session=forged' },
+    // Node fetch forces Sec-Fetch-Mode=cors. A real browser top-level
+    // document navigation sends navigate/document, so use raw HTTP here.
+    const after = await new Promise<number>((resolve, reject) => {
+      const request = httpRequest(h.origin + '/app/', {
+        method: 'GET',
+        headers: { ...headers, cookie: 'ff_ssh_operator_session=forged' },
+      }, res => {
+        res.resume();
+        res.once('end', () => resolve(res.statusCode ?? 0));
+      });
+      request.once('error', reject);
+      request.end();
     });
-    expect(after.status).toBe(200);
+    expect(after).toBe(200);
     expect(h.seen[h.seen.length - 1]?.url).toBe('/app/');
     // The cross-site navigation exception deliberately strips cookies, and
     // cannot be used to forward a manually supplied admin session.
