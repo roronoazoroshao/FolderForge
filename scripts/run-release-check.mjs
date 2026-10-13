@@ -22,6 +22,12 @@ delete env.npm_config_dry_run;
 delete env.NPM_CONFIG_DRY_RUN;
 const steps = [
   ['run', 'release:preflight'],
+  // A published One-Click release must include the actual built Mission
+  // Control UI. The nested SPA is a separate private package, not a root
+  // npm workspace dependency; install it automatically for nontechnical
+  // release operators instead of silently shipping the fallback placeholder.
+  ['--prefix', 'packages/mission-control', 'ci', '--ignore-scripts'],
+  ['run', 'build:mission-control'],
   ['run', 'verify'],
   ['run', 'quality:check'],
   ['run', 'docs:check'],

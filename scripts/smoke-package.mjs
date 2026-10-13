@@ -146,6 +146,9 @@ try {
     'LICENSE',
     'dist/main.js',
     'dist/dashboard/static/index.html',
+    // A release with the One-Click UI must ship the actual Mission Control
+    // React bundle, not the fallback "frontend not installed" placeholder.
+    'dist/dashboard/app/index.html',
     'dist/server/auth/oauth.js',
     'dist/chatgpt/cli.js',
     'dist/distributed/coordinator.js',
@@ -187,6 +190,19 @@ try {
     if (!packagedFiles.has(required)) {
       throw new Error(`Packed tarball is missing required file: ${required}`);
     }
+  }
+
+  // The built app must reference hashed JS assets included in the tarball.
+  // No network install of the frontend is expected on an end-user machine.
+  if (![...packagedFiles].some(file =>
+      file.startsWith('dist/dashboard/app/assets/') && file.endsWith('.js'))) {
+    throw new Error('Packed Mission Control is missing its executable JavaScript assets.');
+  }
+  const spaFile = join(root, 'dist', 'dashboard', 'app', 'index.html');
+  const spaHtml = readFileSync(spaFile, 'utf8');
+  if (spaHtml.includes('optional frontend bundle is not installed') ||
+      !/<script[^>]+src="[^"]+\.js"/.test(spaHtml)) {
+    throw new Error('Packed Mission Control is a placeholder, not the built frontend.');
   }
 
   writeFileSync(
