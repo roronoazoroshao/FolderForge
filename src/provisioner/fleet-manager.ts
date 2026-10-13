@@ -568,6 +568,39 @@ export class FleetManager {
     }
   }
 
+  /**
+   * Generate a credential for an anonymous Fleet child within the same
+   * crash-recoverable journal as its new full/danger/trusted-host profile.
+   * The static token is returned once to the authenticated owner UI, never
+   * placed in Fleet's public JSON or process argv.
+   */
+  enableSecureProfileAtomically(
+    id: string, tuple: FleetProfileTuple, consent: TrustedHostConsentService,
+  ): { instance: FleetInstance; token: string } {
+    const record = this.mutable(id);
+    if (record.authMode !== 'none') throw new Error('FLEET_AUTH_ALREADY_CONFIGURED');
+    if (record.state === 'running' || record.state === 'starting' || record.state === 'stopping' ||
+        record.openAiTunnel?.state === 'running' || record.openAiTunnel?.state === 'starting') {
+      throw new Error('FLEET_INSTANCE_ACTIVE');
+    }
+    const token = generateToken();
+    const identity = consent.authorizationDigest(id, tuple, true);
+    this.activeProfileAuthorization = (actualId, actualTuple, digest) => {
+      if (actualId !== id || digest !== identity) throw new Error('CONSENT_SCOPE_MISMATCH');
+      consent.assertAuthorizedForDigest(actualId, actualTuple, digest);
+    };
+    try {
+      const updated = this.profileTransaction.commit(id, tuple, identity, {
+        token, tokenSha256: sha256(token),
+        renderYaml: instanceConfigYaml,
+      });
+      Object.assign(record, updated);
+      return { instance: cloneInstance(record), token };
+    } finally {
+      this.activeProfileAuthorization = undefined;
+    }
+  }
+
   private recoverPendingProfile(): void {
     if (!existsSync(resolve(dirname(this.statePath), 'fleet-profile.journal'))) return;
     this.profileTransaction.recoverBeforeReadOrStart();
