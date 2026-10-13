@@ -160,13 +160,26 @@ export async function createSshLocalBridge(
       }
       const incomingOrigin = req.headers.origin;
       const incomingSite = req.headers['sec-fetch-site'];
+      // A real file:// owner invitation produces a *cross-site* top-level
+      // document navigation after its successful 303. This exception permits
+      // fetching ONLY the read-only app HTML, and ONLY after one valid pairing.
+      // Never allow cross-site API calls, subresources or mutations.
+      const pairedAppNavigation = used && req.method === 'GET' &&
+        url.pathname.startsWith('/app/') && incomingOrigin === undefined &&
+        incomingSite === 'cross-site' &&
+        req.headers['sec-fetch-mode'] === 'navigate' &&
+        req.headers['sec-fetch-dest'] === 'document';
       if ((incomingOrigin !== undefined && incomingOrigin !== origin) ||
-          (incomingSite !== undefined && !['none', 'same-origin'].includes(String(incomingSite))) ||
+          (incomingSite !== undefined &&
+            !['none', 'same-origin'].includes(String(incomingSite)) && !pairedAppNavigation) ||
           (req.method !== 'GET' && req.method !== 'HEAD' && incomingOrigin !== origin)) {
         deny(res, 403);
         return;
       }
       const filtered = { ...req.headers };
+      // Never forward operator cookies on an inherited cross-site navigation;
+      // the app's subsequent same-origin requests carry the browser session.
+      if (pairedAppNavigation) delete filtered.cookie;
       for (const key of Object.keys(filtered)) {
         if (key === 'x-folderforge-ssh-bootstrap' || key.startsWith('x-ssh-') ||
             key.startsWith('x-forwarded-') || key === 'connection' ||
