@@ -52,6 +52,7 @@ export async function openLocalOwnerBrowser(args: readonly string[]): Promise<vo
     const token = randomBytes(32).toString('base64url');
     bridge = await createSshLocalBridge({
       forwardPort: port, invitationToken: token, landingPath,
+      ...(credential ? { upstreamCredential: credential } : {}),
       takeBootstrap: () => {
         const value = secret;
         secret = null;
