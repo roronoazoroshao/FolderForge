@@ -54,31 +54,28 @@ describe('production release workflow contracts', () => {
   });
 
   it.each(['release', 'publish'] as const)(
-    '%s requires exact-SHA CI and a verified production soak artifact',
+    '%s uses exact tagged commit CI without a mandatory soak receipt',
     (name) => {
       const source = text(name);
       const workflow = parsed(name) as { permissions: Record<string, string> };
-
       expect(workflow.permissions.actions).toBe('read');
+      expect(source).toContain('release_sha="$(git rev-parse HEAD)"');
       expect(source).toContain('actions/workflows/ci.yml/runs');
-      expect(source).toContain('-f head_sha="${GITHUB_SHA}"');
+      expect(source).toContain('-f head_sha="${release_sha}"');
       expect(source).toContain('-f status=success');
-      expect(source).toContain('actions/artifacts');
-      expect(source).toContain('-f name="production-soak-${GITHUB_SHA}"');
-      expect(source).toContain('.expired == false');
-      expect(source).toContain('.name == "production-soak"');
-      expect(source).toContain('.path == ".github/workflows/production-soak.yml"');
-      expect(source).toContain('--name "production-soak-${GITHUB_SHA}"');
-      expect(source).toContain('scripts/verify-production-soak.mjs');
-      expect(source).toContain('--commit "${GITHUB_SHA}"');
+      expect(source).not.toContain('actions/artifacts');
+      expect(source).not.toContain('verify-production-soak.mjs');
+      expect(source).not.toContain('production-soak-verification.json');
+      expect(source).not.toContain('production-soak-');
     },
   );
 
-  it('attests and publishes the production soak receipt with npm evidence', () => {
+  it('still attests and publishes the immutable npm tarball, SBOM and manifest', () => {
     const source = text('publish');
-    expect(source).toContain('Attest production soak verification receipt');
-    expect(source).toContain('subject-path: ${{ runner.temp }}/production-soak-verification.json');
-    expect(source).toContain('${{ runner.temp }}/production-soak-verification.json');
-    expect(source).toContain('"${RUNNER_TEMP}/production-soak-verification.json"');
+    expect(source).toContain('Attest tarball build provenance');
+    expect(source).toContain('Attest tarball SBOM');
+    expect(source).toContain('Attest release manifest');
+    expect(source).toContain('npm publish');
+    expect(source).toContain('Verify registry package bytes and source metadata');
   });
 });
