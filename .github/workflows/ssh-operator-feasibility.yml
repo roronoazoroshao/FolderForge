@@ -61,6 +61,8 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci --ignore-scripts
+      - name: Build Godot adapter imported by real Dashboard tool registry
+        run: npm run build:adapter-godot
       - name: Build actual Mission Control SPA for browser acceptance
         run: npm run build:mission-control
       - name: Install real Chromium and runtime dependencies
