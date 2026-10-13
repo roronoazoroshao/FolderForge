@@ -95,6 +95,7 @@ export function FleetScreen() {
   const [oauthWriteScope, setOauthWriteScope] = useState('folderforge:write');
   const [oauthRegistration, setOauthRegistration] = useState('cimd');
   const [credential, setCredential] = useState<OneTimeCredential | null>(null);
+  const [optionalConnectionKey, setOptionalConnectionKey] = useState<OneTimeCredential | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [quickAccessBusy, setQuickAccessBusy] = useState<string | null>(null);
@@ -190,7 +191,10 @@ export function FleetScreen() {
         body: { toolsPreset: 'full', policyMode: 'danger', terminalExecution: 'trusted-host' },
       });
       if (outcome.credential?.kind === 'token') {
-        setCredential({
+        // The MCP child already has a protected 0600 token file. Do not
+        // interrupt a successful one-click flow with a copy-key modal.
+        // Offer the optional one-time view for advanced external clients.
+        setOptionalConnectionKey({
           id: instance.id, kind: 'token', value: outcome.credential.value,
           reason: 'created',
         });
@@ -528,6 +532,17 @@ export function FleetScreen() {
                       as this computer's FolderForge user, within configured workspaces.
                     </p>
                   ) : null}
+                  {optionalConnectionKey?.id === instance.id ? (
+                    <div className="text-xs text-muted">
+                      Your connection was secured automatically.
+                      <Button size="sm" variant="ghost" onClick={() => {
+                        setCredential(optionalConnectionKey);
+                        setOptionalConnectionKey(null);
+                      }}>
+                        <KeyRound size={13} aria-hidden /> Show connection key
+                      </Button>
+                    </div>
+                  ) : null}
                   <div className="flex flex-wrap gap-1.5 border-t border-border-soft pt-1">
                     {grantsByInstance[instance.id] === 'approved' ? (
                       <Button
@@ -603,7 +618,7 @@ export function FleetScreen() {
           instance={configFor}
           onClose={() => setConfigFor(null)}
           onSaved={() => { setConfigFor(null); fleet.reload(); }}
-          onCredential={(value) => setCredential({
+          onCredential={(value) => setOptionalConnectionKey({
             id: configFor.id, kind: 'token', value, reason: 'created',
           })}
         />
