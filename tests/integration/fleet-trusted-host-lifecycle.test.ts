@@ -114,6 +114,31 @@ describe('Fleet trusted-host execution boundary', () => {
     expect(() => fleet.start(instance.id)).toThrow();
   });
 
+  it('preserves uncertain sandbox stop across parent restart until the PID is proven gone', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ff-reboot-pid-'));
+    roots.push(root);
+    const project = join(root, 'project');
+    mkdirSync(project);
+    let alive = true;
+    const fleet = new FleetManager(root, {
+      mainJs: process.execPath,
+      spawn: () => ({ sessionId: 'zombie-session', pid: 99881 }),
+      stopSession: () => {},
+      isAlive: () => alive,
+    });
+    const { instance } = fleet.create({ projectPath: project, authMode: 'api-key' });
+    fleet.start(instance.id);
+    await expect(fleet.stopForTrustedHostTransition(instance.id, { timeoutMs: 10 }))
+      .rejects.toThrow('FLEET_PROFILE_STOP_UNVERIFIED');
+    const recovered = new FleetManager(root, { isAlive: () => alive });
+    expect(recovered.get(instance.id).state).not.toBe('stopped');
+    expect(recovered.get(instance.id).pid).toBe(99881);
+    expect(recovered.get(instance.id).lastError).toMatch(/FLEET_PROFILE_STOP_UNVERIFIED/);
+    alive = false;
+    const after = new FleetManager(root, { isAlive: () => alive });
+    expect(after.get(instance.id).state).toBe('stopped');
+  });
+
   it('refuses to transition active sessions with no observed PID', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ff-no-pid-transition-'));
     roots.push(root);
