@@ -17,6 +17,8 @@ export interface SshLocalBridgeOptions {
   now?: () => number;
   invitationTtlMs?: number;
   landingPath?: string;
+  /** Owner-only Dashboard credential: used only for trusted IPC exchange. */
+  upstreamCredential?: string;
 }
 
 export interface SshLocalBridge {
@@ -60,7 +62,7 @@ async function readBounded(req: IncomingMessage, maxBytes: number): Promise<stri
   return Buffer.concat(chunks).toString('utf8');
 }
 
-async function exchangeRemote(port: number, secret: string): Promise<string | null> {
+async function exchangeRemote(port: number, secret: string, credential?: string): Promise<string | null> {
   const base = 'http://127.0.0.1:' + port;
   return new Promise((resolve, reject) => {
     const upstream = httpRequest(base + '/operator/ssh-session/exchange', {
@@ -69,6 +71,7 @@ async function exchangeRemote(port: number, secret: string): Promise<string | nu
         origin: base,
         'sec-fetch-site': 'same-origin',
         'x-folderforge-ssh-bootstrap': secret,
+        ...(credential ? { authorization: 'Bearer ' + credential } : {}),
         'content-length': '0',
       },
       timeout: 5_000,
@@ -139,7 +142,7 @@ export async function createSshLocalBridge(
         const secret = opts.takeBootstrap();
         if (!validSecret(secret)) { deny(res, 403); return; }
         let cookie: string | null;
-        try { cookie = await exchangeRemote(opts.forwardPort, secret); }
+        try { cookie = await exchangeRemote(opts.forwardPort, secret, opts.upstreamCredential); }
         catch { deny(res, 502); return; }
         if (!cookie) { deny(res, 403); return; }
         res.writeHead(303, {
