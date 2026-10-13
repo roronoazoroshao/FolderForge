@@ -908,8 +908,27 @@ async function handle(
           instanceId, tuple, operator, opts.sshOperatorBroker!, verifiedSshAuthority!,
           (approved) => { container.fleet.updateProfileAtomically(instanceId, approved, service); },
         );
+        // The owner's ONE enable action should start a stopped Fleet child,
+        // not require another manual "Start local" step. Persisted authority
+        // is independent of startup success: never claim a running process
+        // if spawn, lifecycle or health verification fails.
+        const current = container.fleet.get(instanceId);
+        let activation: { status: 'start_requested' | 'not_started' | 'failed'; message?: string } =
+          { status: 'not_started' };
+        if (current.state === 'stopped' || current.state === 'failed') {
+          try {
+            container.fleet.start(instanceId);
+            activation = { status: 'start_requested' };
+          } catch (error) {
+            activation = {
+              status: 'failed',
+              message: error instanceof Error ? error.message : 'INSTANCE_START_FAILED',
+            };
+          }
+        }
         return sendJson(res, 200, {
           status: 'persisted', newlyApproved: result.newlyApproved,
+          activation,
           instance: publicFleetInstance(container.fleet.get(instanceId)),
           runtime: container.fleet.effectiveExecutionStatus(instanceId),
         });
