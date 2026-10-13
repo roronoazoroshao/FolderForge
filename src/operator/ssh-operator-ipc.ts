@@ -4,7 +4,7 @@ import {
 import { dirname, resolve } from 'node:path';
 import { createConnection, createServer, type Server, type Socket } from 'node:net';
 import type { SshHelperBootstrap, SshHelperBroker } from './ssh-session-helper.js';
-import type { SshSessionBroker } from './ssh-session-broker.js';
+import type { SshSessionBroker, OperatorProofSource } from './ssh-session-broker.js';
 
 const PROTOCOL = 'folderforge-ssh-operator-bootstrap-v1';
 
@@ -17,6 +17,7 @@ const PROTOCOL = 'folderforge-ssh-operator-bootstrap-v1';
 export async function startSshOperatorIpcServer(
   broker: SshSessionBroker,
   socketPath: string,
+  proofSource: OperatorProofSource = 'ssh-remote-exec',
 ): Promise<{ socketPath: string; close(): Promise<void> }> {
   if (process.platform !== 'linux' && process.platform !== 'darwin') {
     throw new Error('SSH_OPERATOR_PLATFORM_UNSUPPORTED');
@@ -35,7 +36,7 @@ export async function startSshOperatorIpcServer(
     sockets.add(socket);
     let leaseId: string | undefined;
     try {
-      const bootstrap = broker.openFromHost(broker.serviceUid);
+      const bootstrap = broker.openFromHost(broker.serviceUid, proofSource);
       leaseId = bootstrap.leaseId;
       const wire: SshHelperBootstrap & { protocol: typeof PROTOCOL } = {
         protocol: PROTOCOL, ...bootstrap,
