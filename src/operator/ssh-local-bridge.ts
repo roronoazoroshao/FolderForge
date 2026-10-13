@@ -16,7 +16,7 @@ export interface SshLocalBridgeOptions {
   takeBootstrap: () => string | null;
   now?: () => number;
   invitationTtlMs?: number;
-  landingPath?: '/' | '/app/';
+  landingPath?: string;
 }
 
 export interface SshLocalBridge {
@@ -97,7 +97,10 @@ export async function createSshLocalBridge(
   const now = opts.now ?? Date.now;
   const ttl = opts.invitationTtlMs ?? 60_000;
   const landingPath = opts.landingPath ?? '/';
-  if (landingPath !== '/' && landingPath !== '/app/') throw new Error('INVALID_SSH_BRIDGE_LANDING');
+  if (landingPath !== '/' && landingPath !== '/app/' &&
+      !/^\/app\/\?token=[A-Za-z0-9_-]{32,128}$/.test(landingPath)) {
+    throw new Error('INVALID_SSH_BRIDGE_LANDING');
+  }
   if (!Number.isSafeInteger(ttl) || ttl < 1 || ttl > 60_000) {
     throw new Error('INVALID_SSH_INVITATION_TTL');
   }
