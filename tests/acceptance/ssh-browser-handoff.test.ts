@@ -74,5 +74,50 @@ describe.skipIf(!required)(
         cookie.httpOnly && cookie.sameSite === 'Strict')).toBe(true);
       await owner.close();
     }, 35_000);
+
+    it('opens local Mission Control app directly from a one-time owner invitation', async () => {
+      let exchanges = 0;
+      const server = createServer((req, res) => {
+        if (req.url === '/operator/ssh-session/exchange') {
+          exchanges++;
+          res.writeHead(200, {
+            'set-cookie': 'ff_ssh_operator_session=localproof; HttpOnly; SameSite=Strict; Path=/',
+          });
+          res.end('{"verified":true}');
+          return;
+        }
+        res.writeHead(200, { 'content-type': 'text/plain' });
+        res.end(req.url === '/app/' && req.headers.cookie?.includes('localproof')
+          ? 'owner app session' : 'not authorized');
+      });
+      servers.push(server);
+      server.listen(0, '127.0.0.1');
+      await once(server, 'listening');
+      const token = 'c'.repeat(43);
+      let secret: string | null = 'd'.repeat(43);
+      const bridge = await createSshLocalBridge({
+        forwardPort: (server.address() as AddressInfo).port,
+        invitationToken: token,
+        landingPath: '/app/',
+        takeBootstrap: () => {
+          const value = secret;
+          secret = null;
+          return value;
+        },
+      });
+      cleanup.push(bridge.close);
+      const invite = createSshBrowserInvitation(bridge.origin, token);
+      cleanup.push(invite.cleanup);
+      const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
+      browsers.push(browser);
+      const context = await browser.newContext();
+      const page = await context.newPage();
+      await page.goto(invite.url);
+      await page.waitForURL(bridge.origin + '/app/', { timeout: 10_000 });
+      await page.reload();
+      expect(await page.locator('body').innerText()).toContain('owner app session');
+      expect(exchanges).toBe(1);
+      await context.close();
+    }, 35_000);
   },
 );
