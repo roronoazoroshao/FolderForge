@@ -111,7 +111,7 @@ export class SshOperatorWebSessions {
           'HttpOnly', 'SameSite=Strict', 'Path=/', 'Max-Age=28800',
         ].join('; '));
         return respond(res, 200, {
-          verified: true, source: 'ssh-remote-exec',
+          verified: true, source: this.broker.assertLiveSession(session.sessionId).source,
           csrfToken, expiresAt: session.expiresAt,
         });
       } catch {
@@ -128,7 +128,7 @@ export class SshOperatorWebSessions {
       return respond(res, 200, active
         ? {
             verified: true,
-            source: 'ssh-remote-exec',
+            source: active.authority.source,
             csrfToken: this.csrfBySession.get(this.key(active.sessionId)),
           }
         : { verified: false });
