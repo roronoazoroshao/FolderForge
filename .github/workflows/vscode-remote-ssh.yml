@@ -32,6 +32,7 @@ jobs:
       - name: Security regression for VS Code-owned SSH launcher
         run: |
           npx vitest run tests/unit/vscode-remote-ssh-bridge.test.ts \
+            tests/unit/vscode-remote-ssh-runtime.test.ts \
             tests/unit/ssh-dashboard-launcher.test.ts \
             tests/integration/ssh-local-bridge.test.ts \
             --reporter=verbose
