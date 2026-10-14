@@ -1,0 +1,48 @@
+{
+  "name": "folderforge-remote-ssh",
+  "displayName": "FolderForge Remote-SSH Verification",
+  "description": "Open an OS-verified FolderForge Mission Control from your existing VS Code Remote-SSH workspace.",
+  "version": "0.1.0",
+  "publisher": "musashishao",
+  "private": true,
+  "license": "Apache-2.0",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "extensionKind": [
+    "ui"
+  ],
+  "main": "./src/extension.cjs",
+  "activationEvents": [
+    "onUri",
+    "onCommand:folderforgeRemoteSsh.verify"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "folderforgeRemoteSsh.verify",
+        "title": "FolderForge: Open Verified Mission Control (Remote-SSH)"
+      }
+    ],
+    "configuration": {
+      "title": "FolderForge Remote-SSH",
+      "properties": {
+        "folderforgeRemoteSsh.dashboardPort": {
+          "type": "integer",
+          "default": 7332,
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "Port where FolderForge Mission Control is listening on the SSH host."
+        },
+        "folderforgeRemoteSsh.executablePath": {
+          "type": "string",
+          "default": "folderforge",
+          "description": "FolderForge CLI executable on this local computer (not on SSH host)."
+        }
+      }
+    }
+  }
+}
