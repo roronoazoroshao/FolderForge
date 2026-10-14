@@ -1,7 +1,7 @@
 'use strict';
 const vscode = require('vscode');
 const { spawn } = require('node:child_process');
-const { resolveRemoteAlias, parseTrustedUri, buildVerifiedLauncher } = require('./core.cjs');
+const { resolveRemoteAlias, parseTrustedUri, buildVerifiedLauncher, globalSetting } = require('./core.cjs');
 
 const sessions = new Map();
 let output;
@@ -29,8 +29,8 @@ async function verify() {
     const activeUri = vscode.window.activeTextEditor?.document.uri;
     host = resolveRemoteAlias(uris, activeUri);
     const config = vscode.workspace.getConfiguration('folderforgeRemoteSsh');
-    const port = config.get('dashboardPort', 7332);
-    const executable = config.get('executablePath', 'folderforge');
+    const port = globalSetting(config.inspect('dashboardPort'), 7332);
+    const executable = globalSetting(config.inspect('executablePath'), 'folderforge');
     launch = buildVerifiedLauncher(host, port, executable);
   } catch (error) {
     await vscode.window.showErrorMessage('Unable to resolve a single trusted SSH workspace: ' + error.message);
