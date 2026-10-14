@@ -52,7 +52,7 @@ jobs:
           with zipfile.ZipFile(path) as arc:
               names = set(arc.namelist())
               for required in ('extension/package.json', 'extension/src/extension.cjs',
-                               'extension/src/core.cjs', 'extension/README.md'):
+                               'extension/src/core.cjs', 'extension/readme.md'):
                   assert required in names, f'Missing installed VSIX component {required}'
               meta = json.loads(arc.read('extension/package.json'))
               assert meta['extensionKind'] == ['ui']
