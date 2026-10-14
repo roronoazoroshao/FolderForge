@@ -38,8 +38,18 @@ jobs:
             --reporter=verbose
       - name: Verify production Mission Control builds with the VS Code link
         run: |
+          npm run build:adapter-godot
           npm run build:mission-control
           test -s packages/mission-control/dist/index.html
+      - name: Install actual Chromium for the verified owner browser handoff
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/folderforge-vscode-verified-browser
+        run: node node_modules/playwright-core/cli.js install --with-deps chromium
+      - name: Verify real owner cookie and Fleet enable/start/revoke E2E
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/folderforge-vscode-verified-browser
+          FOLDERFORGE_REQUIRE_BROWSER_E2E: '1'
+        run: npx vitest run tests/acceptance/ssh-browser-handoff.test.ts --reporter=verbose
       - name: Build installable local VS Code extension VSIX
         working-directory: packages/vscode-remote-ssh
         run: |
