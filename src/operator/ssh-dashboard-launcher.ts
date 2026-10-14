@@ -193,6 +193,9 @@ export async function executeSshDashboardCli(args: readonly string[]): Promise<v
     bridge = await createSshLocalBridge({
       forwardPort,
       invitationToken: token,
+      // An owner entering via VS Code must land in the actual SPA, not the
+      // root legacy dashboard. The one-time browser pairing remains unchanged.
+      landingPath: '/app/',
       takeBootstrap: () => {
         const value = secret;
         secret = null;
