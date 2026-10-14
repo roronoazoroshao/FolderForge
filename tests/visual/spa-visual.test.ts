@@ -91,6 +91,9 @@ function resolveChromiumExecutable(): string | undefined {
 }
 
 const CHROMIUM = resolveChromiumExecutable();
+if (process.env.FF_VISUAL_REQUIRE_BROWSER === '1' && !CHROMIUM) {
+  throw new Error('VISUAL_BROWSER_REQUIRED: Chromium unavailable. A visual release test must not skip.');
+}
 
 interface VisualHarness {
   root: string;
