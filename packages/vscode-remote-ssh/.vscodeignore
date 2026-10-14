@@ -2,4 +2,3 @@
 **/*.test.*
 *.vsix
 node_modules/**
-README.md
