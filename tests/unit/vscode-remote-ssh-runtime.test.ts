@@ -76,7 +76,7 @@ describe('local VS Code extension real invocation contract', () => {
     path: '/verify', query: '', fragment: '',
   };
   it('does not spawn from a web deep link without explicit owner confirmation', async () => {
-    const h = fixture(undefined);
+    const h = fixture(''); // User dismissed the modal without approving.
     await h.handlers.uri(validUri);
     expect(h.warnings).toHaveLength(1);
     expect(h.spawn).not.toHaveBeenCalled();
