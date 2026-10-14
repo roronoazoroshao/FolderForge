@@ -91,6 +91,9 @@ function resolveChromiumExecutable(): string | undefined {
 }
 
 const CHROMIUM = resolveChromiumExecutable();
+if (process.env.FF_VISUAL_REQUIRE_BROWSER === '1' && !CHROMIUM) {
+  throw new Error('VISUAL_BROWSER_REQUIRED: Chromium unavailable. A visual release test must not skip.');
+}
 
 interface VisualHarness {
   root: string;
@@ -228,44 +231,53 @@ describe.skipIf(!CHROMIUM)('Mission Control SPA visual regression (proposal 018)
     }
   }
 
-  it('submits exactly one scoped host intent from Fleet Configure and leaves runtime unchanged', { timeout: 30_000 }, async () => {
+  it('rejects one-click host enrollment in Fleet Configure without an OS-verified owner session', { timeout: 30_000 }, async () => {
     const local = await startHarness();
     const page = await desktop.newPage();
     const project = join(local.root, 'fleet-project');
     mkdirSync(project);
     const { instance } = local.container.fleet.create({ projectPath: project, authMode: 'api-key' });
-    let intents = 0;
-    let legacySetters = 0;
+    let statusReads = 0;
+    let privilegedWrites = 0;
+    let legacyWrites = 0;
     try {
-      await page.route('**/fleet/*/profile-intents', async route => {
-        if (route.request().method() !== 'POST') return route.continue();
-        intents++;
-        const body = route.request().postDataJSON() as Record<string, string>;
-        expect(body).toEqual({
-          toolsPreset: 'full', policyMode: 'danger', terminalExecution: 'trusted-host',
-        });
+      // This ordinary browser has NO OS-owner session. Model an explicit
+      // unverified status response rather than issuing a fake bootstrap grant.
+      await page.route('**/operator/ssh-session/status', async route => {
+        statusReads++;
         await route.fulfill({
-          status: 202, contentType: 'application/json',
-          body: JSON.stringify({ requestId: 'req_browser_fixture', status: 'pending', expiresAt: Date.now() + 600000 }),
+          status: 200, contentType: 'application/json',
+          body: JSON.stringify({ verified: false }),
         });
       });
-      await page.route(/\/fleet\/[^/]+\/(preset|policy|terminal)$/, async route => {
-        legacySetters++;
-        await route.fulfill({ status: 500, body: 'legacy profile setter must not run' });
+      await page.route('**/fleet/*/one-click-trusted-host', async route => {
+        if (route.request().method() !== 'GET') {
+          privilegedWrites++;
+          return route.fulfill({ status: 403, body: '{"error":"VERIFIED_OWNER_SESSION_REQUIRED"}' });
+        }
+        return route.continue();
+      });
+      await page.route(/\/fleet\/[^/]+\/(profile-intents|preset|policy|terminal)$/, async route => {
+        if (route.request().method() !== 'GET') legacyWrites++;
+        await route.fulfill({ status: 403, body: 'legacy host authorization route must not run' });
       });
       await page.goto(`${local.baseUrl}/app/fleet?token=local-preview-token`, { waitUntil: 'networkidle' });
-      await page.getByRole('button', { name: 'Configure' }).first().click();
-      await page.getByRole('dialog').getByText(`Configure ${instance.id}`).waitFor();
+      await page.getByRole('button', { name: 'Configure', exact: true }).first().click();
       const modal = page.getByRole('dialog');
-      await modal.getByRole('combobox', { name: 'Tool preset' }).selectOption('full');
-      await modal.getByRole('combobox', { name: 'Policy mode' }).selectOption('danger');
-      await modal.getByRole('combobox', { name: 'Terminal execution profile' }).selectOption('trusted-host');
-      await modal.getByRole('button', { name: 'Save changes' }).click();
-      await modal.getByText(/Awaiting approval from the operator/).waitFor();
-      expect(await modal.getByText(/folderforge operator trusted-host approve/).count()).toBe(1);
-      expect(intents).toBe(1);
-      expect(legacySetters).toBe(0);
-      expect(local.container.fleet.get(instance.id).terminalExecution).toBe('sandbox-required');
+      await modal.getByText('Allow AI to work on this computer').waitFor({ timeout: 6_000 });
+      // No profile-intent CLI flow should ever be surfaced as a prerequisite.
+      expect(await modal.getByText(/folderforge operator trusted-host approve/).count()).toBe(0);
+      await modal.getByRole('button', { name: 'Allow AI access', exact: true }).click();
+      await modal.getByText(/Cannot verify this browser as the machine owner/).waitFor({
+        state: 'visible', timeout: 6_000,
+      });
+      expect(statusReads).toBe(1);
+      expect(privilegedWrites).toBe(0);
+      expect(legacyWrites).toBe(0);
+      expect(local.container.fleet.get(instance.id)).toMatchObject({
+        authMode: 'api-key',
+        terminalExecution: 'sandbox-required',
+      });
     } finally {
       await page.close();
       await new Promise<void>(resolve => local.server.close(() => resolve()));

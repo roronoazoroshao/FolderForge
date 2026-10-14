@@ -1,0 +1,49 @@
+name: Owner consent visual regression
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tests/visual/spa-visual.test.ts'
+      - 'packages/mission-control/src/screens/Fleet.tsx'
+      - 'src/dashboard/server.ts'
+      - '.github/workflows/owner-consent-visual.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  one-click-visual:
+    name: Real Chromium Fleet consent UI
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: /tmp/folderforge-owner-visual-playwright
+      FF_VISUAL_REQUIRE_BROWSER: '1'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install source and frontend dependencies
+        run: |
+          npm ci --ignore-scripts
+          npm ci --prefix packages/mission-control --ignore-scripts
+      - name: Build real runtime imports and SPA
+        run: |
+          npm run build:adapter-godot
+          npm run build:mission-control
+          test -s packages/mission-control/dist/index.html
+          if grep -q "optional frontend bundle is not installed" packages/mission-control/dist/index.html; then
+            echo "SPA placeholder would invalidate the browser test" >&2
+            exit 1
+          fi
+      - name: Install actual Chromium
+        run: node node_modules/playwright-core/cli.js install --with-deps chromium
+      - name: Verify untrusted Fleet browser is denied without a local approval CLI
+        run: |
+          npx vitest run tests/visual/spa-visual.test.ts \
+            -t "rejects one-click host enrollment in Fleet Configure" \
+            --reporter=verbose
