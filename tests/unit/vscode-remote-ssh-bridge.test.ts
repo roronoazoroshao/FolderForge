@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const {
@@ -49,9 +51,20 @@ describe('VS Code Remote-SSH UI host verification (no trust in forwarded HTTP)',
   });
   it('uses a fixed URI authority and never accepts hostile query parameters', () => {
     const uri = 'vscode://musashishao.folderforge-remote-ssh/verify';
-    expect(parseTrustedUri(new URL(uri) && { scheme: 'vscode',
-      authority: 'musashishao.folderforge-remote-ssh',
-      path: '/verify', query: '', fragment: '' })).toBe(true);
+    const parsed = new URL(uri);
+    expect(parseTrustedUri({ scheme: parsed.protocol.slice(0, -1),
+      authority: parsed.host, path: parsed.pathname,
+      query: parsed.search.slice(1), fragment: parsed.hash.slice(1) })).toBe(true);
+  });
+  it('provides a VS Code handoff in Fleet without accepting browser-specified host identity', () => {
+    const ui = readFileSync(resolve('packages/mission-control/src/screens/Fleet.tsx'), 'utf8');
+    expect(ui).toContain('Verify in VS Code');
+    expect(ui).toContain('vscode://musashishao.folderforge-remote-ssh/verify');
+    expect(ui).not.toMatch(/vscode:\/\/musashishao\.folderforge-remote-ssh\/verify\?/);
+    const extension = readFileSync(resolve('packages/vscode-remote-ssh/src/extension.cjs'), 'utf8');
+    expect(extension).toContain('shell: false');
+    expect(extension).toContain('modal: true');
+    expect(extension).toContain("vscode.env.remoteName !== 'ssh-remote'");
   });
   it('uses argv without a shell and accepts only a configured numeric dashboard port', () => {
     expect(buildVerifiedLauncher('my-vps', 7332)).toEqual({
