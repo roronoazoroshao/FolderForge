@@ -3,12 +3,13 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const {
   parseRemoteSshAuthority, resolveRemoteAlias, parseTrustedUri,
-  buildVerifiedLauncher,
+  buildVerifiedLauncher, globalSetting,
 } = require('../../packages/vscode-remote-ssh/src/core.cjs') as {
   parseRemoteSshAuthority: (s: string) => string;
   resolveRemoteAlias: (uris: Array<{ scheme: string; authority: string }>, active?: { scheme: string; authority: string }) => string;
   parseTrustedUri: (uri: { scheme: string; authority: string; path: string; query: string; fragment: string }) => boolean;
   buildVerifiedLauncher: (host: string, port: number, executable?: string) => { executable: string; argv: string[] };
+  globalSetting: (x: { globalValue?: string; defaultValue?: string; workspaceValue?: string; workspaceFolderValue?: string } | undefined, fallback: string) => string;
 };
 
 describe('VS Code Remote-SSH UI host verification (no trust in forwarded HTTP)', () => {
@@ -38,6 +39,19 @@ describe('VS Code Remote-SSH UI host verification (no trust in forwarded HTTP)',
       { ...clean, path: '/run' },
       { ...clean, authority: 'attacker.extension' },
     ]) expect(parseTrustedUri(malicious)).toBe(false);
+  });
+  it('ignores remote workspace settings that attempt to replace a local executable', () => {
+    expect(globalSetting({ globalValue: '/safe/local/folderforge',
+      workspaceValue: '/tmp/evil', workspaceFolderValue: '/tmp/evil' },
+    'folderforge')).toBe('/safe/local/folderforge');
+    expect(globalSetting({ defaultValue: 'folderforge',
+      workspaceValue: '/tmp/evil' }, 'fallback')).toBe('folderforge');
+  });
+  it('uses a fixed URI authority and never accepts hostile query parameters', () => {
+    const uri = 'vscode://musashishao.folderforge-remote-ssh/verify';
+    expect(parseTrustedUri(new URL(uri) && { scheme: 'vscode',
+      authority: 'musashishao.folderforge-remote-ssh',
+      path: '/verify', query: '', fragment: '' })).toBe(true);
   });
   it('uses argv without a shell and accepts only a configured numeric dashboard port', () => {
     expect(buildVerifiedLauncher('my-vps', 7332)).toEqual({
