@@ -573,10 +573,18 @@ export function FleetScreen() {
                       </Button>
                     </div>
                   ) : grantsByInstance[instance.id] !== 'approved' ? (
-                    <p className="text-xs text-muted">
-                      Enabling AI access permits file changes and command execution
-                      as this computer's FolderForge user, within configured workspaces.
-                    </p>
+                    <div className="grid gap-2 text-xs text-muted">
+                      <p>
+                        Enabling AI access permits file changes and command execution
+                        as this computer's FolderForge user, within configured workspaces.
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span>Using VS Code Remote-SSH?</span>
+                        <Button size="sm" variant="ghost" onClick={openVerifiedVSCodeSession}>
+                          Verify in VS Code
+                        </Button>
+                      </div>
+                    </div>
                   ) : null}
                   {optionalConnectionKey?.id === instance.id ? (
                     <div className="text-xs text-muted">
