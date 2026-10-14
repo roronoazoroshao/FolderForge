@@ -33,6 +33,16 @@ function parseTrustedUri(uri, expectedScheme = 'vscode') {
     uri.path === '/verify' && !uri.query && !uri.fragment;
 }
 
+// Workspace settings can be changed by a remote repository. For a UI-host
+// extension that spawns a LOCAL binary, only the local User setting is trusted.
+function globalSetting(inspected, fallback) {
+  return inspected && inspected.globalValue !== undefined
+    ? inspected.globalValue
+    : inspected && inspected.defaultValue !== undefined
+      ? inspected.defaultValue
+      : fallback;
+}
+
 function buildVerifiedLauncher(host, port, executable = 'folderforge') {
   if (typeof host !== 'string' || !SSH_ALIAS.test(host) || host.startsWith('-')) {
     throw new Error('VSCODE_SSH_ALIAS_UNSAFE');
@@ -51,5 +61,5 @@ function buildVerifiedLauncher(host, port, executable = 'folderforge') {
 
 module.exports = {
   EXTENSION_ID, parseRemoteSshAuthority, resolveRemoteAlias,
-  parseTrustedUri, buildVerifiedLauncher,
+  parseTrustedUri, buildVerifiedLauncher, globalSetting,
 };
