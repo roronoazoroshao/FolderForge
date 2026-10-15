@@ -7,7 +7,8 @@
  * exact create/change/rotate call that issued them.
  */
 
-import { isAbsolute, resolve, sep } from 'node:path';
+import { isAbsolute, resolve } from 'node:path';
+import { canonicalCandidatePath, isPathWithin } from '../core/path-identity.js';
 import { defineTool } from './registry.js';
 import type { ToolContext, ToolDefinition, ToolResult } from '../core/types.js';
 import {
@@ -24,9 +25,16 @@ import {
 function resolveFolder(input: string, ctx: ToolContext): string {
   const target = isAbsolute(input) ? resolve(input) : resolve(ctx.projectRoot, input);
   const allowed: string[] = ctx.config.workspace.allowedDirectories ?? [];
+  // Lexical containment alone lets /allowed/symlink -> /outside grant host
+  // execution outside the owner's selected roots. Resolve existing ancestors
+  // BEFORE writing Fleet state, including symlinks and sibling-prefix paths.
+  const canonicalTarget = canonicalCandidatePath(target);
   const inside = allowed.some((dir) => {
-    const base = resolve(dir);
-    return target === base || target.startsWith(base + sep);
+    try {
+      return isPathWithin(canonicalCandidatePath(resolve(dir)), canonicalTarget);
+    } catch {
+      return false; // Ambiguous path identity never widens the host allowlist.
+    }
   });
   if (!inside) throw new Error(`Folder is outside the configured allowedDirectories: ${target}`);
   return target;
