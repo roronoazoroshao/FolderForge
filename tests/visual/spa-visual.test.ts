@@ -269,7 +269,7 @@ describe.skipIf(!CHROMIUM)('Mission Control SPA visual regression (proposal 018)
       });
       await quickStartCta.waitFor({ state: 'visible', timeout: 6_000 });
       expect(await quickStartCta.isEnabled()).toBe(true);
-      expect(await page.getByText('Advanced: manual Fleet setup')).toBeVisible();
+      expect(await page.getByText('Advanced: manual Fleet setup', { exact: false }).isVisible()).toBe(true);
       expect(await page.getByRole('button', { name: 'Provision manually' }).isVisible()).toBe(false);
       // An ordinary localhost/forwarded browser can initiate a verified owner
       // handoff without gaining authority or invoking any privileged mutation.
