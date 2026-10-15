@@ -914,6 +914,7 @@ async function main(): Promise<void> {
             config.workspace.defaultProject, ...config.workspace.allowedDirectories,
           ],
           now: Date.now,
+          ...(token ? { dashboardCredential: token } : {}),
         });
       } catch (error) {
         logger.warn({ err: String(error) }, "SSH operator IPC unavailable (fail-closed)");

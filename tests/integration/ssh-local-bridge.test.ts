@@ -13,6 +13,7 @@ afterEach(async () => {
 
 async function fixture(upstreamCredential?: string) {
   const seen: Array<{ url: string; host: string; origin: string; bootstrap: string; claimedUid: string; cookie: string; authorization: string; csrf: string }> = [];
+  let leaseLive = true;
   const target = createServer((req, res) => {
     seen.push({
       url: req.url || '',
@@ -32,9 +33,13 @@ async function fixture(upstreamCredential?: string) {
       }
       res.writeHead(200, {
         'content-type': 'application/json',
-        'set-cookie': 'ff_ssh_operator_session=opaque; HttpOnly; SameSite=Strict; Path=/',
+        'set-cookie': 'ff_ssh_operator_session=' + 'z'.repeat(43) + '; HttpOnly; SameSite=Strict; Path=/',
       });
       res.end(JSON.stringify({ verified: true }));
+    } else if (req.url === '/operator/ssh-session/status') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ verified: leaseLive && req.headers.cookie ===
+        'ff_ssh_operator_session=' + 'z'.repeat(43) }));
     } else {
       res.writeHead(200, { 'content-type': 'text/plain' });
       res.end('dashboard');
@@ -56,7 +61,9 @@ async function fixture(upstreamCredential?: string) {
     },
   });
   closes.push(bridge.close);
-  return { origin: bridge.origin, token, seen, forwardPort };
+  return { origin: bridge.origin, token, seen, forwardPort,
+    revoke: () => { leaseLive = false; },
+  };
 }
 
 describe('SSH desktop bridge: browser-intent binding', () => {
@@ -73,11 +80,48 @@ describe('SSH desktop bridge: browser-intent binding', () => {
     expect(response.headers.get('set-cookie')).not.toContain(dashboardCredential);
     const exchange = h.seen.find(entry => entry.url === '/operator/ssh-session/exchange');
     expect(exchange?.authorization).toBe('Bearer ' + dashboardCredential);
-    const normal = await fetch(h.origin + '/app/', {
+    const unverified = await fetch(h.origin + '/app/', {
       headers: { 'x-folderforge-ssh-bootstrap': 'forged' },
     });
+    expect(unverified.status).toBe(403);
+    const cookie = response.headers.get('set-cookie')!.split(';')[0]!;
+    const normal = await fetch(h.origin + '/app/', { headers: { cookie } });
     expect(normal.status).toBe(200);
-    expect(h.seen[h.seen.length - 1]?.authorization).toBe('');
+    expect(h.seen[h.seen.length - 1]?.authorization).toBe('Bearer ' + dashboardCredential);
+  });
+
+  it('never proxies a configured Dashboard bearer from an anonymous localhost request', async () => {
+    const credential = 'm'.repeat(32);
+    const h = await fixture(credential);
+    const unpaired = await fetch(h.origin + '/fleet');
+    expect(unpaired.status).toBe(403);
+    expect(h.seen.some(v => v.url === '/fleet')).toBe(false);
+    const paired = await fetch(h.origin + '/__folderforge/activate', {
+      method: 'POST', redirect: 'manual',
+      headers: { origin: 'null', 'content-type': 'application/x-www-form-urlencoded' },
+      body: 'pair=' + h.token,
+    });
+    expect(paired.status).toBe(303);
+    const cookie = paired.headers.get('set-cookie')!.split(';')[0]!;
+    const forged = await fetch(h.origin + '/fleet', {
+      headers: { cookie: 'ff_ssh_operator_session=' + 'a'.repeat(43) },
+    });
+    expect(forged.status).toBe(403);
+    expect(h.seen.some(v => v.url === '/fleet')).toBe(false);
+    const authorized = await fetch(h.origin + '/fleet', { headers: { cookie } });
+    expect(authorized.status).toBe(200);
+    expect(h.seen.find(v => v.url === '/fleet')?.authorization).toBe('Bearer ' + credential);
+    const post = await fetch(h.origin + '/fleet/flt_12345678/one-click-trusted-host', {
+      method: 'POST', headers: { cookie, origin: h.origin, 'x-folderforge-operator-csrf': 'x'.repeat(43) },
+      body: '{}',
+    });
+    expect(post.status).toBe(200);
+    expect(h.seen.at(-1)?.authorization).toBe('Bearer ' + credential);
+    // An SSH lease can expire/logout while the TCP forward still exists.
+    // The proxy MUST stop supplying the Dashboard token in that case.
+    h.revoke();
+    const afterRevocation = await fetch(h.origin + '/fleet', { headers: { cookie } });
+    expect(afterRevocation.status).toBe(403);
   });
 
   it('refuses missing/forged URL or header proof and never exchanges on a simple GET', async () => {

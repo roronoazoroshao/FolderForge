@@ -18,6 +18,7 @@ export async function startSshOperatorIpcServer(
   broker: SshSessionBroker,
   socketPath: string,
   proofSource: OperatorProofSource = 'ssh-remote-exec',
+  dashboardCredential?: string,
 ): Promise<{ socketPath: string; close(): Promise<void> }> {
   if (process.platform !== 'linux' && process.platform !== 'darwin') {
     throw new Error('SSH_OPERATOR_PLATFORM_UNSUPPORTED');
@@ -40,6 +41,8 @@ export async function startSshOperatorIpcServer(
       leaseId = bootstrap.leaseId;
       const wire: SshHelperBootstrap & { protocol: typeof PROTOCOL } = {
         protocol: PROTOCOL, ...bootstrap,
+        ...(proofSource === 'ssh-remote-exec' && dashboardCredential
+          ? { dashboardCredential } : {}),
       };
       socket.write(JSON.stringify(wire) + '\n');
     } catch {
@@ -149,7 +152,14 @@ export async function openSshOperatorIpcClient(
         if (record.protocol !== PROTOCOL ||
             typeof record.bootstrapSecret !== 'string' ||
             typeof record.leaseId !== 'string' ||
-            typeof record.expiresAt !== 'number') {
+            typeof record.expiresAt !== 'number' ||
+            (record.dashboardCredential !== undefined &&
+              (typeof record.dashboardCredential !== 'string' ||
+                record.dashboardCredential.length > 512 ||
+                [...record.dashboardCredential].some(char => {
+                  const code = char.charCodeAt(0);
+                  return code < 32 || code === 127;
+                })))) {
           throw new Error('SSH_OPERATOR_IPC_INVALID_PROOF');
         }
         resolved = true;
@@ -160,6 +170,8 @@ export async function openSshOperatorIpcClient(
           bootstrapSecret: record.bootstrapSecret,
           leaseId: record.leaseId,
           expiresAt: record.expiresAt,
+          ...(typeof record.dashboardCredential === 'string'
+            ? { dashboardCredential: record.dashboardCredential } : {}),
         });
       } catch (e) {
         fail(e instanceof Error ? e : new Error('SSH_OPERATOR_IPC_INVALID_PROOF'));

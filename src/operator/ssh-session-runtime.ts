@@ -32,6 +32,8 @@ export async function startSshOperatorRuntime(opts: {
   installationId: string;
   projectRoots: string[];
   now: () => number;
+  /** Server-owned Dashboard token; passed only over OS-owner IPC + verified SSH. */
+  dashboardCredential?: string;
 }): Promise<SshOperatorRuntime> {
   if (process.platform !== 'linux' && process.platform !== 'darwin') {
     throw new Error('SSH_OPERATOR_PLATFORM_UNSUPPORTED');
@@ -56,7 +58,7 @@ export async function startSshOperatorRuntime(opts: {
     now: opts.now,
   });
   const ipc = await startSshOperatorIpcServer(
-    broker, sshOperatorIpcSocketPath(root),
+    broker, sshOperatorIpcSocketPath(root), 'ssh-remote-exec', opts.dashboardCredential,
   );
   let localIpc: Awaited<ReturnType<typeof startSshOperatorIpcServer>>;
   try {

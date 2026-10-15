@@ -38,14 +38,14 @@ describe.skipIf(!required)(
         if (req.url === '/operator/ssh-session/exchange') {
           exchanges += 1;
           res.writeHead(200, {
-            'set-cookie': 'ff_ssh_operator_session=opaque; HttpOnly; SameSite=Strict; Path=/',
+            'set-cookie': 'ff_ssh_operator_session=' + 'v'.repeat(43) + '; HttpOnly; SameSite=Strict; Path=/',
             'cache-control': 'no-store',
           });
           res.end('{"verified":true}');
           return;
         }
         res.writeHead(200, { 'content-type': 'text/plain' });
-        res.end(req.headers.cookie?.includes('ff_ssh_operator_session=opaque')
+        res.end(req.headers.cookie?.includes('ff_ssh_operator_session=' + 'v'.repeat(43))
           ? 'verified browser' : 'unauthenticated browser');
       });
       servers.push(upstream);
@@ -88,7 +88,9 @@ describe.skipIf(!required)(
       await owner.close();
     }, 35_000);
 
-    it('drives the REAL Mission Control Fleet button with an OS-owner browser session', async () => {
+    it.each([false, true])(
+      'drives the REAL Mission Control Fleet button using an OS-owner browser session (Dashboard auth: %s)',
+      async (requireDashboardAuth) => {
       const root = mkdtempSync(join(tmpdir(), 'ff-real-owner-ui-'));
       roots.push(root);
       const config = defaultConfig(root);
@@ -113,8 +115,11 @@ describe.skipIf(!required)(
         serviceUid: uid, installationId, operatorRoot: join(root, 'ssh'),
         projectRoots: [project], now: Date.now,
       });
+      const dashboardCredential = 'D'.repeat(32);
       const dashboard = startDashboard(container, buildRegistry(container), {
         host: '127.0.0.1', port: 0, sshOperatorBroker: broker,
+        ...(requireDashboardAuth
+          ? { requireAuth: true, token: dashboardCredential } : {}),
       });
       servers.push(dashboard);
       if (!dashboard.listening) await once(dashboard, 'listening');
@@ -125,6 +130,8 @@ describe.skipIf(!required)(
       const bridge = await createSshLocalBridge({
         forwardPort: dashboardPort,
         invitationToken: token, landingPath: '/app/',
+        ...(requireDashboardAuth
+          ? { upstreamCredential: dashboardCredential } : {}),
         takeBootstrap: () => {
           const value = secret;
           secret = null;
@@ -244,7 +251,7 @@ describe.skipIf(!required)(
         name: /Allow AI to operate on this computer/i,
       }).count(), { timeout: 8_000 }).toBe(1);
       await context.close();
-    }, 40_000);
+    }, 50_000);
 
     it('opens local Mission Control app directly from a one-time owner invitation', async () => {
       let exchanges = 0;
@@ -252,13 +259,13 @@ describe.skipIf(!required)(
         if (req.url === '/operator/ssh-session/exchange') {
           exchanges++;
           res.writeHead(200, {
-            'set-cookie': 'ff_ssh_operator_session=localproof; HttpOnly; SameSite=Strict; Path=/',
+            'set-cookie': 'ff_ssh_operator_session=' + 'l'.repeat(43) + '; HttpOnly; SameSite=Strict; Path=/',
           });
           res.end('{"verified":true}');
           return;
         }
         res.writeHead(200, { 'content-type': 'text/plain' });
-        res.end(req.url === '/app/' && req.headers.cookie?.includes('localproof')
+        res.end(req.url === '/app/' && req.headers.cookie?.includes('ff_ssh_operator_session=' + 'l'.repeat(43))
           ? 'owner app session' : 'not authorized');
       });
       servers.push(server);
