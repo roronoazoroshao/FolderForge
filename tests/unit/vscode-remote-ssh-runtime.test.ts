@@ -99,6 +99,17 @@ describe('local VS Code extension real invocation contract', () => {
     h.deactivate();
     expect(h.child.kill).toHaveBeenCalledWith('SIGTERM');
   });
+  it('permits deliberate re-verification when the previous SSH helper remains alive but its browser lease expired', async () => {
+    const h = fixture('Reopen verified session');
+    await h.handlers.uri(validUri);
+    // The existing child remains alive while the remote lease can expire.
+    expect(h.spawn).toHaveBeenCalledTimes(1);
+    await h.handlers.command();
+    expect(h.spawn).toHaveBeenCalledTimes(2);
+    expect(h.child.kill).toHaveBeenCalledWith('SIGTERM');
+    expect(h.warnings).toHaveLength(2);
+  });
+
   it('fails closed for ambiguous/hostile SSH aliases and non-SSH workspaces', async () => {
     const evil = fixture('Open verified session', { authority: 'ssh-remote+host;evil' });
     await evil.handlers.command();
