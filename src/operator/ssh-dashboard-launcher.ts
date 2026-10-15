@@ -152,7 +152,7 @@ async function readSshBootstrap(child: ChildProcess): Promise<{
         if (proof.dashboardCredential !== undefined &&
             (typeof proof.dashboardCredential !== 'string' ||
               proof.dashboardCredential.length > 512 ||
-              /[\\x00-\\x1f\\x7f]/.test(proof.dashboardCredential))) {
+              /[\x00-\x1f\x7f]/.test(proof.dashboardCredential))) {
           throw new Error('SSH_DASHBOARD_HELPER_INVALID');
         }
         complete(undefined, {
