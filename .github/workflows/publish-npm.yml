@@ -115,11 +115,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          release_sha="$(git rev-parse HEAD)"
+          test "${#release_sha}" -eq 40
           bundle_dir="${RUNNER_TEMP}/release-bundle"
           node scripts/create-release-bundle.mjs \
             --root "${GITHUB_WORKSPACE}" \
             --tag "${RELEASE_TAG}" \
-            --commit "${GITHUB_SHA}" \
+            --commit "${release_sha}" \
             --tarball "${{ steps.pack.outputs.path }}" \
             --sbom "${RUNNER_TEMP}/folderforge.cdx.json" \
             --notes "${RUNNER_TEMP}/release-notes.md" \
