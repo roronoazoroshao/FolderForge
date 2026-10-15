@@ -7,6 +7,7 @@ const WORKFLOWS = {
   soak: resolve('.github/workflows/production-soak.yml'),
   release: resolve('.github/workflows/release.yml'),
   publish: resolve('.github/workflows/publish-npm.yml'),
+  vscode: resolve('.github/workflows/vscode-remote-ssh.yml'),
 };
 
 function text(name: keyof typeof WORKFLOWS): string {
@@ -80,6 +81,23 @@ describe('production release workflow contracts', () => {
     expect(bundleStep).toContain('release_sha="$(git rev-parse HEAD)"');
     expect(bundleStep).toContain('--commit "${release_sha}"');
     expect(bundleStep).not.toContain('--commit "${GITHUB_SHA}"');
+  });
+
+  it('bundles a verified installable local VSIX with the exact-tag GitHub Release', () => {
+    const source = text('release');
+    expect(source).toContain('vsce package --no-dependencies');
+    expect(source).toContain('folderforge-remote-ssh-0.1.0.vsix');
+    expect(source).toContain('VSIX_VERIFY_PASS');
+    expect(source).toContain('--verify-tag');
+    expect(source).toContain('"${RUNNER_TEMP}/folderforge-remote-ssh-0.1.0.vsix"');
+  });
+
+  it('builds verified VSIX artifacts on integrated main commits, not only draft PRs', () => {
+    const workflow = parsed('vscode') as {
+      on: { push?: { branches: string[] }; pull_request?: object };
+    };
+    expect(workflow.on.push?.branches).toEqual(['main']);
+    expect(workflow.on.pull_request).toBeDefined();
   });
 
   it('still attests and publishes the immutable npm tarball, SBOM and manifest', () => {
