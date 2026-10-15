@@ -89,6 +89,48 @@ async function exchangeRemote(port: number, secret: string, credential?: string)
   });
 }
 
+/**
+ * Before lending the remote Dashboard credential to any browser request,
+ * re-check the server-owned SSH session. This also handles broker idle/absolute
+ * expiry and explicit logout while the outer OpenSSH process remains alive.
+ */
+async function remoteOwnerSessionLive(port: number, cookie: string, credential: string): Promise<boolean> {
+  return new Promise(resolve => {
+    const req = httpRequest({
+      hostname: '127.0.0.1', port,
+      path: '/operator/ssh-session/status', method: 'GET',
+      headers: { cookie, authorization: 'Bearer ' + credential },
+      timeout: 5_000,
+    }, response => {
+      if (response.statusCode !== 200) {
+        response.resume();
+        resolve(false);
+        return;
+      }
+      let content = '';
+      response.on('data', piece => {
+        content += piece.toString('utf8');
+        if (content.length > 1024) response.destroy();
+      });
+      response.once('end', () => {
+        try { resolve((JSON.parse(content) as { verified?: boolean }).verified === true); }
+        catch { resolve(false); }
+      });
+      response.once('error', () => resolve(false));
+    });
+    req.once('timeout', () => req.destroy());
+    req.once('error', () => resolve(false));
+    req.end();
+  });
+}
+
+function boundOwnerCookie(cookieHeader: string | undefined, expected: string | null): boolean {
+  if (!expected || !cookieHeader) return false;
+  const values = cookieHeader.split(';').map(x => x.trim())
+    .filter(x => x.startsWith('ff_ssh_operator_session='));
+  return values.length === 1 && sameToken(values[0]!, expected);
+}
+
 export async function createSshLocalBridge(
   opts: SshLocalBridgeOptions,
 ): Promise<SshLocalBridge> {
@@ -109,6 +151,7 @@ export async function createSshLocalBridge(
   }
   const expiresAt = now() + ttl;
   let used = false;
+  let pairedCookie: string | null = null;
   let origin = '';
 
   const server = createServer((req, res) => {
@@ -145,6 +188,14 @@ export async function createSshLocalBridge(
         try { cookie = await exchangeRemote(opts.forwardPort, secret, opts.upstreamCredential); }
         catch { deny(res, 502); return; }
         if (!cookie) { deny(res, 403); return; }
+        // Only the exact HttpOnly browser session returned by this one-time
+        // owner exchange may activate Dashboard auth on the local proxy.
+        const verifiedCookie = cookie.split(';', 1)[0]!;
+        if (!/^ff_ssh_operator_session=[A-Za-z0-9_-]{43,128}$/.test(verifiedCookie)) {
+          deny(res, 403);
+          return;
+        }
+        pairedCookie = verifiedCookie;
         res.writeHead(303, {
           location: landingPath,
           'set-cookie': cookie,
@@ -179,7 +230,24 @@ export async function createSshLocalBridge(
         deny(res, 403);
         return;
       }
+      const ownerBound = boundOwnerCookie(req.headers.cookie, pairedCookie);
+      if (opts.upstreamCredential && !pairedAppNavigation) {
+        // Do not convert an ambient localhost / forged cookie into Dashboard
+        // bearer auth. The live upstream broker, not a 200 response from
+        // port-forwarding, decides if this is a verified owner browser.
+        if (!ownerBound ||
+            !await remoteOwnerSessionLive(opts.forwardPort, pairedCookie!, opts.upstreamCredential)) {
+          deny(res, 403);
+          return;
+        }
+      }
       const filtered = { ...req.headers };
+      if (opts.upstreamCredential && (ownerBound || pairedAppNavigation)) {
+        // Keep the Dashboard credential *inside this process*. Never expose
+        // it in a location/query parameter, browser JS, or Set-Cookie.
+        filtered.authorization = 'Bearer ' + opts.upstreamCredential;
+        delete filtered['x-api-key'];
+      }
       // Never forward operator cookies on an inherited cross-site navigation;
       // the app's subsequent same-origin requests carry the browser session.
       if (pairedAppNavigation) delete filtered.cookie;
