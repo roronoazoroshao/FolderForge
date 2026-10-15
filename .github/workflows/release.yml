@@ -61,6 +61,32 @@ jobs:
           }
           echo "Exact-tag CI verified: ${release_sha} (run ${ci_run_id})"
 
+      - name: Build installable local VS Code Remote-SSH extension
+        working-directory: packages/vscode-remote-ssh
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm exec --yes --package=@vscode/vsce@4.0.0 -- \
+            vsce package --no-dependencies --out "${RUNNER_TEMP}/folderforge-remote-ssh-0.1.0.vsix"
+
+      - name: Verify VSIX package contents before release
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os, zipfile
+          filename = os.path.join(os.environ['RUNNER_TEMP'], 'folderforge-remote-ssh-0.1.0.vsix')
+          with zipfile.ZipFile(filename) as archive:
+              names = set(archive.namelist())
+              for required in ('extension/package.json', 'extension/src/extension.cjs',
+                               'extension/src/core.cjs', 'extension/readme.md'):
+                  assert required in names, f'Missing VSIX component: {required}'
+              manifest = json.loads(archive.read('extension/package.json'))
+              assert manifest['publisher'] + '.' + manifest['name'] == 'musashishao.folderforge-remote-ssh'
+              assert manifest['extensionKind'] == ['ui']
+              assert all(not name.startswith('extension/node_modules/') for name in names)
+          print('VSIX_VERIFY_PASS')
+          PY
+
       - name: Create GitHub release for verified tag
         env:
           GH_TOKEN: ${{ github.token }}
@@ -80,4 +106,5 @@ jobs:
             --verify-tag \
             --title "FolderForge ${version}" \
             --notes-file "${RUNNER_TEMP}/release-notes.md" \
-            --latest
+            --latest \
+            "${RUNNER_TEMP}/folderforge-remote-ssh-0.1.0.vsix"
