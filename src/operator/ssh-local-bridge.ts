@@ -265,7 +265,13 @@ export async function createSshLocalBridge(
       }
       // Only the verified bridge can add this proof to a browser-bound
       // request. Any caller-supplied version was stripped above.
-      if (ownerBound && opts.browserChannelProof) {
+      const privilegedOwnerEndpoint =
+        url.pathname === '/operator/ssh-session/status' ||
+        url.pathname === '/operator/ssh-session/logout' ||
+        /^\/fleet\/[^/]+\/(?:one-click-trusted-host|start|restart)$/.test(url.pathname);
+      // Minimize the secret's exposure to unrelated Dashboard API routes,
+      // static content, potential diagnostics or future response reflection.
+      if (ownerBound && privilegedOwnerEndpoint && opts.browserChannelProof) {
         filtered[SSH_BROWSER_CHANNEL_HEADER] = opts.browserChannelProof;
       }
       filtered.host = '127.0.0.1:' + opts.forwardPort;
