@@ -109,6 +109,9 @@ export function FleetScreen() {
   const [formError, setFormError] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [quickAccessBusy, setQuickAccessBusy] = useState<string | null>(null);
+  // Live browser authority is independent from saved per-instance host grants.
+  // The old forwarded tab may read a saved grant but can never use it as owner proof.
+  const [ownerSessionVerified, setOwnerSessionVerified] = useState<boolean | null>(null);
   const [grantsByInstance, setGrantsByInstance] = useState<Record<string, 'approved' | 'not_requested' | 'unavailable'>>({});
   const [configFor, setConfigFor] = useState<FleetInstance | null>(null);
   const [authFor, setAuthFor] = useState<FleetInstance | null>(null);
@@ -308,6 +311,23 @@ export function FleetScreen() {
 
   const instances = fleet.data?.instances ?? [];
   useEffect(() => {
+    let active = true;
+    const refreshOwnerSession = () => {
+      // Never put Dashboard credentials in a URL: use bearer auth where configured.
+      void api<{ verified: boolean }>('/operator/ssh-session/status', { sensitive: true })
+        .then(status => {
+          if (active) setOwnerSessionVerified(status.verified === true);
+        })
+        .catch(() => {
+          if (active) setOwnerSessionVerified(false);
+        });
+    };
+    refreshOwnerSession();
+    const interval = setInterval(refreshOwnerSession, 15_000);
+    return () => { active = false; clearInterval(interval); };
+  }, []);
+
+  useEffect(() => {
     const records = fleet.data?.instances ?? [];
     let cancelled = false;
     void Promise.all(records.map(async record => {
@@ -469,7 +489,7 @@ export function FleetScreen() {
               const tunnel = tunnelByPort.get(instance.port);
               const openAiRunning =
                 instance.openAiTunnel?.state === 'running' || instance.openAiTunnel?.state === 'starting';
-              const needsOwnerVerification = grantsByInstance[instance.id] === 'unavailable';
+              const needsOwnerVerification = ownerSessionVerified === false;
               return (
                 <div key={instance.id} className="grid gap-3 rounded-[14px] border border-border bg-gradient-to-b from-panel-2 to-panel p-4">
                   <div className="flex items-start justify-between gap-3">
@@ -561,7 +581,7 @@ export function FleetScreen() {
                     </div>
                   ) : null}
 
-                  {grantsByInstance[instance.id] === 'unavailable' ? (
+                  {needsOwnerVerification ? (
                     <div className="grid gap-2 text-xs text-muted">
                       <p>
                         This VS Code PORTS tab can manage ordinary Dashboard tasks, but cannot
@@ -569,6 +589,11 @@ export function FleetScreen() {
                         button below, confirm your SSH host in local VS Code, then select Allow
                         AI access in the new verified browser tab. No terminal approval needed.
                       </p>
+                    </div>
+                  ) : grantsByInstance[instance.id] === 'unavailable' ? (
+                    <div className="text-xs text-muted">
+                      Fleet permission status could not be loaded. Check Dashboard authentication
+                      before changing AI access.
                     </div>
                   ) : grantsByInstance[instance.id] !== 'approved' ? (
                     <div className="grid gap-2 text-xs text-muted">
@@ -596,7 +621,7 @@ export function FleetScreen() {
                     </div>
                   ) : null}
                   <div className="flex flex-wrap gap-1.5 border-t border-border-soft pt-1">
-                    {grantsByInstance[instance.id] === 'approved' ? (
+                    {grantsByInstance[instance.id] === 'approved' && ownerSessionVerified === true ? (
                       <Button
                         size="sm"
                         variant="ghost"
@@ -611,12 +636,16 @@ export function FleetScreen() {
                         size="sm"
                         variant="primary"
                         busy={quickAccessBusy === instance.id}
-                        disabled={quickAccessBusy !== null}
+                        disabled={quickAccessBusy !== null || ownerSessionVerified === null}
                         onClick={() => needsOwnerVerification ? openVerifiedVSCodeSession() : void enableFullAiAccess(instance)}
                       >
                         <ShieldCheck size={13} aria-hidden /> {needsOwnerVerification
-                          ? 'Verify in VS Code to allow AI access'
-                          : 'Allow AI to operate on this computer'}
+                          ? grantsByInstance[instance.id] === 'approved'
+                            ? 'Verify in VS Code to manage AI access'
+                            : 'Verify in VS Code to allow AI access'
+                          : ownerSessionVerified === null
+                            ? 'Checking owner session…'
+                            : 'Allow AI to operate on this computer'}
                       </Button>
                     )}
                     <Button size="sm" variant="ghost" onClick={() => setConfigFor(instance)}><Settings2 size={13} aria-hidden /> Configure</Button>
