@@ -28,6 +28,14 @@ Alternatively, install the **.vsix** file from the `VS Code Remote-SSH verified 
 
 To install the FolderForge CLI on your local computer, use the published `@musashishao/folderforge` npm package. If the executable is not on VS Code's local PATH, configure **FolderForge Remote-SSH: Executable Path** (must refer to a trusted installed program). Never bypass SSH host-key verification.
 
+### Recovery when the browser cannot enable AI access
+
+- **`SSH_OPERATOR_ORIGIN_DENIED` or an unverified forwarded tab:** the VS Code **PORTS** browser tab is not proof of SSH ownership. In that tab choose **Verify in VS Code**, approve the SSH alias shown by the local extension, and use the **new browser tab opened by FolderForge**. Do not retry **Allow AI access** in the old forwarded tab.
+- **HTTP 401 / 403 on an authenticated Dashboard:** ensure your local and VPS FolderForge CLI installations support the verified SSH handoff, then restart verification from VS Code. A Dashboard access token is *not* a substitute for SSH ownership. Do not disable token/API-key authentication.
+- **Expired lease, logout, or SSH reconnect:** launch **FolderForge: Open Verified Mission Control (Remote-SSH)** from the VS Code Command Palette again and use the new verified browser tab. Merely reloading an existing forwarded tab never re-verifies the host.
+- **No verified tab opens:** check that the extension is under **Local — Installed**, the remote workspace is open with **Remote-SSH**, and the FolderForge executable is installed on the *local* macOS/Linux machine. If VS Code cannot find the local CLI, set its trusted **FolderForge Remote-SSH: Executable Path** in **User Settings**. Ensure your existing SSH alias passes normal host-key verification.
+- **VSIX availability:** open the successful **VS Code Remote-SSH verified handoff** workflow run, download the `folderforge-vscode-remote-ssh-vsix` artifact ZIP, unzip it, and install the contained `.vsix` file using VS Code **Extensions: Install from VSIX...**. GitHub Actions artifacts expire; prefer a successful run based on the current release source.
+
 ### Security boundaries
 
 - A `vscode://` URI contains no requested host, port, command or credential. The extension rejects query strings/fragments and uses the active VS Code Remote-SSH workspace to select an alias.
