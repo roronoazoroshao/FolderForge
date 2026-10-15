@@ -36,6 +36,6 @@ To install the FolderForge CLI on your local computer, use the published `@musas
 - The original FolderForge SSH helper requires strict host-key checking, a matching remote OS UID and a live, revocable channel.
 - Browser pairing tokens and SSH private keys are not passed via deep links or shell interpolation.
 - Requires a trusted local CLI and an installed VSIX once; this is not an invisible browser-only enrollment flow.
-- If the remote Mission Control requires Dashboard bearer auth, the existing CLI's browser handoff still needs additional support; do not disable authentication to work around this.
+- If the remote Mission Control requires Dashboard bearer or API-key auth, the verified remote SSH helper transfers its protected Dashboard credential ONLY over owner-only IPC and the encrypted SSH channel. The local bridge injects it exclusively for a paired, live owner browser session; no credential is placed in a URL. Never disable authentication to work around a rejected session.
 
 The extension does not independently certify installed production environments or allow a remote host to assume OS-owner privileges.
