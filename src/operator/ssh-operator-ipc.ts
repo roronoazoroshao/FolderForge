@@ -156,7 +156,10 @@ export async function openSshOperatorIpcClient(
             (record.dashboardCredential !== undefined &&
               (typeof record.dashboardCredential !== 'string' ||
                 record.dashboardCredential.length > 512 ||
-                /[\x00-\x1f\x7f]/.test(record.dashboardCredential)))) {
+                [...record.dashboardCredential].some(char => {
+                  const code = char.charCodeAt(0);
+                  return code < 32 || code === 127;
+                })))) {
           throw new Error('SSH_OPERATOR_IPC_INVALID_PROOF');
         }
         resolved = true;
