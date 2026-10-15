@@ -32,9 +32,13 @@ async function fixture(upstreamCredential?: string) {
       }
       res.writeHead(200, {
         'content-type': 'application/json',
-        'set-cookie': 'ff_ssh_operator_session=opaque; HttpOnly; SameSite=Strict; Path=/',
+        'set-cookie': 'ff_ssh_operator_session=' + 'z'.repeat(43) + '; HttpOnly; SameSite=Strict; Path=/',
       });
       res.end(JSON.stringify({ verified: true }));
+    } else if (req.url === '/operator/ssh-session/status') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ verified: req.headers.cookie ===
+        'ff_ssh_operator_session=' + 'z'.repeat(43) }));
     } else {
       res.writeHead(200, { 'content-type': 'text/plain' });
       res.end('dashboard');
@@ -73,11 +77,14 @@ describe('SSH desktop bridge: browser-intent binding', () => {
     expect(response.headers.get('set-cookie')).not.toContain(dashboardCredential);
     const exchange = h.seen.find(entry => entry.url === '/operator/ssh-session/exchange');
     expect(exchange?.authorization).toBe('Bearer ' + dashboardCredential);
-    const normal = await fetch(h.origin + '/app/', {
+    const unverified = await fetch(h.origin + '/app/', {
       headers: { 'x-folderforge-ssh-bootstrap': 'forged' },
     });
+    expect(unverified.status).toBe(403);
+    const cookie = response.headers.get('set-cookie')!.split(';')[0]!;
+    const normal = await fetch(h.origin + '/app/', { headers: { cookie } });
     expect(normal.status).toBe(200);
-    expect(h.seen[h.seen.length - 1]?.authorization).toBe('');
+    expect(h.seen[h.seen.length - 1]?.authorization).toBe('Bearer ' + dashboardCredential);
   });
 
   it('never proxies a configured Dashboard bearer from an anonymous localhost request', async () => {
