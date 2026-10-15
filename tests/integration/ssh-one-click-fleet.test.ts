@@ -241,6 +241,7 @@ describe('SSH-verified one-click Fleet enrollment', () => {
       'sec-fetch-site': 'same-origin',
       cookie: h.cookie,
       'x-folderforge-operator-csrf': h.view!.csrfToken,
+      [SSH_BROWSER_CHANNEL_HEADER]: h.browserChannel,
     };
     // No verified browser context -> no revocation either.
     const rejected = await fetch(h.base + '/fleet/' + h.instance.id + '/one-click-trusted-host', {
