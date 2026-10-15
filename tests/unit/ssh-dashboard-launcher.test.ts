@@ -1,8 +1,10 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { EventEmitter } from 'node:events';
 import { lstatSync, readFileSync } from 'node:fs';
 import {
   buildSshDashboardArgv,
   createSshBrowserInvitation,
+  forwardSshTerminationSignals,
   parseSshDashboardArgs,
 } from '../../src/operator/ssh-dashboard-launcher.js';
 
@@ -10,6 +12,28 @@ const cleanups: Array<() => void> = [];
 afterEach(() => { for (const cleanup of cleanups.splice(0)) cleanup(); });
 
 describe('nontechnical one-login SSH dashboard launcher', () => {
+  it('forwards local VS Code helper shutdown to OpenSSH and unregisters signal handlers', () => {
+    const processSignals = new EventEmitter();
+    const ssh = { exitCode: null, signalCode: null, kill: vi.fn(() => true) };
+    const dispose = forwardSshTerminationSignals(ssh, processSignals);
+    processSignals.emit('SIGTERM');
+    expect(ssh.kill).toHaveBeenCalledExactlyOnceWith('SIGTERM');
+    processSignals.emit('SIGINT');
+    expect(ssh.kill).toHaveBeenCalledTimes(1);
+    dispose();
+    processSignals.emit('SIGTERM');
+    expect(ssh.kill).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not signal an SSH process already closed', () => {
+    const processSignals = new EventEmitter();
+    const ssh = { exitCode: 0, signalCode: null, kill: vi.fn(() => true) };
+    const dispose = forwardSshTerminationSignals(ssh, processSignals);
+    processSignals.emit('SIGTERM');
+    expect(ssh.kill).not.toHaveBeenCalled();
+    dispose();
+  });
+
   it('parses only a deliberate SSH destination and optional dashboard port', () => {
     expect(parseSshDashboardArgs(['--host', 'owner@box'])).toEqual({
       host: 'owner@box', dashboardPort: 7332,
