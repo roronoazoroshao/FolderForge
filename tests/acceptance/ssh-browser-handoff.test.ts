@@ -15,6 +15,7 @@ import { type AddressInfo } from 'node:net';
 import { chromium, type Browser } from 'playwright-core';
 import { createSshLocalBridge } from '../../src/operator/ssh-local-bridge.js';
 import { createSshBrowserInvitation } from '../../src/operator/ssh-dashboard-launcher.js';
+import { deriveSshBrowserChannel } from '../../src/operator/ssh-browser-channel.js';
 
 const required = process.env.FOLDERFORGE_REQUIRE_BROWSER_E2E === '1';
 const servers: Server[] = [];
@@ -88,9 +89,12 @@ describe.skipIf(!required)(
       await owner.close();
     }, 35_000);
 
-    it.each([false, true])(
-      'drives the REAL Mission Control Fleet button using an OS-owner browser session (Dashboard auth: %s)',
-      async (requireDashboardAuth) => {
+    it.each([
+      [false, 'local-operator-launch'], [true, 'local-operator-launch'],
+      [false, 'ssh-remote-exec'], [true, 'ssh-remote-exec'],
+    ] as const)(
+      'drives REAL Fleet access via verified %s-auth Dashboard and %s browser proof',
+      async (requireDashboardAuth, proofSource) => {
       const root = mkdtempSync(join(tmpdir(), 'ff-real-owner-ui-'));
       roots.push(root);
       const config = defaultConfig(root);
@@ -124,7 +128,7 @@ describe.skipIf(!required)(
       servers.push(dashboard);
       if (!dashboard.listening) await once(dashboard, 'listening');
       const dashboardPort = (dashboard.address() as AddressInfo).port;
-      const bootstrap = broker.openFromHost(uid, 'local-operator-launch');
+      const bootstrap = broker.openFromHost(uid, proofSource);
       let secret: string | null = bootstrap.bootstrapSecret;
       const token = 'p'.repeat(43);
       const bridge = await createSshLocalBridge({
@@ -132,6 +136,8 @@ describe.skipIf(!required)(
         invitationToken: token, landingPath: '/app/',
         ...(requireDashboardAuth
           ? { upstreamCredential: dashboardCredential } : {}),
+        ...(proofSource === 'ssh-remote-exec'
+          ? { browserChannelProof: deriveSshBrowserChannel(bootstrap.bootstrapSecret) } : {}),
         takeBootstrap: () => {
           const value = secret;
           secret = null;
@@ -157,6 +163,23 @@ describe.skipIf(!required)(
       await page.goto(invite.url);
       await page.waitForURL(bridge.origin + '/app/', { timeout: 10_000 });
       const fleetNavigation = await page.goto(bridge.origin + '/app/fleet');
+      if (proofSource === 'ssh-remote-exec') {
+        // Cookies are scoped to 127.0.0.1, not TCP ports. The old PORTS
+        // tab really receives the same HttpOnly cookie, but lacks the
+        // verified local SSH proxy's internal channel-bound proof.
+        const forwardedOrigin = 'http://127.0.0.1:' + dashboardPort;
+        const forwardedCookies = await context.cookies(forwardedOrigin);
+        expect(forwardedCookies.some(c => c.name === 'ff_ssh_operator_session')).toBe(true);
+        const forwardedStatus = await context.request.get(
+          forwardedOrigin + '/operator/ssh-session/status');
+        if (requireDashboardAuth) {
+          expect(forwardedStatus.status()).toBe(401);
+        } else {
+          expect(forwardedStatus.status()).toBe(200);
+          expect(await forwardedStatus.json()).toEqual({ verified: false });
+        }
+      }
+
       try {
         await expect.poll(() => page.getByRole('button', {
           name: /Allow AI to operate on this computer/i,
