@@ -43,6 +43,16 @@ const POLICIES = ['readonly', 'safe', 'dev', 'danger'];
 const EXECUTION_PROFILES = ['sandbox-required', 'trusted-host'] as const;
 const AUTH_MODES: FleetAuthMode[] = ['token', 'api-key', 'oauth', 'none'];
 
+// The VS Code URI carries NO host, port, credential, nonce, or OS authority.
+// The LOCAL VS Code UI extension resolves the actual Remote-SSH workspace and
+// explicitly asks permission before opening FolderForge's trusted SSH helper.
+// No browser-facing forwarded-port request is promoted to owner authority.
+const VERIFIED_VSCODE_LINK = 'vscode://musashishao.folderforge-remote-ssh/verify';
+function openVerifiedVSCodeSession(): void {
+  window.location.assign(VERIFIED_VSCODE_LINK);
+}
+
+
 interface OneTimeCredential {
   id: string;
   kind: 'token' | 'api-key';
@@ -551,15 +561,30 @@ export function FleetScreen() {
                   ) : null}
 
                   {grantsByInstance[instance.id] === 'unavailable' ? (
-                    <p className="text-xs text-muted">
-                      Computer-owner verification is unavailable here. Open Mission Control
-                      directly on your own desktop to enable access.
-                    </p>
+                    <div className="grid gap-2 text-xs text-muted">
+                      <p>
+                        This forwarded browser tab is not a verified computer-owner session.
+                        When using VS Code Remote-SSH, verify through the VS Code desktop
+                        extension before enabling AI host access.
+                      </p>
+                      <Button size="sm" variant="ghost" className="w-fit"
+                        onClick={openVerifiedVSCodeSession}>
+                        Verify in VS Code
+                      </Button>
+                    </div>
                   ) : grantsByInstance[instance.id] !== 'approved' ? (
-                    <p className="text-xs text-muted">
-                      Enabling AI access permits file changes and command execution
-                      as this computer's FolderForge user, within configured workspaces.
-                    </p>
+                    <div className="grid gap-2 text-xs text-muted">
+                      <p>
+                        Enabling AI access permits file changes and command execution
+                        as this computer's FolderForge user, within configured workspaces.
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span>Using VS Code Remote-SSH?</span>
+                        <Button size="sm" variant="ghost" onClick={openVerifiedVSCodeSession}>
+                          Verify in VS Code
+                        </Button>
+                      </div>
+                    </div>
                   ) : null}
                   {optionalConnectionKey?.id === instance.id ? (
                     <div className="text-xs text-muted">
@@ -813,6 +838,12 @@ function ConfigModal(props: {
           {savedFullAccess ? (
             <Banner tone="info">Full-access settings are saved. An already running MCP instance may need to restart before they take effect.</Banner>
           ) : null}
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted">
+            <span>Using VS Code Remote-SSH port forwarding?</span>
+            <Button variant="ghost" size="sm" onClick={openVerifiedVSCodeSession}>
+              Verify in VS Code
+            </Button>
+          </div>
           <div className="mt-3">
             <Button
               variant="primary"

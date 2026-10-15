@@ -13,6 +13,24 @@ tools, and optionally connect browser, database, plugin, workflow, and Godot
 capabilities. Path restrictions, risk policy, approvals, secret redaction, rate
 limits, and audit logging remain enforced on the server side.
 
+## VS Code Remote-SSH: verified one-click host access (opt-in)
+
+If you open Mission Control through **VS Code Remote-SSH → PORTS**, the
+forwarded browser tab is **not** automatically authorized to run commands on
+the VPS. Use **Fleet → Verify in VS Code** instead of disabling Origin checks.
+
+An installable, local-UI VS Code extension in
+[packages/vscode-remote-ssh](packages/vscode-remote-ssh/README.md) identifies
+your active Remote-SSH workspace, confirms the SSH alias and opens a separate
+FolderForge-authenticated browser session. Your VS Code port forward remains
+usable for read-only/ordinary administration. The verified session is bound
+to a separate live OpenSSH channel and host OS UID.
+
+The extension is distributed as a **VSIX build artifact**, not yet published
+to VS Code Marketplace; installation on the local computer and the FolderForge
+CLI on both ends are currently prerequisites. macOS/Linux Desktop only.
+No plain forwarded HTTP request can mint a trusted-host grant.
+
 ## Quick start
 
 **Requirements:** Node.js 22 or 24 and an MCP client that supports stdio.
