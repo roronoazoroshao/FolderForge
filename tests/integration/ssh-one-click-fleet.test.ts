@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { once } from 'node:events';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { defaultConfig } from '../../src/runtime/config.js';
@@ -357,6 +357,26 @@ describe('SSH-verified one-click Fleet enrollment', () => {
     expect(h.container.fleet.list()).toHaveLength(1);
     h.broker.revokeLease(h.bootstrap.leaseId);
     expect((await call(project)).status).toBe(403);
+    expect(h.container.fleet.list()).toHaveLength(1);
+  });
+
+  it.skipIf(process.platform === 'win32')('quickstart rejects an allowed-root symlink that escapes the root', async () => {
+    const h = await setup();
+    const outside = mkdtempSync(join(tmpdir(), 'ff-quickstart-outside-'));
+    roots.push(outside);
+    const alias = join(h.root, 'escape-alias');
+    symlinkSync(outside, alias, 'dir');
+    const response = await fetch(h.base + '/fleet/quickstart', {
+      method: 'POST',
+      headers: {
+        origin: h.base, 'sec-fetch-site': 'same-origin',
+        'content-type': 'application/json', cookie: h.cookie,
+        'x-folderforge-operator-csrf': h.view!.csrfToken,
+        [SSH_BROWSER_CHANNEL_HEADER]: h.browserChannel,
+      },
+      body: JSON.stringify({ projectPath: alias }),
+    });
+    expect(response.status).toBe(409);
     expect(h.container.fleet.list()).toHaveLength(1);
   });
 
