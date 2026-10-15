@@ -17,6 +17,8 @@ export interface SshHelperBootstrap {
   readonly bootstrapSecret: string;
   readonly leaseId: string;
   readonly expiresAt: number;
+  /** Never exposed through HTTP or browser URI; private SSH helper only. */
+  readonly dashboardCredential?: string;
 }
 
 export interface SshHelperBroker {
@@ -64,6 +66,7 @@ export async function runSshDashboardHelper(io: SshHelperIO, broker: SshHelperBr
       bootstrapSecret: bootstrap.bootstrapSecret,
       leaseId: bootstrap.leaseId,
       expiresAt: bootstrap.expiresAt,
+      ...(bootstrap.dashboardCredential ? { dashboardCredential: bootstrap.dashboardCredential } : {}),
     }) + '\n');
     io.stdin.resume();
     await closed;
