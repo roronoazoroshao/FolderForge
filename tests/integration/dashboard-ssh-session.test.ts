@@ -79,6 +79,14 @@ describe('SSH operator browser sessions (no ambient loopback elevation)', () => 
     expect(view.csrfToken.length).toBeGreaterThanOrEqual(43);
     expect(JSON.stringify(view)).not.toContain(h.bootstrap.bootstrapSecret);
     expect((await exchange(h.base, h.bootstrap.bootstrapSecret)).status).toBe(401);
+    // A browser cookie belongs to 127.0.0.1, NOT to its TCP port. An
+    // ordinary VS Code PORTS-forwarded tab may carry this cookie ambiently.
+    // Without the owner-only channel proof injected by the verified local
+    // SSH proxy, it must never receive verified status or CSRF.
+    const forwardedStatus = await fetch(h.base + '/operator/ssh-session/status', {
+      headers: { cookie: credential },
+    });
+    expect(await forwardedStatus.json()).toEqual({ verified: false });
     const status = await fetch(h.base + '/operator/ssh-session/status', { headers: { cookie: credential } });
     expect(await status.json()).toMatchObject({
       verified: true,
