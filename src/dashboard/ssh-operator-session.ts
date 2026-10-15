@@ -1,6 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { SshSessionBroker, SshOperatorAuthority } from '../operator/ssh-session-broker.js';
+import { SSH_BROWSER_CHANNEL_HEADER } from '../operator/ssh-browser-channel.js';
 
 const COOKIE = 'ff_ssh_operator_session';
 const PATH = '/operator/ssh-session/';
@@ -61,6 +62,12 @@ export class SshOperatorWebSessions {
   private current(req: IncomingMessage): { sessionId: string; authority: SshOperatorAuthority } | null {
     const sessionId = sessionCookie(req);
     if (!sessionId) return null;
+    // Cookies are shared between 127.0.0.1 ports. An ordinary VS Code
+    // forwarding tab must not consume a remote SSH-backed owner session.
+    // Missing/wrong proxy proof does not revoke the legitimate browser token.
+    if (!this.broker.browserChannelAllowed(sessionId, req.headers[SSH_BROWSER_CHANNEL_HEADER])) {
+      return null;
+    }
     try {
       const authority = this.broker.assertLiveSession(sessionId);
       if (!this.csrfBySession.has(this.key(sessionId))) return null;
