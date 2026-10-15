@@ -1217,6 +1217,7 @@ async function controlServe(
           config.workspace.defaultProject, ...config.workspace.allowedDirectories,
         ],
         now: Date.now,
+        ...(dashboardAuth ? { dashboardCredential: dashboardAuth.credential } : {}),
       });
     } catch (error) {
       logger.warn({ error: String(error) }, 'Local operator proof unavailable (fail-closed)');
