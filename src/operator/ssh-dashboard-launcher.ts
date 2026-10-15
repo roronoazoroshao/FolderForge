@@ -188,6 +188,33 @@ async function openDefaultBrowser(url: string): Promise<void> {
 }
 
 /**
+ * The VS Code extension terminates its local FolderForge CLI by SIGTERM.
+ * Forward that signal explicitly to the OpenSSH child; otherwise Node's
+ * default termination can leave a detached, still-authorized SSH helper.
+ * Unregister listeners after the child exits or launcher cleanup completes.
+ */
+export function forwardSshTerminationSignals(
+  child: Pick<ChildProcess, 'exitCode' | 'signalCode' | 'kill'>,
+  signals: {
+    on(event: 'SIGTERM' | 'SIGINT', handler: () => void): unknown;
+    off(event: 'SIGTERM' | 'SIGINT', handler: () => void): unknown;
+  } = process,
+): () => void {
+  let requested = false;
+  const terminate = (): void => {
+    if (requested) return;
+    requested = true;
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
+  };
+  signals.on('SIGTERM', terminate);
+  signals.on('SIGINT', terminate);
+  return () => {
+    signals.off('SIGTERM', terminate);
+    signals.off('SIGINT', terminate);
+  };
+}
+
+/**
  * One interactive SSH login, then a desktop-created browser invitation.
  * No remote bootstrap secret or browser-pairing token is placed in argv/URL.
  * The SSH channel remains live until user closes this process or disconnects.
@@ -202,6 +229,7 @@ export async function executeSshDashboardCli(args: readonly string[]): Promise<v
     stdio: ['pipe', 'pipe', 'inherit'],
     windowsHide: true, shell: false,
   });
+  const stopForwarding = forwardSshTerminationSignals(child);
   let invitation: ReturnType<typeof createSshBrowserInvitation> | undefined;
   let bridge: Awaited<ReturnType<typeof createSshLocalBridge>> | undefined;
   try {
@@ -230,9 +258,10 @@ export async function executeSshDashboardCli(args: readonly string[]): Promise<v
       child.once('close', () => resolve());
     });
   } finally {
+    stopForwarding();
     invitation?.cleanup();
     if (bridge) await bridge.close();
     child.stdin?.end();
-    if (child.exitCode === null) child.kill('SIGTERM');
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
   }
 }

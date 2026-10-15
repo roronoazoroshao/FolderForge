@@ -7,11 +7,12 @@ import { runInNewContext } from 'node:vm';
 
 const nodeRequire = createRequire(import.meta.url);
 
-function fixture(choice: string | undefined = 'Open verified session', overrides?: {
+function fixture(choice: string | undefined | Array<string | undefined> = 'Open verified session', overrides?: {
   remoteName?: string;
   authority?: string;
   workspaceExecutable?: string;
 }) {
+  const selections = Array.isArray(choice) ? [...choice] : [choice];
   const module = { exports: {} as Record<string, (...args: unknown[]) => unknown> };
   const core = nodeRequire('../../packages/vscode-remote-ssh/src/core.cjs') as object;
   const handlers: Record<string, (...args: unknown[]) => unknown> = {};
@@ -41,7 +42,7 @@ function fixture(choice: string | undefined = 'Open verified session', overrides
       activeTextEditor: undefined,
       showWarningMessage: vi.fn(async (msg: string) => {
         warnings.push(msg);
-        return choice;
+        return selections.length > 1 ? selections.shift() : selections[0];
       }),
       showErrorMessage: vi.fn(async (msg: string) => { errors.push(msg); }),
       showInformationMessage: vi.fn(async () => undefined),
@@ -59,6 +60,7 @@ function fixture(choice: string | undefined = 'Open verified session', overrides
   const src = readFileSync(resolve('packages/vscode-remote-ssh/src/extension.cjs'), 'utf8');
   runInNewContext(src, {
     module, exports: module.exports, process: { platform: 'linux' },
+    setTimeout, clearTimeout,
     require: (id: string) => {
       if (id === 'vscode') return vscode;
       if (id === 'node:child_process') return { spawn };
@@ -99,6 +101,31 @@ describe('local VS Code extension real invocation contract', () => {
     h.deactivate();
     expect(h.child.kill).toHaveBeenCalledWith('SIGTERM');
   });
+  it('permits deliberate re-verification when the previous SSH helper remains alive but its browser lease expired', async () => {
+    const h = fixture(['Open verified session', 'Reopen verified session']);
+    await h.handlers.uri(validUri);
+    expect(h.spawn).toHaveBeenCalledTimes(1);
+    // The SSH process is alive, but its owner cookie can be expired or logged out.
+    // Closing the process completes before a new verified helper starts.
+    h.child.kill.mockImplementation(() => {
+      h.child.emit('close', 0);
+      return true;
+    });
+    await h.handlers.command();
+    expect(h.spawn).toHaveBeenCalledTimes(2);
+    expect(h.child.kill).toHaveBeenCalledWith('SIGTERM');
+    expect(h.warnings).toHaveLength(2);
+  });
+
+  it('fails closed if an existing helper cannot be stopped before re-verification', async () => {
+    const h = fixture(['Open verified session', 'Reopen verified session']);
+    await h.handlers.uri(validUri);
+    h.child.kill.mockReturnValue(false);
+    await h.handlers.uri(validUri);
+    expect(h.spawn).toHaveBeenCalledTimes(1);
+    expect(h.errors).toHaveLength(1);
+  });
+
   it('fails closed for ambiguous/hostile SSH aliases and non-SSH workspaces', async () => {
     const evil = fixture('Open verified session', { authority: 'ssh-remote+host;evil' });
     await evil.handlers.command();
