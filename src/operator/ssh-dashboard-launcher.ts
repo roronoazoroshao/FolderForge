@@ -110,7 +110,9 @@ async function freeLoopbackPort(): Promise<number> {
   return port;
 }
 
-async function readSshBootstrap(child: ChildProcess): Promise<string> {
+async function readSshBootstrap(child: ChildProcess): Promise<{
+  secret: string; dashboardCredential?: string;
+}> {
   if (!child.stdout) throw new Error('SSH_DASHBOARD_NO_STDOUT');
   return new Promise((resolve, reject) => {
     let data = '';
@@ -121,12 +123,14 @@ async function readSshBootstrap(child: ChildProcess): Promise<string> {
       child.off('close', onExit);
       child.off('error', onError);
     };
-    const complete = (error?: Error, secret?: string) => {
+    const complete = (error?: Error, payload?: {
+      secret: string; dashboardCredential?: string;
+    }) => {
       if (done) return;
       done = true;
       cleanup();
       if (error) reject(error);
-      else resolve(secret!);
+      else resolve(payload!);
     };
     const onExit = () => complete(new Error('SSH_DASHBOARD_HELPER_DISCONNECTED'));
     const onError = (error: Error) => complete(error);
@@ -145,7 +149,17 @@ async function readSshBootstrap(child: ChildProcess): Promise<string> {
             !/^[A-Za-z0-9_-]{43,128}$/.test(proof.bootstrapSecret)) {
           throw new Error('SSH_DASHBOARD_HELPER_INVALID');
         }
-        complete(undefined, proof.bootstrapSecret);
+        if (proof.dashboardCredential !== undefined &&
+            (typeof proof.dashboardCredential !== 'string' ||
+              proof.dashboardCredential.length > 512 ||
+              /[\\x00-\\x1f\\x7f]/.test(proof.dashboardCredential))) {
+          throw new Error('SSH_DASHBOARD_HELPER_INVALID');
+        }
+        complete(undefined, {
+          secret: proof.bootstrapSecret,
+          ...(typeof proof.dashboardCredential === 'string'
+            ? { dashboardCredential: proof.dashboardCredential } : {}),
+        });
       } catch { complete(new Error('SSH_DASHBOARD_HELPER_INVALID')); }
     };
     const timer = setTimeout(
@@ -188,11 +202,14 @@ export async function executeSshDashboardCli(args: readonly string[]): Promise<v
   let invitation: ReturnType<typeof createSshBrowserInvitation> | undefined;
   let bridge: Awaited<ReturnType<typeof createSshLocalBridge>> | undefined;
   try {
-    let secret: string | null = await readSshBootstrap(child);
+    const ownerProof = await readSshBootstrap(child);
+    let secret: string | null = ownerProof.secret;
     const token = randomBytes(32).toString('base64url');
     bridge = await createSshLocalBridge({
       forwardPort,
       invitationToken: token,
+      ...(ownerProof.dashboardCredential
+        ? { upstreamCredential: ownerProof.dashboardCredential } : {}),
       // An owner entering via VS Code must land in the actual SPA, not the
       // root legacy dashboard. The one-time browser pairing remains unchanged.
       landingPath: '/app/',
