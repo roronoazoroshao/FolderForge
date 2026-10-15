@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createSshLocalBridge } from './ssh-local-bridge.js';
+import { deriveSshBrowserChannel } from './ssh-browser-channel.js';
 
 const HOST_RE = /^(?:[A-Za-z0-9_.-]+@)?[A-Za-z0-9_.-]+$/;
 const HELPER_PROTOCOL = 'folderforge-ssh-operator-bootstrap-v1';
@@ -213,6 +214,7 @@ export async function executeSshDashboardCli(args: readonly string[]): Promise<v
       invitationToken: token,
       ...(ownerProof.dashboardCredential
         ? { upstreamCredential: ownerProof.dashboardCredential } : {}),
+      browserChannelProof: deriveSshBrowserChannel(ownerProof.secret),
       // An owner entering via VS Code must land in the actual SPA, not the
       // root legacy dashboard. The one-time browser pairing remains unchanged.
       landingPath: '/app/',
