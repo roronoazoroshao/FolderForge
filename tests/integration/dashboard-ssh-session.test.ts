@@ -10,6 +10,7 @@ import { Container } from '../../src/runtime/container.js';
 import { startDashboard } from '../../src/dashboard/server.js';
 import { buildRegistry } from '../../src/tools/index.js';
 import { SshSessionBroker } from '../../src/operator/ssh-session-broker.js';
+import { deriveSshBrowserChannel, SSH_BROWSER_CHANNEL_HEADER } from '../../src/operator/ssh-browser-channel.js';
 
 const roots: string[] = [];
 const servers: Server[] = [];
@@ -79,7 +80,18 @@ describe('SSH operator browser sessions (no ambient loopback elevation)', () => 
     expect(view.csrfToken.length).toBeGreaterThanOrEqual(43);
     expect(JSON.stringify(view)).not.toContain(h.bootstrap.bootstrapSecret);
     expect((await exchange(h.base, h.bootstrap.bootstrapSecret)).status).toBe(401);
-    const status = await fetch(h.base + '/operator/ssh-session/status', { headers: { cookie: credential } });
+    // A browser cookie belongs to 127.0.0.1, NOT to its TCP port. An
+    // ordinary VS Code PORTS-forwarded tab may carry this cookie ambiently.
+    // Without the owner-only channel proof injected by the verified local
+    // SSH proxy, it must never receive verified status or CSRF.
+    const forwardedStatus = await fetch(h.base + '/operator/ssh-session/status', {
+      headers: { cookie: credential },
+    });
+    expect(await forwardedStatus.json()).toEqual({ verified: false });
+    const channel = deriveSshBrowserChannel(h.bootstrap.bootstrapSecret);
+    const status = await fetch(h.base + '/operator/ssh-session/status', {
+      headers: { cookie: credential, [SSH_BROWSER_CHANNEL_HEADER]: channel },
+    });
     expect(await status.json()).toMatchObject({
       verified: true,
       source: 'ssh-remote-exec',
@@ -94,6 +106,7 @@ describe('SSH operator browser sessions (no ambient loopback elevation)', () => 
       method: 'POST', headers: {
         origin: h.base, 'sec-fetch-site': 'same-origin',
         cookie: credential, 'x-folderforge-operator-csrf': view.csrfToken,
+        [SSH_BROWSER_CHANNEL_HEADER]: channel,
       },
     });
     expect(loggedOut.status).toBe(200);

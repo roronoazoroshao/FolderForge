@@ -1,6 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import { createServer, request as httpRequest, type IncomingMessage, type ServerResponse } from 'node:http';
 import { type AddressInfo } from 'node:net';
+import { SSH_BROWSER_CHANNEL_HEADER } from './ssh-browser-channel.js';
 
 /**
  * The remote SSH bootstrap remains inside the workstation launcher. A local
@@ -19,6 +20,8 @@ export interface SshLocalBridgeOptions {
   landingPath?: string;
   /** Owner-only Dashboard credential: used only for trusted IPC exchange. */
   upstreamCredential?: string;
+  /** Secret derivative held ONLY by the local verified SSH proxy, not browser JS. */
+  browserChannelProof?: string;
 }
 
 export interface SshLocalBridge {
@@ -94,12 +97,13 @@ async function exchangeRemote(port: number, secret: string, credential?: string)
  * re-check the server-owned SSH session. This also handles broker idle/absolute
  * expiry and explicit logout while the outer OpenSSH process remains alive.
  */
-async function remoteOwnerSessionLive(port: number, cookie: string, credential: string): Promise<boolean> {
+async function remoteOwnerSessionLive(port: number, cookie: string, credential: string, browserChannelProof?: string): Promise<boolean> {
   return new Promise(resolve => {
     const req = httpRequest({
       hostname: '127.0.0.1', port,
       path: '/operator/ssh-session/status', method: 'GET',
-      headers: { cookie, authorization: 'Bearer ' + credential },
+      headers: { cookie, authorization: 'Bearer ' + credential,
+        ...(browserChannelProof ? { [SSH_BROWSER_CHANNEL_HEADER]: browserChannelProof } : {}) },
       timeout: 5_000,
     }, response => {
       if (response.statusCode !== 200) {
@@ -136,7 +140,8 @@ export async function createSshLocalBridge(
 ): Promise<SshLocalBridge> {
   if (!Number.isSafeInteger(opts.forwardPort) ||
       opts.forwardPort < 1 || opts.forwardPort > 65535 ||
-      !validSecret(opts.invitationToken)) {
+      !validSecret(opts.invitationToken) ||
+      (opts.browserChannelProof !== undefined && !validSecret(opts.browserChannelProof))) {
     throw new Error('INVALID_SSH_LOCAL_BRIDGE_INPUT');
   }
   const now = opts.now ?? Date.now;
@@ -236,7 +241,8 @@ export async function createSshLocalBridge(
         // bearer auth. The live upstream broker, not a 200 response from
         // port-forwarding, decides if this is a verified owner browser.
         if (!ownerBound ||
-            !await remoteOwnerSessionLive(opts.forwardPort, pairedCookie!, opts.upstreamCredential)) {
+            !await remoteOwnerSessionLive(opts.forwardPort, pairedCookie!,
+              opts.upstreamCredential, opts.browserChannelProof)) {
           deny(res, 403);
           return;
         }
@@ -252,9 +258,21 @@ export async function createSshLocalBridge(
       // the app's subsequent same-origin requests carry the browser session.
       if (pairedAppNavigation) delete filtered.cookie;
       for (const key of Object.keys(filtered)) {
-        if (key === 'x-folderforge-ssh-bootstrap' || key.startsWith('x-ssh-') ||
+        if (key === SSH_BROWSER_CHANNEL_HEADER ||
+            key === 'x-folderforge-ssh-bootstrap' || key.startsWith('x-ssh-') ||
             key.startsWith('x-forwarded-') || key === 'connection' ||
             key === 'proxy-authorization') delete filtered[key];
+      }
+      // Only the verified bridge can add this proof to a browser-bound
+      // request. Any caller-supplied version was stripped above.
+      const privilegedOwnerEndpoint =
+        url.pathname === '/operator/ssh-session/status' ||
+        url.pathname === '/operator/ssh-session/logout' ||
+        /^\/fleet\/[^/]+\/(?:one-click-trusted-host|start|restart)$/.test(url.pathname);
+      // Minimize the secret's exposure to unrelated Dashboard API routes,
+      // static content, potential diagnostics or future response reflection.
+      if (ownerBound && privilegedOwnerEndpoint && opts.browserChannelProof) {
+        filtered[SSH_BROWSER_CHANNEL_HEADER] = opts.browserChannelProof;
       }
       filtered.host = '127.0.0.1:' + opts.forwardPort;
       if (incomingOrigin === origin) filtered.origin = 'http://127.0.0.1:' + opts.forwardPort;

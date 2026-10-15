@@ -3,6 +3,7 @@ import { createServer, request as httpRequest, type Server } from 'node:http';
 import { once } from 'node:events';
 import { type AddressInfo } from 'node:net';
 import { createSshLocalBridge } from '../../src/operator/ssh-local-bridge.js';
+import { SSH_BROWSER_CHANNEL_HEADER } from '../../src/operator/ssh-browser-channel.js';
 
 const servers: Server[] = [];
 const closes: Array<() => Promise<void>> = [];
@@ -11,8 +12,8 @@ afterEach(async () => {
   await Promise.all(servers.splice(0).map(server => new Promise<void>(resolve => server.close(() => resolve()))));
 });
 
-async function fixture(upstreamCredential?: string) {
-  const seen: Array<{ url: string; host: string; origin: string; bootstrap: string; claimedUid: string; cookie: string; authorization: string; csrf: string }> = [];
+async function fixture(upstreamCredential?: string, browserChannelProof?: string) {
+  const seen: Array<{ url: string; host: string; origin: string; bootstrap: string; claimedUid: string; cookie: string; authorization: string; csrf: string; channel: string }> = [];
   let leaseLive = true;
   const target = createServer((req, res) => {
     seen.push({
@@ -24,6 +25,7 @@ async function fixture(upstreamCredential?: string) {
       cookie: String(req.headers.cookie || ''),
       authorization: String(req.headers.authorization || ''),
       csrf: String(req.headers['x-folderforge-operator-csrf'] || ''),
+      channel: String(req.headers[SSH_BROWSER_CHANNEL_HEADER] || ''),
     });
     if (req.url === '/operator/ssh-session/exchange') {
       if (upstreamCredential && req.headers.authorization !== 'Bearer ' + upstreamCredential) {
@@ -54,6 +56,7 @@ async function fixture(upstreamCredential?: string) {
   const bridge = await createSshLocalBridge({
     forwardPort, invitationToken: token,
     ...(upstreamCredential ? { upstreamCredential } : {}),
+    ...(browserChannelProof ? { browserChannelProof } : {}),
     takeBootstrap: () => {
       const value = secret;
       secret = null;
@@ -67,6 +70,35 @@ async function fixture(upstreamCredential?: string) {
 }
 
 describe('SSH desktop bridge: browser-intent binding', () => {
+  it('never accepts browser-supplied channel proof; injects the owner proof only for paired cookie', async () => {
+    const trustedChannel = 'p'.repeat(43);
+    const h = await fixture(undefined, trustedChannel);
+    const direct = await fetch(h.origin + '/app/', {
+      headers: { [SSH_BROWSER_CHANNEL_HEADER]: 'attacker-value' },
+    });
+    expect(direct.status).toBe(200);
+    expect(h.seen.at(-1)?.channel).toBe('');
+    const invited = await fetch(h.origin + '/__folderforge/activate', {
+      method: 'POST', redirect: 'manual',
+      headers: { origin: 'null', 'content-type': 'application/x-www-form-urlencoded' },
+      body: 'pair=' + h.token,
+    });
+    expect(invited.status).toBe(303);
+    const cookie = invited.headers.get('set-cookie')!.split(';')[0]!;
+    const accepted = await fetch(h.origin + '/operator/ssh-session/status', {
+      headers: { cookie, [SSH_BROWSER_CHANNEL_HEADER]: 'attacker-value' },
+    });
+    expect(accepted.status).toBe(200);
+    expect(h.seen.at(-1)?.channel).toBe(trustedChannel);
+    const ordinary = await fetch(h.origin + '/app/', {
+      headers: { cookie, [SSH_BROWSER_CHANNEL_HEADER]: 'attacker-value' },
+    });
+    expect(ordinary.status).toBe(200);
+    expect(h.seen.at(-1)?.channel).toBe('');
+    expect(accepted.headers.get('set-cookie')).toBeNull();
+    expect((await accepted.text())).not.toContain(trustedChannel);
+  });
+
   it('authenticates the internal owner-only bootstrap without leaking the Dashboard bearer secret', async () => {
     const dashboardCredential = 'c'.repeat(43);
     const h = await fixture(dashboardCredential);

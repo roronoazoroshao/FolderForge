@@ -12,6 +12,7 @@ import { buildRegistry } from '../../src/tools/index.js';
 import { TrustedHostStore } from '../../src/operator/trusted-host-store.js';
 import { TrustedHostConsentService } from '../../src/operator/trusted-host-consent.js';
 import { SshSessionBroker } from '../../src/operator/ssh-session-broker.js';
+import { deriveSshBrowserChannel, SSH_BROWSER_CHANNEL_HEADER } from '../../src/operator/ssh-browser-channel.js';
 
 const roots: string[] = [];
 const servers: Server[] = [];
@@ -52,6 +53,7 @@ async function setup(authMode: 'api-key' | 'none' = 'api-key', withBroker = true
   const url = base + '/fleet/' + instance.id + '/one-click-trusted-host';
   const profile = { toolsPreset: 'full', policyMode: 'danger', terminalExecution: 'trusted-host' };
   const bootstrap = broker.openFromHost(uid, proofSource);
+  const browserChannel = deriveSshBrowserChannel(bootstrap.bootstrapSecret);
   const proof = await fetch(base + '/operator/ssh-session/exchange', {
     method: 'POST',
     headers: { origin: base, 'sec-fetch-site': 'same-origin',
@@ -62,13 +64,35 @@ async function setup(authMode: 'api-key' | 'none' = 'api-key', withBroker = true
   const enable = (headers: Record<string, string> = {}, body: unknown = profile) =>
     fetch(url, { method: 'POST',
       headers: { origin: base, 'sec-fetch-site': 'same-origin',
-        'content-type': 'application/json', ...headers },
+        'content-type': 'application/json',
+        [SSH_BROWSER_CHANNEL_HEADER]: browserChannel, ...headers },
       body: JSON.stringify(body),
     });
-  return { root, container, instance, service, store, broker, base, bootstrap, view, cookie, enable, profile };
+  return { root, container, instance, service, store, broker, base, bootstrap, view, cookie, enable, profile, browserChannel };
 }
 
 describe('SSH-verified one-click Fleet enrollment', () => {
+  it('rejects a valid remote SSH cookie and copied CSRF through an ordinary forwarded browser port', async () => {
+    const h = await setup();
+    const directStatus = await fetch(h.base + '/operator/ssh-session/status', {
+      headers: { cookie: h.cookie },
+    });
+    expect(await directStatus.json()).toEqual({ verified: false });
+    const stolenCookie = await fetch(h.base + '/fleet/' + h.instance.id + '/one-click-trusted-host', {
+      method: 'POST',
+      headers: { origin: h.base, 'sec-fetch-site': 'same-origin',
+        cookie: h.cookie, 'x-folderforge-operator-csrf': h.view!.csrfToken,
+        'content-type': 'application/json' },
+      body: JSON.stringify(h.profile),
+    });
+    expect(stolenCookie.status).toBe(403);
+    expect(h.container.fleet.get(h.instance.id).terminalExecution).toBe('sandbox-required');
+    const verified = await h.enable({
+      cookie: h.cookie, 'x-folderforge-operator-csrf': h.view!.csrfToken,
+    });
+    expect(verified.status).toBe(200);
+  });
+
   it('never grants host execution with localhost, dashboard credentials, claimed UID or forged headers', async () => {
     const h = await setup();
     const forged = await h.enable({
@@ -87,7 +111,7 @@ describe('SSH-verified one-click Fleet enrollment', () => {
     expect(missingCsrf.status).toBe(403);
     h.broker.revokeLease(h.bootstrap.leaseId);
     const disconnected = await h.enable({
-      cookie: h.cookie, 'x-folderforge-operator-csrf': h.view!.csrfToken,
+      cookie: h.cookie, 'x-folderforge-operator-csrf': h.view!.csrfToken, [SSH_BROWSER_CHANNEL_HEADER]: h.browserChannel,
     });
     expect(disconnected.status).toBe(403);
     expect(h.store.findPendingByInstance(h.instance.id)).toBeNull();
@@ -95,7 +119,7 @@ describe('SSH-verified one-click Fleet enrollment', () => {
 
   it('saves full/danger/trusted-host in one authenticated browser action with no CLI approval', async () => {
     const h = await setup();
-    const enabled = await h.enable({ cookie: h.cookie, 'x-folderforge-operator-csrf': h.view!.csrfToken });
+    const enabled = await h.enable({ cookie: h.cookie, 'x-folderforge-operator-csrf': h.view!.csrfToken, [SSH_BROWSER_CHANNEL_HEADER]: h.browserChannel });
     expect(enabled.status).toBe(200);
     const data = await enabled.json() as Record<string, unknown>;
     expect(data.status).toBe('persisted');
@@ -105,13 +129,13 @@ describe('SSH-verified one-click Fleet enrollment', () => {
     const grant = h.store.readGrantByScope(h.service.authorizationDigest(h.instance.id, h.profile as { toolsPreset: string; policyMode: string; terminalExecution: 'trusted-host' }));
     expect(grant).not.toBeNull();
     // An unchanged enabled profile should be safely idempotent without another approval.
-    const repeated = await h.enable({ cookie: h.cookie, 'x-folderforge-operator-csrf': h.view!.csrfToken });
+    const repeated = await h.enable({ cookie: h.cookie, 'x-folderforge-operator-csrf': h.view!.csrfToken, [SSH_BROWSER_CHANNEL_HEADER]: h.browserChannel });
     expect(repeated.status).toBe(200);
   });
 
   it('is idempotent for an already-authorized running child without stopping or issuing a new grant', async () => {
     const h = await setup();
-    const headers = { cookie: h.cookie, 'x-folderforge-operator-csrf': h.view!.csrfToken };
+    const headers = { cookie: h.cookie, 'x-folderforge-operator-csrf': h.view!.csrfToken, [SSH_BROWSER_CHANNEL_HEADER]: h.browserChannel };
     const first = await h.enable(headers);
     expect(first.status).toBe(200);
     const realGet = h.container.fleet.get.bind(h.container.fleet);
@@ -131,7 +155,7 @@ describe('SSH-verified one-click Fleet enrollment', () => {
       h.container.fleet.get(id),
     );
     const enabled = await h.enable({
-      cookie: h.cookie, 'x-folderforge-operator-csrf': h.view!.csrfToken,
+      cookie: h.cookie, 'x-folderforge-operator-csrf': h.view!.csrfToken, [SSH_BROWSER_CHANNEL_HEADER]: h.browserChannel,
     });
     expect(enabled.status).toBe(200);
     const response = await enabled.json() as {
@@ -151,7 +175,7 @@ describe('SSH-verified one-click Fleet enrollment', () => {
       throw new Error('TEST_SPAWN_UNAVAILABLE');
     });
     const enabled = await h.enable({
-      cookie: h.cookie, 'x-folderforge-operator-csrf': h.view!.csrfToken,
+      cookie: h.cookie, 'x-folderforge-operator-csrf': h.view!.csrfToken, [SSH_BROWSER_CHANNEL_HEADER]: h.browserChannel,
     });
     expect(enabled.status).toBe(200);
     const response = await enabled.json() as {
@@ -169,7 +193,7 @@ describe('SSH-verified one-click Fleet enrollment', () => {
   it('enables from an OS-owned local Control Panel launch without a separate SSH command', async () => {
     const h = await setup('api-key', true, 'local-operator-launch');
     const authorized = await h.enable({
-      cookie: h.cookie, 'x-folderforge-operator-csrf': h.view!.csrfToken,
+      cookie: h.cookie, 'x-folderforge-operator-csrf': h.view!.csrfToken, [SSH_BROWSER_CHANNEL_HEADER]: h.browserChannel,
     });
     expect(authorized.status).toBe(200);
     expect(h.container.fleet.get(h.instance.id)).toMatchObject(h.profile);
@@ -186,7 +210,7 @@ describe('SSH-verified one-click Fleet enrollment', () => {
     const start = vi.spyOn(h.container.fleet, 'start').mockImplementation(id =>
       h.container.fleet.get(id),
     );
-    const headers = { cookie: h.cookie, 'x-folderforge-operator-csrf': h.view!.csrfToken };
+    const headers = { cookie: h.cookie, 'x-folderforge-operator-csrf': h.view!.csrfToken, [SSH_BROWSER_CHANNEL_HEADER]: h.browserChannel };
     const approval = await h.enable(headers);
     expect(approval.status).toBe(200);
     const endpoint = h.base + '/fleet/' + h.instance.id + '/start';
@@ -217,6 +241,7 @@ describe('SSH-verified one-click Fleet enrollment', () => {
       'sec-fetch-site': 'same-origin',
       cookie: h.cookie,
       'x-folderforge-operator-csrf': h.view!.csrfToken,
+      [SSH_BROWSER_CHANNEL_HEADER]: h.browserChannel,
     };
     // No verified browser context -> no revocation either.
     const rejected = await fetch(h.base + '/fleet/' + h.instance.id + '/one-click-trusted-host', {
@@ -241,7 +266,7 @@ describe('SSH-verified one-click Fleet enrollment', () => {
 
   it('atomically upgrades anonymous MCP to a new token and scoped trusted-host profile with no user CLI', async () => {
     const h = await setup('none');
-    const headers = { cookie: h.cookie, 'x-folderforge-operator-csrf': h.view!.csrfToken };
+    const headers = { cookie: h.cookie, 'x-folderforge-operator-csrf': h.view!.csrfToken, [SSH_BROWSER_CHANNEL_HEADER]: h.browserChannel };
     const approved = await h.enable(headers);
     expect(approved.status).toBe(200);
     expect(approved.headers.get('cache-control')).toBe('no-store');
