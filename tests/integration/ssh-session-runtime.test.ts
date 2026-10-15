@@ -50,6 +50,26 @@ describe.skipIf(process.platform !== 'linux' && process.platform !== 'darwin')(
       expect(existsSync(running.socketPath)).toBe(false);
     });
 
+    it('delivers Dashboard credential ONLY on the protected remote SSH IPC path', async () => {
+      const h = harness();
+      const credential = 'x'.repeat(32);
+      const runtime = await startSshOperatorRuntime({
+        ...h.options, dashboardCredential: credential,
+      });
+      try {
+        const remote = await openSshOperatorIpcClient(runtime.socketPath, h.options.serviceUid);
+        const proof = remote.openFromHost(h.options.serviceUid);
+        expect(proof.dashboardCredential).toBe(credential);
+        const native = await openSshOperatorIpcClient(runtime.localSocketPath, h.options.serviceUid);
+        const localProof = native.openFromHost(h.options.serviceUid);
+        expect(localProof.dashboardCredential).toBeUndefined();
+        remote.revokeLease(proof.leaseId);
+        native.revokeLease(localProof.leaseId);
+      } finally {
+        await runtime.close();
+      }
+    });
+
     it('binds a native local-owner app open to a distinct source and revokes its OS-owned lease', async () => {
       const h = harness();
       const runtime = await startSshOperatorRuntime(h.options);
