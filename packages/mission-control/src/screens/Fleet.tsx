@@ -469,6 +469,7 @@ export function FleetScreen() {
               const tunnel = tunnelByPort.get(instance.port);
               const openAiRunning =
                 instance.openAiTunnel?.state === 'running' || instance.openAiTunnel?.state === 'starting';
+              const needsOwnerVerification = grantsByInstance[instance.id] === 'unavailable';
               return (
                 <div key={instance.id} className="grid gap-3 rounded-[14px] border border-border bg-gradient-to-b from-panel-2 to-panel p-4">
                   <div className="flex items-start justify-between gap-3">
@@ -563,14 +564,11 @@ export function FleetScreen() {
                   {grantsByInstance[instance.id] === 'unavailable' ? (
                     <div className="grid gap-2 text-xs text-muted">
                       <p>
-                        This forwarded browser tab is not a verified computer-owner session.
-                        When using VS Code Remote-SSH, verify through the VS Code desktop
-                        extension before enabling AI host access.
+                        This VS Code PORTS tab can manage ordinary Dashboard tasks, but cannot
+                        grant AI command execution on your VPS. Choose the primary verification
+                        button below, confirm your SSH host in local VS Code, then select Allow
+                        AI access in the new verified browser tab. No terminal approval needed.
                       </p>
-                      <Button size="sm" variant="ghost" className="w-fit"
-                        onClick={openVerifiedVSCodeSession}>
-                        Verify in VS Code
-                      </Button>
                     </div>
                   ) : grantsByInstance[instance.id] !== 'approved' ? (
                     <div className="grid gap-2 text-xs text-muted">
@@ -613,10 +611,12 @@ export function FleetScreen() {
                         size="sm"
                         variant="primary"
                         busy={quickAccessBusy === instance.id}
-                        disabled={quickAccessBusy !== null || grantsByInstance[instance.id] === 'unavailable'}
-                        onClick={() => void enableFullAiAccess(instance)}
+                        disabled={quickAccessBusy !== null}
+                        onClick={() => needsOwnerVerification ? openVerifiedVSCodeSession() : void enableFullAiAccess(instance)}
                       >
-                        <ShieldCheck size={13} aria-hidden /> Allow AI to operate on this computer
+                        <ShieldCheck size={13} aria-hidden /> {needsOwnerVerification
+                          ? 'Verify in VS Code to allow AI access'
+                          : 'Allow AI to operate on this computer'}
                       </Button>
                     )}
                     <Button size="sm" variant="ghost" onClick={() => setConfigFor(instance)}><Settings2 size={13} aria-hidden /> Configure</Button>
