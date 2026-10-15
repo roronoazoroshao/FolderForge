@@ -13,6 +13,7 @@ afterEach(async () => {
 
 async function fixture(upstreamCredential?: string) {
   const seen: Array<{ url: string; host: string; origin: string; bootstrap: string; claimedUid: string; cookie: string; authorization: string; csrf: string }> = [];
+  let leaseLive = true;
   const target = createServer((req, res) => {
     seen.push({
       url: req.url || '',
@@ -37,7 +38,7 @@ async function fixture(upstreamCredential?: string) {
       res.end(JSON.stringify({ verified: true }));
     } else if (req.url === '/operator/ssh-session/status') {
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ verified: req.headers.cookie ===
+      res.end(JSON.stringify({ verified: leaseLive && req.headers.cookie ===
         'ff_ssh_operator_session=' + 'z'.repeat(43) }));
     } else {
       res.writeHead(200, { 'content-type': 'text/plain' });
@@ -60,7 +61,9 @@ async function fixture(upstreamCredential?: string) {
     },
   });
   closes.push(bridge.close);
-  return { origin: bridge.origin, token, seen, forwardPort };
+  return { origin: bridge.origin, token, seen, forwardPort,
+    revoke: () => { leaseLive = false; },
+  };
 }
 
 describe('SSH desktop bridge: browser-intent binding', () => {
@@ -114,6 +117,11 @@ describe('SSH desktop bridge: browser-intent binding', () => {
     });
     expect(post.status).toBe(200);
     expect(h.seen.at(-1)?.authorization).toBe('Bearer ' + credential);
+    // An SSH lease can expire/logout while the TCP forward still exists.
+    // The proxy MUST stop supplying the Dashboard token in that case.
+    h.revoke();
+    const afterRevocation = await fetch(h.origin + '/fleet', { headers: { cookie } });
+    expect(afterRevocation.status).toBe(403);
   });
 
   it('refuses missing/forged URL or header proof and never exchanges on a simple GET', async () => {
