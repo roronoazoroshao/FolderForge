@@ -70,6 +70,18 @@ describe('production release workflow contracts', () => {
     },
   );
 
+  it('builds npm release evidence from checked-out annotated tag commit, not workflow_dispatch GITHUB_SHA', () => {
+    const source = text('publish');
+    const start = source.indexOf('- name: Create and verify immutable release bundle');
+    const end = source.indexOf('- name: Attest tarball build provenance', start);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const bundleStep = source.slice(start, end);
+    expect(bundleStep).toContain('release_sha="$(git rev-parse HEAD)"');
+    expect(bundleStep).toContain('--commit "${release_sha}"');
+    expect(bundleStep).not.toContain('--commit "${GITHUB_SHA}"');
+  });
+
   it('still attests and publishes the immutable npm tarball, SBOM and manifest', () => {
     const source = text('publish');
     expect(source).toContain('Attest tarball build provenance');
