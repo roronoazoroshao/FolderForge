@@ -1,14 +1,37 @@
 name: VS Code Remote-SSH verified handoff
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/vscode-remote-ssh/**'
+      - 'packages/mission-control/src/screens/Fleet.tsx'
+      - 'src/operator/ssh-dashboard-launcher.ts'
+      - 'src/operator/ssh-browser-channel.ts'
+      - 'src/operator/ssh-local-bridge.ts'
+      - 'src/operator/ssh-session-broker.ts'
+      - 'src/dashboard/ssh-operator-session.ts'
+      - '.github/workflows/vscode-remote-ssh.yml'
+      - '.github/workflows/release.yml'
   pull_request:
     branches: [main]
     paths:
       - 'packages/vscode-remote-ssh/**'
       - 'tests/unit/vscode-remote-ssh-bridge.test.ts'
+      - 'tests/unit/vscode-remote-ssh-runtime.test.ts'
+      - 'tests/unit/ssh-dashboard-launcher.test.ts'
+      - 'tests/integration/ssh-local-bridge.test.ts'
+      - 'tests/integration/dashboard-ssh-session.test.ts'
+      - 'tests/integration/ssh-one-click-fleet.test.ts'
+      - 'tests/acceptance/ssh-browser-handoff.test.ts'
       - 'packages/mission-control/src/screens/Fleet.tsx'
       - 'src/operator/ssh-dashboard-launcher.ts'
+      - 'src/operator/ssh-browser-channel.ts'
+      - 'src/operator/ssh-local-bridge.ts'
+      - 'src/operator/ssh-session-broker.ts'
+      - 'src/dashboard/ssh-operator-session.ts'
       - '.github/workflows/vscode-remote-ssh.yml'
+      - '.github/workflows/release.yml'
   workflow_dispatch:
 
 permissions:
