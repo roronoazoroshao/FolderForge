@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { SshHelperBroker, SshHelperBootstrap } from './ssh-session-helper.js';
 import { SshSessionStore } from './ssh-session-store.js';
+import { deriveSshBrowserChannel } from './ssh-browser-channel.js';
 
 const authorityMarker: unique symbol = Symbol('folderforge-ssh-operator-authority');
 const BOOTSTRAP_TTL_MS = 60_000;
@@ -33,6 +34,8 @@ type LeaseRecord = {
 
 type SessionRecord = {
   source: OperatorProofSource;
+  /** Never stored in plaintext; remote sessions need an SSH-proxy-only proof. */
+  browserChannelDigest: Buffer | null;
   leaseId: string;
   lastSeenAt: number;
   absoluteExpiresAt: number;
@@ -109,6 +112,8 @@ export class SshSessionBroker implements SshHelperBroker {
       const sessionId = randomBytes(32).toString('base64url');
       const session: SessionRecord = {
         source: record.source,
+        browserChannelDigest: record.source === 'ssh-remote-exec'
+          ? this.digest(deriveSshBrowserChannel(secret)) : null,
         leaseId,
         lastSeenAt: this.now(),
         absoluteExpiresAt: this.now() + SESSION_ABSOLUTE_TTL_MS,
@@ -124,6 +129,17 @@ export class SshSessionBroker implements SshHelperBroker {
       };
     }
     throw new Error('SSH_BOOTSTRAP_UNAVAILABLE');
+  }
+
+  /** Reject ambient localhost cookies reused across VS Code PORTS and verified proxy ports. */
+  browserChannelAllowed(sessionId: string, channel: unknown): boolean {
+    if (typeof sessionId !== 'string' || sessionId.length < 43 || sessionId.length > 128) return false;
+    const session = this.sessions.get(this.digest(sessionId).toString('hex'));
+    if (!session) return false;
+    if (session.source === 'local-operator-launch') return true;
+    if (typeof channel !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(channel) ||
+        !session.browserChannelDigest) return false;
+    return timingSafeEqual(this.digest(channel), session.browserChannelDigest);
   }
 
   assertLiveSession(sessionId: string): SshOperatorAuthority {
