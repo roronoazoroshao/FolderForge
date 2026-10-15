@@ -6,6 +6,24 @@ All notable changes to FolderForge are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/), and the project follows
 semantic versioning.
 
+## [3.2.0] - 2026-10-15
+
+### Added
+- **VS Code Remote-SSH integration:** Mission Control Fleet and Configure include **Verify in VS Code** for owners accessing a remote VPS over VS Code PORTS forwarding.
+- The locally installed, opt-in `FolderForge Remote-SSH Verification` VS Code extension resolves the active Remote-SSH workspace alias, requires explicit owner confirmation, and launches a separate OS-verified SSH browser session. The installable VSIX is distributed as a GitHub Actions artifact, not bundled into the npm tarball or published to Marketplace.
+- Opens the actual Mission Control SPA after SSH browser pairing. Existing VS Code TCP forwarding remains for ordinary UI navigation but never constitutes proof of host owner identity.
+- Supports Control Panel Dashboard `--auth token` / `--auth api-key` in the verified SSH bridge without asking the user to disable authentication.
+
+### Security
+- The remote Dashboard credential is conveyed only on the UID-protected IPC and encrypted SSH helper channel, never in URI parameters, JavaScript, stdout logs or browser credentials.
+- The local browser proxy refuses anonymous or forged cookies, checks the server-owned SSH session remains live for each credential-bearing request, and stops injecting Dashboard bearer credentials after logout, session expiry or disconnection.
+- The untrusted forwarded tab cannot mint `trusted-host` permission. Browser Origin, protected session cookie, CSRF, scoped consent and subprocess termination fences remain enforced.
+
+### Limitations
+- Requires VS Code Desktop on macOS/Linux and a local FolderForge CLI plus a remote FolderForge CLI updated for this version; Windows native trusted-host enrollment remains unsupported.
+- Installs the VS Code extension once from an authenticated GitHub Actions VSIX artifact; it is not a Marketplace one-click installation.
+- Browser and SSH integration tests are automated, but they do not constitute independent human security review or certification of every installed workstation configuration.
+
 ## [3.1.0] - 2026-10-13
 
 ### Added
