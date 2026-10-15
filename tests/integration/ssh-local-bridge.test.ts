@@ -90,6 +90,11 @@ describe('SSH desktop bridge: browser-intent binding', () => {
     });
     expect(accepted.status).toBe(200);
     expect(h.seen.at(-1)?.channel).toBe(trustedChannel);
+    const ordinary = await fetch(h.origin + '/app/', {
+      headers: { cookie, [SSH_BROWSER_CHANNEL_HEADER]: 'attacker-value' },
+    });
+    expect(ordinary.status).toBe(200);
+    expect(h.seen.at(-1)?.channel).toBe('');
     expect(accepted.headers.get('set-cookie')).toBeNull();
     expect((await accepted.text())).not.toContain(trustedChannel);
   });
