@@ -31,6 +31,40 @@ to VS Code Marketplace; installation on the local computer and the FolderForge
 CLI on both ends are currently prerequisites. macOS/Linux Desktop only.
 No plain forwarded HTTP request can mint a trusted-host grant.
 
+## Single-command VPS / Remote-SSH AI Fleet quickstart
+
+Run once on the **VPS** (not on the Mac):
+
+```bash
+folderforge control start --no-open --project /home/devops
+```
+
+The Dashboard serves on the VPS loopback `127.0.0.1:7332`. In **VS Code
+Desktop on your Mac**, use Remote-SSH → PORTS to forward port `7332`, then
+browse `http://127.0.0.1:7332/app/`. Ordinary dashboard browsing works in
+that tab. For privileged AI execution, install the matching local FolderForge
+CLI and [VSIX](packages/vscode-remote-ssh/README.md), choose **Verify in VS
+Code** once for the current SSH session, confirm the remote alias and continue
+in the **new verified browser tab**.
+
+In **Fleet → Create an AI Fleet**, select a folder (or Browse), then choose
+**Create & Start AI Fleet**. One owner-authorized action provisions a
+token-authenticated MCP, configures **full tools + danger policy +
+trusted-host process execution**, grants permission to **that Fleet and
+workspace only**, and requests startup. There is no Docker prerequisite for
+trusted-host command execution, no individual command-approval step and no
+`trusted-host approve` terminal command. Runtime health must still be checked;
+a request to start does not prove that the MCP child is ready. The advanced
+manual Fleet form remains available for sandbox/Docker or custom authorization.
+
+To manage folders beyond `/home/devops`, explicitly pass `--allow /srv`
+or another operator-approved root on startup. This is not root access:
+Linux user permissions, hard-denied commands, workspace isolation, audit
+and the live verified owner session for privileged lifecycle requests all
+remain enforced. Exposing tunnels still needs the provider's authentication,
+credentials and configuration; creating a Fleet does **not** automatically
+publish a tunnel.
+
 ## Quick start
 
 **Requirements:** Node.js 22 or 24 and an MCP client that supports stdio.

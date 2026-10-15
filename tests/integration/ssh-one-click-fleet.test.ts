@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { once } from 'node:events';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { defaultConfig } from '../../src/runtime/config.js';
@@ -294,4 +294,90 @@ describe('SSH-verified one-click Fleet enrollment', () => {
     expect(rejected.status).toBe(403);
     expect(h.container.fleet.get(h.instance.id).terminalExecution).toBe('sandbox-required');
   });
+  it('quickstarts a new full/danger/trusted-host Fleet from a single verified browser POST', async () => {
+    const h = await setup();
+    const project = join(h.root, 'new-project');
+    mkdirSync(project);
+    const start = vi.spyOn(h.container.fleet, 'start').mockImplementation(id => h.container.fleet.get(id));
+    const quickstart = (headers: Record<string, string>, target = project) =>
+      fetch(h.base + '/fleet/quickstart', {
+        method: 'POST',
+        headers: { origin: h.base, 'sec-fetch-site': 'same-origin',
+          'content-type': 'application/json', ...headers },
+        body: JSON.stringify({ projectPath: target }),
+      });
+
+    const denied = await quickstart({ cookie: h.cookie, 'x-folderforge-operator-csrf': h.view!.csrfToken });
+    expect(denied.status).toBe(403);
+    expect(h.container.fleet.list()).toHaveLength(1);
+
+    const created = await quickstart({
+      cookie: h.cookie, 'x-folderforge-operator-csrf': h.view!.csrfToken,
+      [SSH_BROWSER_CHANNEL_HEADER]: h.browserChannel,
+    });
+    expect(created.status).toBe(201);
+    expect(created.headers.get('cache-control')).toBe('no-store');
+    const data = await created.json() as {
+      ok: boolean; data: { id: string; token: string;
+        activation: { status: string }; instance: { authMode: string } };
+    };
+    expect(data.ok).toBe(true);
+    expect(data.data.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(data.data.activation.status).toBe('start_requested');
+    expect(data.data.instance.authMode).toBe('token');
+    expect(h.container.fleet.list()).toHaveLength(2);
+    expect(h.container.fleet.get(data.data.id)).toMatchObject({
+      projectPath: project, toolsPreset: 'full', policyMode: 'danger',
+      terminalExecution: 'trusted-host', authMode: 'token',
+    });
+    expect(start).toHaveBeenCalledOnce();
+    expect(start).toHaveBeenCalledWith(data.data.id);
+    expect(() => h.service.assertAuthorized(data.data.id, {
+      toolsPreset: 'full', policyMode: 'danger', terminalExecution: 'trusted-host',
+    })).not.toThrow();
+    expect(JSON.stringify(h.container.fleet.list())).not.toContain(data.data.token);
+  });
+
+  it('quickstart refuses unauthenticated, out-of-root or stale owner access before provisioning', async () => {
+    const h = await setup();
+    const project = join(h.root, 'next-project');
+    mkdirSync(project);
+    const url = h.base + '/fleet/quickstart';
+    const headers = {
+      origin: h.base, 'sec-fetch-site': 'same-origin',
+      'content-type': 'application/json',
+      cookie: h.cookie, 'x-folderforge-operator-csrf': h.view!.csrfToken,
+      [SSH_BROWSER_CHANNEL_HEADER]: h.browserChannel,
+    };
+    const call = (target: string, overrides: Record<string, string> = {}) =>
+      fetch(url, { method: 'POST', headers: { ...headers, ...overrides },
+        body: JSON.stringify({ projectPath: target }) });
+    expect((await call(project, { origin: 'https://evil.example' })).status).toBe(403);
+    expect((await call('/etc')).status).toBe(409);
+    expect(h.container.fleet.list()).toHaveLength(1);
+    h.broker.revokeLease(h.bootstrap.leaseId);
+    expect((await call(project)).status).toBe(403);
+    expect(h.container.fleet.list()).toHaveLength(1);
+  });
+
+  it.skipIf(process.platform === 'win32')('quickstart rejects an allowed-root symlink that escapes the root', async () => {
+    const h = await setup();
+    const outside = mkdtempSync(join(tmpdir(), 'ff-quickstart-outside-'));
+    roots.push(outside);
+    const alias = join(h.root, 'escape-alias');
+    symlinkSync(outside, alias, 'dir');
+    const response = await fetch(h.base + '/fleet/quickstart', {
+      method: 'POST',
+      headers: {
+        origin: h.base, 'sec-fetch-site': 'same-origin',
+        'content-type': 'application/json', cookie: h.cookie,
+        'x-folderforge-operator-csrf': h.view!.csrfToken,
+        [SSH_BROWSER_CHANNEL_HEADER]: h.browserChannel,
+      },
+      body: JSON.stringify({ projectPath: alias }),
+    });
+    expect(response.status).toBe(409);
+    expect(h.container.fleet.list()).toHaveLength(1);
+  });
+
 });

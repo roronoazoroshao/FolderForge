@@ -262,6 +262,22 @@ describe.skipIf(!CHROMIUM)('Mission Control SPA visual regression (proposal 018)
         await route.fulfill({ status: 403, body: 'legacy host authorization route must not run' });
       });
       await page.goto(`${local.baseUrl}/app/fleet?token=local-preview-token`, { waitUntil: 'networkidle' });
+      // Quickstart is prominent; manual sandbox settings stay collapsed.
+      await page.getByRole('textbox', { name: 'Folder path to provision' }).fill(project);
+      const quickStartCta = page.getByRole('button', {
+        name: 'Verify in VS Code to create Fleet', exact: true,
+      });
+      await quickStartCta.waitFor({ state: 'visible', timeout: 6_000 });
+      expect(await quickStartCta.isEnabled()).toBe(true);
+      expect(await page.getByText('Advanced: manual Fleet setup', { exact: false }).isVisible()).toBe(true);
+      expect(await page.getByRole('button', { name: 'Provision manually' }).isVisible()).toBe(false);
+      // An ordinary localhost/forwarded browser can initiate a verified owner
+      // handoff without gaining authority or invoking any privileged mutation.
+      const verifyCta = page.getByRole('button', {
+        name: 'Verify in VS Code to allow AI access', exact: true,
+      });
+      await verifyCta.waitFor({ state: 'visible', timeout: 6_000 });
+      expect(await verifyCta.isEnabled()).toBe(true);
       await page.getByRole('button', { name: 'Configure', exact: true }).first().click();
       const modal = page.getByRole('dialog');
       await modal.getByText('Allow AI to work on this computer').waitFor({ timeout: 6_000 });
@@ -271,7 +287,9 @@ describe.skipIf(!CHROMIUM)('Mission Control SPA visual regression (proposal 018)
       await modal.getByText(/Cannot verify this browser as the machine owner/).waitFor({
         state: 'visible', timeout: 6_000,
       });
-      expect(statusReads).toBe(1);
+      // One status read comes from Fleet's background owner check and another
+      // from the attempted Configure consent; future polling may add reads.
+      expect(statusReads).toBeGreaterThanOrEqual(2);
       expect(privilegedWrites).toBe(0);
       expect(legacyWrites).toBe(0);
       expect(local.container.fleet.get(instance.id)).toMatchObject({

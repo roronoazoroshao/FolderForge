@@ -835,7 +835,10 @@ async function handle(
   const profileRoute = /^\/fleet\/(flt_[0-9a-f]{8})\/profile-intents(?:\/(req_[A-Za-z0-9_-]{3,72})(?:\/(apply))?)?$/.exec(path);
   const authorityRoute = /^\/fleet\/(flt_[0-9a-f]{8})\/execution-authority$/.exec(path);
   const oneClickRoute = /^\/fleet\/(flt_[0-9a-f]{8})\/one-click-trusted-host$/.exec(path);
-  if (profileRoute || authorityRoute || oneClickRoute) {
+  // Same protected owner session as single-Fleet enrollment, but creates and
+  // starts a NEW Fleet in one browser action. Ordinary PORTS tabs cannot use it.
+  const quickStartRoute = path === '/fleet/quickstart';
+  if (profileRoute || authorityRoute || oneClickRoute || quickStartRoute) {
     const authorization = req.headers.authorization;
     const presented = typeof authorization === 'string' && authorization.startsWith('Bearer ')
       ? authorization.slice(7).trim() : '';
@@ -878,7 +881,7 @@ async function handle(
     // session; a localhost request or ordinary Dashboard token never confers
     // host execution authority. Require cookie + session-specific CSRF.
     let verifiedSshAuthority: ReturnType<SshOperatorWebSessions['requirePrivilegedWrite']> | null = null;
-    if (oneClickRoute && (method === 'POST' || method === 'DELETE')) {
+    if ((oneClickRoute || quickStartRoute) && (method === 'POST' || method === 'DELETE')) {
       if (!sshOperatorWebSessions || !opts.sshOperatorBroker) {
         return sendJson(res, 403, { error: 'VERIFIED_OWNER_SESSION_REQUIRED' });
       }
@@ -889,6 +892,73 @@ async function handle(
       }
     }
     try {
+      if (quickStartRoute && method === 'POST') {
+        // No future/project-global host grant: all privileges remain scoped to
+        // the freshly provisioned Fleet identity, exact real path, and tuple.
+        if (!(req.headers['content-type'] ?? '').toString().startsWith('application/json')) {
+          return sendJson(res, 415, { error: 'INVALID_CONTENT_TYPE' });
+        }
+        const body = await readJsonBody(req);
+        if (!body || Object.keys(body).length !== 1 ||
+            typeof body.projectPath !== 'string' || !body.projectPath.trim()) {
+          return sendJson(res, 400, { error: 'INVALID_QUICKSTART_REQUEST' });
+        }
+        const created = await runOperatorTool(registry, container, principal, 'provision_create', {
+          projectPath: body.projectPath.trim(),
+          toolsPreset: 'full',
+          policyMode: 'danger',
+          terminalExecution: 'sandbox-required',
+          authMode: 'token',
+        });
+        if (!created.ok) return sendJson(res, 409, created);
+        const provisioned = created.data as { id?: unknown; token?: unknown } | undefined;
+        if (typeof provisioned?.id !== 'string' || typeof provisioned.token !== 'string') {
+          return sendJson(res, 500, { error: 'FLEET_CREATE_RESULT_INVALID' });
+        }
+        const newId = provisioned.id;
+        const tuple = {
+          toolsPreset: 'full', policyMode: 'danger', terminalExecution: 'trusted-host' as const,
+        };
+        try {
+          service.applyVerifiedSshProfile(
+            newId, tuple, operator, opts.sshOperatorBroker!, verifiedSshAuthority!,
+            (approved, upgradeAuth) => {
+              if (upgradeAuth) throw new Error('UNEXPECTED_AUTH_UPGRADE');
+              container.fleet.updateProfileAtomically(newId, approved, service);
+            },
+          );
+        } catch (error) {
+          // The Fleet remains sandbox-required, never silently host-authorized.
+          // Preserve its new token in this owner-only, no-store response for recovery.
+          res.setHeader('cache-control', 'no-store');
+          return sendJson(res, 409, {
+            ok: false, error: 'QUICKSTART_PROFILE_NOT_GRANTED',
+            message: error instanceof Error ? error.message : 'HOST_CONSENT_FAILED',
+            data: { id: newId, token: provisioned.token },
+          });
+        }
+        let activation: { status: 'start_requested' | 'failed'; message?: string };
+        try {
+          // The leased owner channel must still be live immediately before spawn.
+          opts.sshOperatorBroker!.assertAuthorityLive(verifiedSshAuthority!);
+          container.fleet.start(newId);
+          activation = { status: 'start_requested' };
+        } catch (error) {
+          activation = {
+            status: 'failed',
+            message: error instanceof Error ? error.message : 'INSTANCE_START_FAILED',
+          };
+        }
+        res.setHeader('cache-control', 'no-store');
+        return sendJson(res, 201, {
+          ok: true,
+          data: {
+            id: newId, token: provisioned.token,
+            instance: publicFleetInstance(container.fleet.get(newId)),
+            activation,
+          },
+        });
+      }
       if (method === 'GET' && oneClickRoute) {
         return sendJson(res, 200, {
           ...service.status(instanceId),
