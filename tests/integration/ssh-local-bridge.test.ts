@@ -80,6 +80,35 @@ describe('SSH desktop bridge: browser-intent binding', () => {
     expect(h.seen[h.seen.length - 1]?.authorization).toBe('');
   });
 
+  it('never proxies a configured Dashboard bearer from an anonymous localhost request', async () => {
+    const credential = 'm'.repeat(32);
+    const h = await fixture(credential);
+    const unpaired = await fetch(h.origin + '/fleet');
+    expect(unpaired.status).toBe(403);
+    expect(h.seen.some(v => v.url === '/fleet')).toBe(false);
+    const paired = await fetch(h.origin + '/__folderforge/activate', {
+      method: 'POST', redirect: 'manual',
+      headers: { origin: 'null', 'content-type': 'application/x-www-form-urlencoded' },
+      body: 'pair=' + h.token,
+    });
+    expect(paired.status).toBe(303);
+    const cookie = paired.headers.get('set-cookie')!.split(';')[0]!;
+    const forged = await fetch(h.origin + '/fleet', {
+      headers: { cookie: 'ff_ssh_operator_session=' + 'a'.repeat(43) },
+    });
+    expect(forged.status).toBe(403);
+    expect(h.seen.some(v => v.url === '/fleet')).toBe(false);
+    const authorized = await fetch(h.origin + '/fleet', { headers: { cookie } });
+    expect(authorized.status).toBe(200);
+    expect(h.seen.find(v => v.url === '/fleet')?.authorization).toBe('Bearer ' + credential);
+    const post = await fetch(h.origin + '/fleet/flt_12345678/one-click-trusted-host', {
+      method: 'POST', headers: { cookie, origin: h.origin, 'x-folderforge-operator-csrf': 'x'.repeat(43) },
+      body: '{}',
+    });
+    expect(post.status).toBe(200);
+    expect(h.seen.at(-1)?.authorization).toBe('Bearer ' + credential);
+  });
+
   it('refuses missing/forged URL or header proof and never exchanges on a simple GET', async () => {
     const h = await fixture();
     const before = await fetch(h.origin + '/');
