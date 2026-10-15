@@ -10,6 +10,7 @@ import { Container } from '../../src/runtime/container.js';
 import { startDashboard } from '../../src/dashboard/server.js';
 import { buildRegistry } from '../../src/tools/index.js';
 import { SshSessionBroker } from '../../src/operator/ssh-session-broker.js';
+import { deriveSshBrowserChannel, SSH_BROWSER_CHANNEL_HEADER } from '../../src/operator/ssh-browser-channel.js';
 
 const roots: string[] = [];
 const servers: Server[] = [];
@@ -87,7 +88,10 @@ describe('SSH operator browser sessions (no ambient loopback elevation)', () => 
       headers: { cookie: credential },
     });
     expect(await forwardedStatus.json()).toEqual({ verified: false });
-    const status = await fetch(h.base + '/operator/ssh-session/status', { headers: { cookie: credential } });
+    const channel = deriveSshBrowserChannel(h.bootstrap.bootstrapSecret);
+    const status = await fetch(h.base + '/operator/ssh-session/status', {
+      headers: { cookie: credential, [SSH_BROWSER_CHANNEL_HEADER]: channel },
+    });
     expect(await status.json()).toMatchObject({
       verified: true,
       source: 'ssh-remote-exec',
@@ -102,6 +106,7 @@ describe('SSH operator browser sessions (no ambient loopback elevation)', () => 
       method: 'POST', headers: {
         origin: h.base, 'sec-fetch-site': 'same-origin',
         cookie: credential, 'x-folderforge-operator-csrf': view.csrfToken,
+        [SSH_BROWSER_CHANNEL_HEADER]: channel,
       },
     });
     expect(loggedOut.status).toBe(200);
