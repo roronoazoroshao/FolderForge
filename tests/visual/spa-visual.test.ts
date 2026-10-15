@@ -262,6 +262,15 @@ describe.skipIf(!CHROMIUM)('Mission Control SPA visual regression (proposal 018)
         await route.fulfill({ status: 403, body: 'legacy host authorization route must not run' });
       });
       await page.goto(`${local.baseUrl}/app/fleet?token=local-preview-token`, { waitUntil: 'networkidle' });
+      // Quickstart is prominent; manual sandbox settings stay collapsed.
+      await page.getByRole('textbox', { name: 'Folder path to provision' }).fill(project);
+      const quickStartCta = page.getByRole('button', {
+        name: 'Verify in VS Code to create Fleet', exact: true,
+      });
+      await quickStartCta.waitFor({ state: 'visible', timeout: 6_000 });
+      expect(await quickStartCta.isEnabled()).toBe(true);
+      expect(await page.getByText('Advanced: manual Fleet setup')).toBeVisible();
+      expect(await page.getByRole('button', { name: 'Provision manually' }).isVisible()).toBe(false);
       // An ordinary localhost/forwarded browser can initiate a verified owner
       // handoff without gaining authority or invoking any privileged mutation.
       const verifyCta = page.getByRole('button', {
