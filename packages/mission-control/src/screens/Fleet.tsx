@@ -109,6 +109,7 @@ export function FleetScreen() {
   const [formError, setFormError] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [quickAccessBusy, setQuickAccessBusy] = useState<string | null>(null);
+  const [quickStartBusy, setQuickStartBusy] = useState(false);
   // Live browser authority is independent from saved per-instance host grants.
   // The old forwarded tab may read a saved grant but can never use it as owner proof.
   const [ownerSessionVerified, setOwnerSessionVerified] = useState<boolean | null>(null);
@@ -171,6 +172,60 @@ export function FleetScreen() {
       toast('success', `Provisioned ${result.data.id}`);
     } catch (error) {
       setFormError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const quickStart = async () => {
+    if (ownerSessionVerified !== true) {
+      openVerifiedVSCodeSession();
+      return;
+    }
+    const projectPath = path.trim();
+    if (!projectPath) return;
+    setFormError(null);
+    setQuickStartBusy(true);
+    try {
+      // A stored grant is NOT browser owner proof. Recheck the live session
+      // and bind this one-shot host privilege request to its CSRF token.
+      const owner = await api<{ verified: boolean; csrfToken?: string }>(
+        '/operator/ssh-session/status', { sensitive: true },
+      );
+      if (!owner.verified || !owner.csrfToken) {
+        setOwnerSessionVerified(false);
+        throw new Error('Owner session expired. Choose Verify in VS Code to reopen it.');
+      }
+      const created = await api<{
+        ok: boolean;
+        data?: { id: string; token: string;
+          activation: { status: 'start_requested' | 'failed'; message?: string } };
+        error?: string;
+      }>('/fleet/quickstart', {
+        method: 'POST',
+        sensitive: true,
+        headers: { 'x-folderforge-operator-csrf': owner.csrfToken },
+        body: { projectPath },
+      });
+      if (!created.ok || !created.data?.id) {
+        throw new Error(created.error ?? 'Fleet quickstart failed');
+      }
+      setOptionalConnectionKey({
+        id: created.data.id, kind: 'token', value: created.data.token, reason: 'created',
+      });
+      setPath('');
+      fleet.reload();
+      if (created.data.activation.status === 'failed') {
+        toast('error', 'Fleet configured with full AI access, but startup failed: ' +
+          (created.data.activation.message ?? 'Inspect Fleet status'));
+      } else {
+        toast('success', 'Full AI Fleet created and startup requested. Check health before use.');
+      }
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : String(error));
+      // A failed profile activation can leave a safely sandboxed Fleet.
+      // Refresh the list rather than hiding a partially completed operation.
+      fleet.reload();
+    } finally {
+      setQuickStartBusy(false);
     }
   };
 
@@ -359,112 +414,133 @@ export function FleetScreen() {
         subtitle="Provision and operate one governed MCP server per folder, with independent authentication and exposure choices."
       />
 
-      <Card title="Provision a folder" hint="local first; expose only when authenticated">
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_150px_140px_150px_auto] lg:items-end">
-          <Field label="Folder path">
-            <div className="flex gap-2">
-              <Input
-                value={path}
-                onChange={(event) => setPath(event.target.value)}
-                placeholder="/absolute/path/to/folder"
-                aria-label="Folder path to provision"
-              />
-              <Button variant="subtle" title="Browse folders on this machine" onClick={() => setPickerOpen(true)}>
-                <FolderSearch size={14} aria-hidden /> Browse
-              </Button>
-            </div>
-          </Field>
-          <Field label="Tool preset">
-            <Select value={preset} onChange={(event) => setPreset(event.target.value)} aria-label="Tool preset">
-              {PRESETS.map((value) => <option key={value} value={value}>{value}</option>)}
-            </Select>
-          </Field>
-          <Field label="Policy mode">
-            <Select value={policy} onChange={(event) => setPolicy(event.target.value)} aria-label="Policy mode">
-              {POLICIES.map((value) => <option key={value} value={value}>{value}</option>)}
-            </Select>
-          </Field>
-          <Field label="Authentication">
-            <Select
-              value={authMode}
-              onChange={(event) => setAuthMode(event.target.value as FleetAuthMode)}
-              aria-label="Authentication mode"
-            >
-              {AUTH_MODES.map((value) => <option key={value} value={value}>{authLabel(value)}</option>)}
-            </Select>
-          </Field>
-          <Button
-            variant="primary"
-            disabled={!path.trim() || oauthMissing || action.busy}
-            busy={action.busy}
-            onClick={() => void provision()}
-          >
-            Provision
-          </Button>
-        </div>
-
-        <div className="mt-3 grid gap-2 max-w-xl">
-          <Field label="Terminal execution for new MCP">
-            <Select value={executionProfile} onChange={(event) => setExecutionProfile(event.target.value)}
-              aria-label="Terminal execution for new MCP">
-              <option value="inherit">Default (inherit operator host opt-in)</option>
-              <option value="sandbox-required">Require sandbox in danger mode</option>
-              <option value="trusted-host">Trusted host (requires host startup opt-in)</option>
-            </Select>
-          </Field>
-          {executionProfile === 'trusted-host' ? (
-            <Banner tone="warn">Commands run with the MCP service user's host permissions without Docker/Podman.
-              This does not disable hard command denies, audit or operating-system permissions.
-              Only authenticated MCP instances may use this profile. Restart is required after changes.</Banner>
+      <Card title="Create an AI Fleet" hint="Choose a project folder. Host access is scoped to that Fleet.">
+        <div className="rounded-xl border border-border-soft bg-panel-2 p-4">
+          <div className="mb-3">
+            <h2 className="m-0 text-sm font-semibold">Vibe coding — quick start</h2>
+            <p className="mt-1 text-xs text-muted">
+              One action creates a token-secured MCP with full tools, autonomous danger policy
+              and trusted-host execution, then requests startup. No Docker installation or per-tool approval.
+              OS permissions, allowed folders, hard command denies and audit still apply.
+            </p>
+          </div>
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+            <Field label="Project folder">
+              <div className="flex gap-2">
+                <Input
+                  value={path}
+                  onChange={(event) => setPath(event.target.value)}
+                  placeholder="/home/devops/my-project"
+                  aria-label="Folder path to provision"
+                />
+                <Button variant="subtle" title="Browse folders on this machine"
+                  onClick={() => setPickerOpen(true)}>
+                  <FolderSearch size={14} aria-hidden /> Browse
+                </Button>
+              </div>
+            </Field>
+            <Button variant="primary" busy={quickStartBusy}
+              disabled={!path.trim() || quickStartBusy || ownerSessionVerified === null}
+              onClick={() => void quickStart()}>
+              <ShieldCheck size={14} aria-hidden />
+              {ownerSessionVerified === false
+                ? 'Verify in VS Code to create Fleet'
+                : ownerSessionVerified === null
+                  ? 'Checking owner session…'
+                  : 'Create & Start AI Fleet'}
+            </Button>
+          </div>
+          {ownerSessionVerified === false ? (
+            <p className="mt-2 text-xs text-muted">
+              Remote-SSH PORTS tabs can browse but cannot grant VPS execution rights.
+              The button opens local VS Code verification; complete the Fleet setup in
+              its new verified browser tab. No terminal approval command is needed.
+            </p>
           ) : null}
         </div>
 
-        {authMode === 'api-key' ? (
-          <div className="mt-3 max-w-xl">
-            <Field label="API key (optional)">
-              <Input
-                type="password"
-                value={apiKey}
-                onChange={(event) => setApiKey(event.target.value)}
-                placeholder="Leave blank to generate a FolderForge API key"
-                aria-label="Optional API key"
-              />
-            </Field>
-          </div>
-        ) : null}
-
-        {authMode === 'oauth' ? (
-          <div className="mt-3 grid gap-3 rounded-xl border border-border-soft p-3 md:grid-cols-2">
-            <Field label="OAuth resource / audience">
-              <Input value={oauthResource} onChange={(event) => setOauthResource(event.target.value)} placeholder="https://mcp.example.com" />
-            </Field>
-            <Field label="Authorization issuer">
-              <Input value={oauthIssuer} onChange={(event) => setOauthIssuer(event.target.value)} placeholder="https://tenant.auth0.com/" />
-            </Field>
-            <Field label="Scopes (comma-separated)">
-              <Input value={oauthScopes} onChange={(event) => setOauthScopes(event.target.value)} />
-            </Field>
-            <Field label="Client registration">
-              <Select value={oauthRegistration} onChange={(event) => setOauthRegistration(event.target.value)}>
-                <option value="cimd">CIMD</option>
-                <option value="dcr">DCR</option>
-                <option value="predefined">Predefined</option>
+        <details className="mt-3 rounded-xl border border-border-soft px-3 py-3">
+          <summary className="cursor-pointer text-sm font-medium">
+            Advanced: manual Fleet setup (sandbox/Docker, preset, policy, authentication)
+          </summary>
+          <div className="mt-3 grid gap-3 md:grid-cols-3 md:items-end">
+            <Field label="Tool preset">
+              <Select value={preset} onChange={(event) => setPreset(event.target.value)} aria-label="Tool preset">
+                {PRESETS.map((value) => <option key={value} value={value}>{value}</option>)}
               </Select>
             </Field>
-            <Field label="Read scope">
-              <Input value={oauthReadScope} onChange={(event) => setOauthReadScope(event.target.value)} />
+            <Field label="Policy mode">
+              <Select value={policy} onChange={(event) => setPolicy(event.target.value)} aria-label="Policy mode">
+                {POLICIES.map((value) => <option key={value} value={value}>{value}</option>)}
+              </Select>
             </Field>
-            <Field label="Write scope">
-              <Input value={oauthWriteScope} onChange={(event) => setOauthWriteScope(event.target.value)} />
+            <Field label="Authentication">
+              <Select value={authMode} onChange={(event) => setAuthMode(event.target.value as FleetAuthMode)}
+                aria-label="Authentication mode">
+                {AUTH_MODES.map((value) => <option key={value} value={value}>{authLabel(value)}</option>)}
+              </Select>
             </Field>
           </div>
-        ) : null}
-
-        {authMode === 'none' ? (
+          <div className="mt-3 max-w-xl">
+            <Field label="Terminal execution">
+              <Select value={executionProfile} onChange={(event) => setExecutionProfile(event.target.value)}
+                aria-label="Terminal execution for new MCP">
+                <option value="inherit">Default (inherit operator host opt-in)</option>
+                <option value="sandbox-required">Require sandbox in danger mode</option>
+                <option value="trusted-host">Trusted host (verified owner required to start)</option>
+              </Select>
+            </Field>
+            {executionProfile === 'trusted-host' ? (
+              <Banner tone="warn">
+                Host processes run as the FolderForge OS account. Existing runtime consent gates
+                and hard-deny rules still apply.
+              </Banner>
+            ) : null}
+          </div>
+          {authMode === 'api-key' ? (
+            <div className="mt-3 max-w-xl">
+              <Field label="API key (optional)">
+                <Input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)}
+                  placeholder="Leave blank to generate an API key" aria-label="Optional API key" />
+              </Field>
+            </div>
+          ) : null}
+          {authMode === 'oauth' ? (
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <Field label="OAuth resource / audience">
+                <Input value={oauthResource} onChange={(event) => setOauthResource(event.target.value)} />
+              </Field>
+              <Field label="Authorization issuer">
+                <Input value={oauthIssuer} onChange={(event) => setOauthIssuer(event.target.value)} />
+              </Field>
+              <Field label="Scopes">
+                <Input value={oauthScopes} onChange={(event) => setOauthScopes(event.target.value)} />
+              </Field>
+              <Field label="Client registration">
+                <Select value={oauthRegistration} onChange={(event) => setOauthRegistration(event.target.value)}>
+                  <option value="cimd">CIMD</option>
+                  <option value="dcr">DCR</option>
+                  <option value="predefined">Predefined</option>
+                </Select>
+              </Field>
+              <Field label="Read scope">
+                <Input value={oauthReadScope} onChange={(event) => setOauthReadScope(event.target.value)} />
+              </Field>
+              <Field label="Write scope">
+                <Input value={oauthWriteScope} onChange={(event) => setOauthWriteScope(event.target.value)} />
+              </Field>
+            </div>
+          ) : null}
+          {authMode === 'none' ? (
+            <Banner tone="warn">No-auth MCP instances stay loopback-only; tunnel exposure requires authentication.</Banner>
+          ) : null}
           <div className="mt-3">
-            <Banner tone="warn">No-auth instances stay loopback-only. Mission Control will refuse Cloudflare publication.</Banner>
+            <Button variant="subtle" disabled={!path.trim() || oauthMissing || action.busy}
+              busy={action.busy} onClick={() => void provision()}>
+              Provision manually
+            </Button>
           </div>
-        ) : null}
+        </details>
         <ErrorNote message={formError ?? fleet.error} />
       </Card>
 
