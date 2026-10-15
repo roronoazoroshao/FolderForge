@@ -278,7 +278,9 @@ describe.skipIf(!CHROMIUM)('Mission Control SPA visual regression (proposal 018)
       await modal.getByText(/Cannot verify this browser as the machine owner/).waitFor({
         state: 'visible', timeout: 6_000,
       });
-      // One status read comes from Fleet's background owner check and another\n      // from the attempted Configure consent; future polling may add reads.\n      expect(statusReads).toBeGreaterThanOrEqual(2);
+      // One status read comes from Fleet's background owner check and another
+      // from the attempted Configure consent; future polling may add reads.
+      expect(statusReads).toBeGreaterThanOrEqual(2);
       expect(privilegedWrites).toBe(0);
       expect(legacyWrites).toBe(0);
       expect(local.container.fleet.get(instance.id)).toMatchObject({
