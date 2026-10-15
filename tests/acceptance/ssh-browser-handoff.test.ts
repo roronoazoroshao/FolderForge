@@ -38,14 +38,14 @@ describe.skipIf(!required)(
         if (req.url === '/operator/ssh-session/exchange') {
           exchanges += 1;
           res.writeHead(200, {
-            'set-cookie': 'ff_ssh_operator_session=opaque; HttpOnly; SameSite=Strict; Path=/',
+            'set-cookie': 'ff_ssh_operator_session=' + 'v'.repeat(43) + '; HttpOnly; SameSite=Strict; Path=/',
             'cache-control': 'no-store',
           });
           res.end('{"verified":true}');
           return;
         }
         res.writeHead(200, { 'content-type': 'text/plain' });
-        res.end(req.headers.cookie?.includes('ff_ssh_operator_session=opaque')
+        res.end(req.headers.cookie?.includes('ff_ssh_operator_session=' + 'v'.repeat(43))
           ? 'verified browser' : 'unauthenticated browser');
       });
       servers.push(upstream);
@@ -259,13 +259,13 @@ describe.skipIf(!required)(
         if (req.url === '/operator/ssh-session/exchange') {
           exchanges++;
           res.writeHead(200, {
-            'set-cookie': 'ff_ssh_operator_session=localproof; HttpOnly; SameSite=Strict; Path=/',
+            'set-cookie': 'ff_ssh_operator_session=' + 'l'.repeat(43) + '; HttpOnly; SameSite=Strict; Path=/',
           });
           res.end('{"verified":true}');
           return;
         }
         res.writeHead(200, { 'content-type': 'text/plain' });
-        res.end(req.url === '/app/' && req.headers.cookie?.includes('localproof')
+        res.end(req.url === '/app/' && req.headers.cookie?.includes('ff_ssh_operator_session=' + 'l'.repeat(43))
           ? 'owner app session' : 'not authorized');
       });
       servers.push(server);
