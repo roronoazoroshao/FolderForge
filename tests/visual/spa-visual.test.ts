@@ -262,6 +262,13 @@ describe.skipIf(!CHROMIUM)('Mission Control SPA visual regression (proposal 018)
         await route.fulfill({ status: 403, body: 'legacy host authorization route must not run' });
       });
       await page.goto(`${local.baseUrl}/app/fleet?token=local-preview-token`, { waitUntil: 'networkidle' });
+      // An ordinary localhost/forwarded browser can initiate a verified owner
+      // handoff without gaining authority or invoking any privileged mutation.
+      const verifyCta = page.getByRole('button', {
+        name: 'Verify in VS Code to allow AI access', exact: true,
+      });
+      await verifyCta.waitFor({ state: 'visible', timeout: 6_000 });
+      expect(await verifyCta.isEnabled()).toBe(true);
       await page.getByRole('button', { name: 'Configure', exact: true }).first().click();
       const modal = page.getByRole('dialog');
       await modal.getByText('Allow AI to work on this computer').waitFor({ timeout: 6_000 });
