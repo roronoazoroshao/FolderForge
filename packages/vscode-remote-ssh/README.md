@@ -24,7 +24,7 @@ npx --yes --package=@vscode/vsce@4.0.0 vsce package --no-dependencies
 code --install-extension folderforge-remote-ssh-0.1.0.vsix --force
 ```
 
-Alternatively, install the **.vsix** file from the `VS Code Remote-SSH verified handoff` GitHub Actions artifact using **Extensions → ... → Install from VSIX...**. This is a VSIX artifact, **not a Marketplace-published extension**.
+For a published release, open [GitHub Releases](https://github.com/roronoazoroshao/FolderForge/releases), expand **Assets**, download `folderforge-remote-ssh-0.1.0.vsix` directly, then choose **Extensions → ... → Install from VSIX...** in **local VS Code on macOS**. This is a release asset, **not a Marketplace-published extension**. Ensure the macOS and VPS FolderForge CLIs match the release that built the VSIX.
 
 To install the FolderForge CLI on your local computer, use the published `@musashishao/folderforge` npm package. If the executable is not on VS Code's local PATH, configure **FolderForge Remote-SSH: Executable Path** (must refer to a trusted installed program). Never bypass SSH host-key verification.
 
@@ -34,7 +34,7 @@ To install the FolderForge CLI on your local computer, use the published `@musas
 - **HTTP 401 / 403 on an authenticated Dashboard:** ensure your local and VPS FolderForge CLI installations support the verified SSH handoff, then restart verification from VS Code. A Dashboard access token is *not* a substitute for SSH ownership. Do not disable token/API-key authentication.
 - **Expired lease, logout, or SSH reconnect:** launch **FolderForge: Open Verified Mission Control (Remote-SSH)** from the VS Code Command Palette again and use the new verified browser tab. Merely reloading an existing forwarded tab never re-verifies the host.
 - **No verified tab opens:** check that the extension is under **Local — Installed**, the remote workspace is open with **Remote-SSH**, and the FolderForge executable is installed on the *local* macOS/Linux machine. If VS Code cannot find the local CLI, set its trusted **FolderForge Remote-SSH: Executable Path** in **User Settings**. Ensure your existing SSH alias passes normal host-key verification.
-- **VSIX availability:** open the successful **VS Code Remote-SSH verified handoff** workflow run, download the `folderforge-vscode-remote-ssh-vsix` artifact ZIP, unzip it, and install the contained `.vsix` file using VS Code **Extensions: Install from VSIX...**. GitHub Actions artifacts expire; prefer a successful run based on the current release source.
+- **Pre-release testing only:** before `v3.2.0` is tagged and the final release VSIX exists, download the `folderforge-vscode-remote-ssh-vsix` ZIP from a successful Actions run on the exact relevant source, unzip it, and install the `.vsix`. Prefer the direct GitHub Release asset once published, because branch-only artifacts can omit other unmerged fixes.
 
 ### Security boundaries
 
