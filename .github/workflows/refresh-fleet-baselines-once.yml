@@ -1,0 +1,80 @@
+name: One-shot reviewed Fleet baseline refresh
+on:
+  push:
+    branches:
+      - fix/3.2.1-fleet-visual-baselines
+    paths:
+      - .github/workflows/refresh-fleet-baselines-once.yml
+permissions:
+  contents: write
+jobs:
+  regenerate:
+    if: github.repository == 'roronoazoroshao/FolderForge' && github.ref == 'refs/heads/fix/3.2.1-fleet-visual-baselines'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: /tmp/ff-fleet-baseline-chromium
+      FF_VISUAL_REQUIRE_BROWSER: '1'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: true
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked application and frontend dependencies
+        run: |
+          npm ci --ignore-scripts
+          npm ci --prefix packages/mission-control --ignore-scripts
+      - name: Build the actual UI using committed source
+        run: |
+          npm run build:adapter-godot
+          npm run build:mission-control
+          test -s packages/mission-control/dist/index.html
+      - name: Install real Chromium rather than silently skip browser tests
+        run: node node_modules/playwright-core/cli.js install --with-deps chromium
+      - name: RED - assert stale Fleet baselines are rejected
+        shell: bash
+        run: |
+          set -euo pipefail
+          if npx vitest run tests/visual/spa-visual.test.ts -t "matches the baseline for fleet" --reporter=verbose; then
+            echo 'ERROR: expected prior Fleet baseline mismatch, but it passed' >&2
+            exit 1
+          fi
+          echo 'Expected Fleet visual baseline mismatch reproduced'
+      - name: Recreate ONLY intentional desktop and mobile Fleet baselines
+        env:
+          FF_VISUAL_UPDATE: '1'
+        run: npx vitest run tests/visual/spa-visual.test.ts -t "matches the baseline for fleet" --reporter=verbose
+      - name: Assert exactly the two Fleet baselines changed
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed="$(git diff --name-only -- tests/visual/baselines)"
+          expected="$(printf 'tests/visual/baselines/fleet.desktop.png\ntests/visual/baselines/fleet.mobile.png')"
+          test "$changed" = "$expected" || { printf 'Unexpected baseline mutations:\n%s\n' "$changed"; exit 1; }
+          test -s tests/visual/baselines/fleet.desktop.png
+          test -s tests/visual/baselines/fleet.mobile.png
+      - name: GREEN - run all real-browser visual regression tests, strict threshold unchanged
+        run: npx vitest run tests/visual/spa-visual.test.ts --reporter=verbose
+      - name: Upload actual updated screenshots for review
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: fleet-v3.2.1-reviewed-baselines
+          path: |
+            tests/visual/baselines/fleet.desktop.png
+            tests/visual/baselines/fleet.mobile.png
+          if-no-files-found: error
+          retention-days: 30
+      - name: Commit baseline-only update and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tests/visual/baselines/fleet.desktop.png tests/visual/baselines/fleet.mobile.png
+          git rm .github/workflows/refresh-fleet-baselines-once.yml
+          git diff --cached --check
+          git commit -m 'test(visual): align Fleet desktop and mobile references with new quickstart'
+          git push origin HEAD:refs/heads/fix/3.2.1-fleet-visual-baselines
