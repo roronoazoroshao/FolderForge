@@ -37,7 +37,9 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
-          registry-url: https://registry.npmjs.org
+          # Avoid setup-node's empty NODE_AUTH_TOKEN placeholder in .npmrc:
+          # it can suppress npm's OIDC exchange and cause misleading E404.
+          # npm's default registry is https://registry.npmjs.org.
           package-manager-cache: false
 
       - name: Pin trusted-publishing-capable npm (validated release fixture compatibility)
