@@ -6,6 +6,14 @@ All notable changes to FolderForge are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/), and the project follows
 semantic versioning.
 
+## [3.2.4] - 2026-10-16
+
+### Fixed
+- Make npm release tests portable across Linux workstation fonts/Chromium builds: move strict pixel snapshot assertions into mandatory pinned-browser CI, retaining local browser behavior, security and mobile overflow tests.
+- Fix Mission Control responsive grid/nav so Fleet and Overview screenshots remain at a true 390px mobile width rather than expanding to 1380px.
+- Keep all twelve screenshot baselines reviewed under the existing 0.2% maximum pixel-diff threshold; never auto-update baseline from an arbitrary publishing workstation.
+- No change to npm authentication, release provenance, host-execution permissions or approval gates.
+
 ## [3.2.3] - 2026-10-16
 
 ### Fixed
