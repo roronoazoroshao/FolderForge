@@ -6,6 +6,12 @@ All notable changes to FolderForge are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/), and the project follows
 semantic versioning.
 
+## [3.2.1] - 2026-10-16
+
+### Fixed
+- Align the intentionally redesigned Fleet Quickstart desktop and mobile visual baselines with the delivered `Create & Start AI Fleet` interface. Keep the strict 0.2% pixel-diff threshold and browser-required visual release tests.
+- No new privilege grants, policy defaults, or runtime execution bypasses in this patch. The OS-owner verification requirement remains intact.
+
 ## [3.2.0] - 2026-10-15
 
 ### Added
