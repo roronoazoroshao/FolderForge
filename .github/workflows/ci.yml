@@ -15,6 +15,34 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  visual-pixels:
+    name: Pinned Chromium visual baseline and responsive layout
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: /tmp/folderforge-ci-chromium
+      FF_VISUAL_REQUIRE_BROWSER: '1'
+      FF_VISUAL_SNAPSHOTS: '1'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install exact lockfile dependencies
+        run: |
+          npm ci --ignore-scripts
+          npm ci --prefix packages/mission-control --ignore-scripts
+      - name: Build actual SPA and runtime
+        run: |
+          npm run build:adapter-godot
+          npm run build:mission-control
+          test -s packages/mission-control/dist/index.html
+      - name: Install lockfile Playwright Chromium and system dependencies
+        run: node node_modules/playwright-core/cli.js install --with-deps chromium
+      - name: Run strict pixel diff and 390px viewport assertions
+        run: npx vitest run tests/visual/spa-visual.test.ts --reporter=verbose
+
   compatibility:
     name: ${{ matrix.os }} / Node ${{ matrix.node }}
     runs-on: ${{ matrix.os }}

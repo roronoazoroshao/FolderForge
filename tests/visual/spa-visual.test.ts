@@ -7,8 +7,11 @@
  *
  * Regenerate baselines intentionally (never as a reflex):
  *   FF_VISUAL_UPDATE=1 npx vitest run tests/visual
- * The suite self-skips when no Chromium binary is available (CI hosts
- * without the ms-playwright cache stay green — documented limitation).
+ * Host-locked pixel baselines run ONLY in the pinned visual CI job via
+ * FF_VISUAL_SNAPSHOTS=1. Ordinary npm test/release:check keeps browser
+ * behavioral and mobile-overflow tests but never compares a developer's
+ * locally installed Chromium/fonts to Linux CI golden images.
+ * FF_VISUAL_REQUIRE_BROWSER=1 fails closed when the pinned browser is missing.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { once } from 'node:events';
@@ -36,6 +39,7 @@ import { buildRegistry } from '../../src/tools/index.js';
 import { diffPngs, MAX_DIFF_RATIO } from './lib/pixel-diff.js';
 
 const UPDATE = process.env.FF_VISUAL_UPDATE === '1';
+const SNAPSHOTS = process.env.FF_VISUAL_SNAPSHOTS === '1' || UPDATE;
 const BASELINES = fileURLToPath(new URL('./baselines', import.meta.url));
 const DESKTOP = { width: 1280, height: 900 } as const;
 const MOBILE = { width: 390, height: 844 } as const;
@@ -91,7 +95,7 @@ function resolveChromiumExecutable(): string | undefined {
 }
 
 const CHROMIUM = resolveChromiumExecutable();
-if (process.env.FF_VISUAL_REQUIRE_BROWSER === '1' && !CHROMIUM) {
+if ((process.env.FF_VISUAL_REQUIRE_BROWSER === '1' || SNAPSHOTS) && !CHROMIUM) {
   throw new Error('VISUAL_BROWSER_REQUIRED: Chromium unavailable. A visual release test must not skip.');
 }
 
@@ -219,17 +223,36 @@ describe.skipIf(!CHROMIUM)('Mission Control SPA visual regression (proposal 018)
   });
 
   for (const route of ROUTES) {
-    it(`matches the baseline for ${route.name} (desktop)`, { timeout: 30_000 }, async () => {
+    (SNAPSHOTS ? it : it.skip)(`matches the baseline for ${route.name} (desktop)`, { timeout: 30_000 }, async () => {
       const shot = await shoot(desktop, `${harness.baseUrl}/app${route.path}`);
       compare(route.name, 'desktop', shot);
     });
     if (MOBILE_ROUTES.has(route.name)) {
-      it(`matches the baseline for ${route.name} (mobile)`, { timeout: 30_000 }, async () => {
+      (SNAPSHOTS ? it : it.skip)(`matches the baseline for ${route.name} (mobile)`, { timeout: 30_000 }, async () => {
         const shot = await shoot(mobile, `${harness.baseUrl}/app${route.path}`);
         compare(route.name, 'mobile', shot);
       });
     }
   }
+
+  it.each(['overview', 'fleet'])('keeps %s inside the 390px mobile viewport', { timeout: 30_000 }, async name => {
+    const path = name === 'overview' ? '/' : '/fleet';
+    const page = await mobile.newPage();
+    try {
+      await page.goto(`${harness.baseUrl}/app${path}`, { waitUntil: 'networkidle' });
+      await page.waitForTimeout(300);
+      const dimensions = await page.evaluate(() => ({
+        viewport: window.innerWidth,
+        documentWidth: document.documentElement.scrollWidth,
+        bodyWidth: document.body.scrollWidth,
+      }));
+      expect(dimensions.viewport).toBe(MOBILE.width);
+      expect(dimensions.documentWidth).toBeLessThanOrEqual(MOBILE.width);
+      expect(dimensions.bodyWidth).toBeLessThanOrEqual(MOBILE.width);
+    } finally {
+      await page.close();
+    }
+  });
 
   it('rejects one-click host enrollment in Fleet Configure without an OS-verified owner session', { timeout: 30_000 }, async () => {
     const local = await startHarness();
