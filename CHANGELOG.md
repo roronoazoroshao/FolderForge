@@ -6,6 +6,13 @@ All notable changes to FolderForge are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/), and the project follows
 semantic versioning.
 
+## [3.2.3] - 2026-10-16
+
+### Fixed
+- Match npm package repository, homepage and issue-tracker metadata to the canonical GitHub organization `roronoazoroshao/FolderForge` for trusted publishing.
+- Avoid writing an empty npm authentication placeholder via `actions/setup-node`; allow npm 11.6.2 to negotiate OIDC credentials directly with npm registry.
+- Add release-identity regression tests. Preserve all release checks, tarball provenance attestation, exact-main tag integrity and publishing permissions.
+
 ## [3.2.2] - 2026-10-16
 
 ### Fixed
