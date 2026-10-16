@@ -6,6 +6,12 @@ All notable changes to FolderForge are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/), and the project follows
 semantic versioning.
 
+## [3.2.2] - 2026-10-16
+
+### Fixed
+- Publish the verified npm 11.6.2 trusted-publishing workflow and release metadata together on an immutable tag matching the main branch.
+- Resolve the release preflight HEAD/tag mismatch that blocked publishing v3.2.1. Retain all existing release checks, authenticated publishing, and provenance validation.
+
 ## [3.2.1] - 2026-10-16
 
 ### Fixed
