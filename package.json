@@ -1,6 +1,6 @@
 {
   "name": "@musashishao/folderforge",
-  "version": "3.2.2",
+  "version": "3.2.3",
   "description": "FolderForge - the all-in-one MCP-native local development control plane for AI coding agents.",
   "keywords": [
     "mcp",
@@ -16,13 +16,13 @@
     "stdio",
     "cli"
   ],
-  "homepage": "https://github.com/roronoazoroshao369/FolderForge#readme",
+  "homepage": "https://github.com/roronoazoroshao/FolderForge#readme",
   "bugs": {
-    "url": "https://github.com/roronoazoroshao369/FolderForge/issues"
+    "url": "https://github.com/roronoazoroshao/FolderForge/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/roronoazoroshao369/FolderForge.git"
+    "url": "git+https://github.com/roronoazoroshao/FolderForge.git"
   },
   "license": "Apache-2.0",
   "author": "",
