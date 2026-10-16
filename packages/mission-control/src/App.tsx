@@ -46,8 +46,8 @@ function Shell() {
     NAV.find((n) => ('end' in n && n.end ? location.pathname === n.to : location.pathname.startsWith(n.to))) ??
     NAV[0];
   return (
-    <div className="grid min-h-screen md:grid-cols-[240px_minmax(0,1fr)]">
-      <aside className="md:sticky md:top-0 md:h-screen flex md:flex-col gap-5 p-4 border-b md:border-b-0 md:border-r border-border bg-[#0d121a]/95">
+    <div className="grid min-h-screen min-w-0 grid-cols-[minmax(0,1fr)] md:grid-cols-[240px_minmax(0,1fr)]">
+      <aside className="min-w-0 md:sticky md:top-0 md:h-screen flex md:flex-col gap-5 p-4 border-b md:border-b-0 md:border-r border-border bg-[#0d121a]/95">
         <div className="flex items-center gap-2.5 px-1">
           <span className="grid place-items-center w-9 h-9 rounded-[10px] bg-accent-deep text-accent font-mono text-[13px] font-bold">
             FF
@@ -57,7 +57,7 @@ function Shell() {
             <span className="block text-[11px] text-muted">Mission Control</span>
           </div>
         </div>
-        <nav className="flex md:flex-col gap-1 overflow-x-auto md:overflow-visible">
+        <nav className="flex min-w-0 w-full md:flex-col gap-1 overflow-x-auto md:overflow-visible">
           {NAV.map((item) => (
             <NavLink
               key={item.to}
@@ -97,7 +97,7 @@ function Shell() {
             {getToken() ? 'token · set' : 'set token'}
           </NavLink>
         </header>
-        <div key={location.pathname} className="p-6 lg:p-8 max-w-[1240px] mx-auto animate-fade-in">
+        <div key={location.pathname} className="min-w-0 p-4 sm:p-6 lg:p-8 max-w-[1240px] mx-auto animate-fade-in">
           <Routes>
             <Route path="/" element={<OverviewScreen />} />
             <Route path="/fleet" element={<FleetScreen />} />
