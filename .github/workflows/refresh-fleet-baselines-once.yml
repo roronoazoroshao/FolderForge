@@ -56,8 +56,8 @@ jobs:
           test "$changed" = "$expected" || { printf 'Unexpected baseline mutations:\n%s\n' "$changed"; exit 1; }
           test -s tests/visual/baselines/fleet.desktop.png
           test -s tests/visual/baselines/fleet.mobile.png
-      - name: GREEN - run all real-browser visual regression tests, strict threshold unchanged
-        run: npx vitest run tests/visual/spa-visual.test.ts --reporter=verbose
+      - name: GREEN - verify Fleet desktop and mobile against regenerated references, strict threshold unchanged
+        run: npx vitest run tests/visual/spa-visual.test.ts -t "matches the baseline for fleet" --reporter=verbose
       - name: Upload actual updated screenshots for review
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
