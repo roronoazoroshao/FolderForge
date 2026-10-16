@@ -40,8 +40,10 @@ jobs:
           registry-url: https://registry.npmjs.org
           package-manager-cache: false
 
-      - name: Pin trusted-publishing-capable npm
-        run: npm install --global npm@12.0.1
+      - name: Pin trusted-publishing-capable npm (validated release fixture compatibility)
+        # npm 12.0.1 returns an empty npm pack --json fixture under this repo's release tests.
+        # Verified: npm 11.6.2 passes the same provenance corpus on Node 24.
+        run: npm install --global npm@11.6.2
 
       - name: Verify publishing toolchain
         shell: bash
