@@ -92,6 +92,8 @@ export interface OpenAiTunnelAuthReceipt {
 
 export interface OpenAiTunnelOptions {
   projectRoot: string;
+  /** Explicit owner-managed config, e.g. a scoped Fleet YAML. No default host bypass. */
+  configPath?: string;
   tunnelId?: string;
   apiKeyEnv?: string;
   apiKeyFile?: string;
@@ -269,6 +271,11 @@ export function parseOpenAiTunnelArgs(
       case "--project":
       case "-p":
         options.projectRoot = resolve(valueAfter(argv, index, arg));
+        index += 1;
+        break;
+      case "--config":
+      case "-c":
+        options.configPath = resolve(valueAfter(argv, index, arg));
         index += 1;
         break;
       case "--tunnel-id":
@@ -1243,6 +1250,7 @@ export function buildFolderForgeServerArgs(
     "mcpPort" | "dashboardPort" | "policyMode" | "toolsPreset"
   > & {
     projectRoot: string;
+    configPath?: string;
     dashboard: boolean;
     auth?: OpenAiTunnelAuthReceipt;
   },
@@ -1280,6 +1288,7 @@ export function buildFolderForgeServerArgs(
     cliEntry,
     "--project",
     options.projectRoot,
+    ...(options.configPath ? ["--config", options.configPath] : []),
     "--http",
     "--host",
     "127.0.0.1",
@@ -1818,6 +1827,7 @@ export async function executeOpenAiTunnelCli(
 
     const serverArgs = buildFolderForgeServerArgs(resolvedHooks.cliEntry, {
       projectRoot: options.projectRoot,
+      ...(options.configPath ? { configPath: options.configPath } : {}),
       dashboard: options.dashboard,
       mcpPort: runtime.mcpPort,
       ...(runtime.dashboardPort !== undefined
