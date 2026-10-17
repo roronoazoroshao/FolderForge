@@ -101,6 +101,20 @@ export function isLoopbackHost(host: string): boolean {
 }
 
 /**
+ * A signed Control Dashboard admin session may be delegated exact workspace
+ * host access without a VS Code extension. Auth=none, URL query credentials,
+ * public binds and non-loopback peers are NEVER elevation authority.
+ * This is an explicit privilege of the OS-owner-created 0600 admin token.
+ */
+function authenticatedLoopbackDashboardOwner(req: IncomingMessage, opts: DashboardOptions): boolean {
+  if (opts.requireAuth !== true || !opts.token || !isLoopbackHost(opts.host) ||
+      !isLoopbackHost(req.socket.remoteAddress ?? '')) return false;
+  const bearer = req.headers.authorization;
+  return typeof bearer === 'string' && bearer.startsWith('Bearer ') &&
+    timingSafeEqualStr(bearer.slice(7).trim(), opts.token);
+}
+
+/**
  * Local control-plane dashboard. Read-only views plus approval actions.
  *
  * Endpoints:
@@ -826,6 +840,15 @@ async function handle(
   const method = req.method ?? "GET";
   const url = new URL(req.url ?? "/", "http://localhost");
   const path = url.pathname;
+  // Accessible without the optional VS Code extension, but deliberately not
+  // available to an unauthenticated, PORTS-forwarded browser session.
+  if (method === 'GET' && path === '/fleet/owner-capability') {
+    const ready = authenticatedLoopbackDashboardOwner(req, opts);
+    res.setHeader('cache-control', 'no-store');
+    return sendJson(res, 200, {
+      ready, mode: ready ? 'dashboard-admin' : 'setup-required',
+    });
+  }
 
   // Elevated Fleet intents require a bearer admin when Dashboard auth is
   // configured. A tokenless, loopback-only Control Panel may stage the same
@@ -877,11 +900,13 @@ async function handle(
       id: adminPrincipalFromCredential(verifiedBearer ? presented : undefined).id,
       role: 'admin',
     };
-    // Privileged one-click enrollment can use ONLY a live SSH-backed browser
-    // session; a localhost request or ordinary Dashboard token never confers
-    // host execution authority. Require cookie + session-specific CSRF.
+    // One-click paths accept either (a) a signed, explicit token-authenticated
+    // loopback Control Dashboard, or (b) a live owner-verified SSH session.
+    // The request's Origin and Fetch Metadata were checked above.
+    const dashboardOwner = authenticatedLoopbackDashboardOwner(req, opts);
     let verifiedSshAuthority: ReturnType<SshOperatorWebSessions['requirePrivilegedWrite']> | null = null;
-    if ((oneClickRoute || quickStartRoute) && (method === 'POST' || method === 'DELETE')) {
+    if ((oneClickRoute || quickStartRoute) && (method === 'POST' || method === 'DELETE') &&
+        !dashboardOwner) {
       if (!sshOperatorWebSessions || !opts.sshOperatorBroker) {
         return sendJson(res, 403, { error: 'VERIFIED_OWNER_SESSION_REQUIRED' });
       }
@@ -891,6 +916,13 @@ async function handle(
         return sendJson(res, 403, { error: 'VERIFIED_OWNER_SESSION_REQUIRED' });
       }
     }
+    const applyOwnerProfile = (
+      id: string, tuple: { toolsPreset: string; policyMode: string; terminalExecution: 'trusted-host' },
+      commit: (approved: { toolsPreset: string; policyMode: string; terminalExecution: 'trusted-host' }, upgradeAuth: boolean) => void,
+    ) => dashboardOwner
+      ? service.applyAuthenticatedDashboardProfile(id, tuple, operator, commit)
+      : service.applyVerifiedSshProfile(id, tuple, operator, opts.sshOperatorBroker!,
+          verifiedSshAuthority!, commit);
     try {
       if (quickStartRoute && method === 'POST') {
         // No future/project-global host grant: all privileges remain scoped to
@@ -920,8 +952,8 @@ async function handle(
           toolsPreset: 'full', policyMode: 'danger', terminalExecution: 'trusted-host' as const,
         };
         try {
-          service.applyVerifiedSshProfile(
-            newId, tuple, operator, opts.sshOperatorBroker!, verifiedSshAuthority!,
+          applyOwnerProfile(
+            newId, tuple,
             (approved, upgradeAuth) => {
               if (upgradeAuth) throw new Error('UNEXPECTED_AUTH_UPGRADE');
               container.fleet.updateProfileAtomically(newId, approved, service);
@@ -940,7 +972,7 @@ async function handle(
         let activation: { status: 'start_requested' | 'failed'; message?: string };
         try {
           // The leased owner channel must still be live immediately before spawn.
-          opts.sshOperatorBroker!.assertAuthorityLive(verifiedSshAuthority!);
+          if (!dashboardOwner) opts.sshOperatorBroker!.assertAuthorityLive(verifiedSshAuthority!);
           container.fleet.start(newId);
           activation = { status: 'start_requested' };
         } catch (error) {
@@ -1015,8 +1047,8 @@ async function handle(
           await container.fleet.stopForTrustedHostTransition(instanceId);
         }
         let oneTimeToken: string | undefined;
-        const result = service.applyVerifiedSshProfile(
-          instanceId, tuple, operator, opts.sshOperatorBroker!, verifiedSshAuthority!,
+        const result = applyOwnerProfile(
+          instanceId, tuple,
           (approved, upgradeAuth) => {
             if (upgradeAuth) {
               const enrolled = container.fleet.enableSecureProfileAtomically(
@@ -1707,13 +1739,15 @@ async function handle(
     if (action !== "stop") {
       const instance = container.fleet.get(id);
       if (instance.terminalExecution === 'trusted-host') {
-        if (!sshOperatorWebSessions || !opts.sshOperatorBroker) {
-          return sendJson(res, 403, { error: 'VERIFIED_OWNER_SESSION_REQUIRED' });
-        }
-        try {
-          sshOperatorWebSessions.requirePrivilegedWrite(req);
-        } catch {
-          return sendJson(res, 403, { error: 'VERIFIED_OWNER_SESSION_REQUIRED' });
+        if (!authenticatedLoopbackDashboardOwner(req, opts)) {
+          if (!sshOperatorWebSessions || !opts.sshOperatorBroker) {
+            return sendJson(res, 403, { error: 'VERIFIED_OWNER_SESSION_REQUIRED' });
+          }
+          try {
+            sshOperatorWebSessions.requirePrivilegedWrite(req);
+          } catch {
+            return sendJson(res, 403, { error: 'VERIFIED_OWNER_SESSION_REQUIRED' });
+          }
         }
       }
     }
