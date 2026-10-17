@@ -106,7 +106,7 @@ interface VisualHarness {
   container: Container;
 }
 
-async function startHarness(withGit = false): Promise<VisualHarness> {
+async function startHarness(withGit = false, auth: { token?: string; requireAuth?: boolean } = {}): Promise<VisualHarness> {
   const root = mkdtempSync(join(tmpdir(), 'folderforge-visual-'));
   if (withGit) {
     execFileSync('git', ['init', '-b', 'main'], { cwd: root });
@@ -121,7 +121,7 @@ async function startHarness(withGit = false): Promise<VisualHarness> {
   config.policy.defaultMode = 'dev';
   const container = new Container(config);
   const registry = buildRegistry(container);
-  const server = startDashboard(container, registry, { host: '127.0.0.1', port: 0 });
+  const server = startDashboard(container, registry, { host: '127.0.0.1', port: 0, ...auth });
   if (!server.listening) await once(server, 'listening');
   const address = server.address() as AddressInfo;
   return { root, server, container, baseUrl: `http://127.0.0.1:${address.port}` };
@@ -251,6 +251,65 @@ describe.skipIf(!CHROMIUM)('Mission Control SPA visual regression (proposal 018)
       expect(dimensions.bodyWidth).toBeLessThanOrEqual(MOBILE.width);
     } finally {
       await page.close();
+    }
+  });
+
+  it('renders a signed token-authenticated Dashboard directly through a normal forwarded browser port', { timeout: 25_000 }, async () => {
+    const token = 'test-authenticated-dashboard-' + 'a'.repeat(40);
+    const local = await startHarness(false, { token, requireAuth: true });
+    const context = await browser.newContext({ viewport: DESKTOP, deviceScaleFactor: 1 });
+    const page = await context.newPage();
+    const pageErrors: string[] = [];
+    page.on('pageerror', error => pageErrors.push(error.message));
+    try {
+      const signed = await fetch(`${local.baseUrl}/app/?token=${encodeURIComponent(token)}`);
+      expect(signed.status).toBe(200);
+      const htmlSession = signed.headers.get('set-cookie');
+      expect(htmlSession).toMatch(/^ff_dashboard_html=[^;]+; HttpOnly; SameSite=Strict; Path=\/app;/);
+      const htmlTicketCookie = htmlSession!.split(';')[0]!;
+      // Reload ticket works ONLY for HTML; it cannot authorize API/host writes.
+      expect((await fetch(`${local.baseUrl}/app/fleet`, {
+        headers: { cookie: htmlTicketCookie },
+      })).status).toBe(200);
+      expect((await fetch(`${local.baseUrl}/fleet`, {
+        headers: { cookie: htmlTicketCookie },
+      })).status).toBe(401);
+      expect((await fetch(`${local.baseUrl}/app/fleet`, {
+        headers: { cookie: 'ff_dashboard_html=invalid' },
+      })).status).toBe(401);
+      const html = await signed.text();
+      const jsFile = html.match(/src="\.\/assets\/([^"]+\.js)"/)?.[1];
+      expect(jsFile).toBeTruthy();
+      // Build assets are publicly readable and never contain a host grant.
+      const asset = await fetch(`${local.baseUrl}/app/assets/${jsFile}`);
+      expect(asset.status).toBe(200);
+      expect(asset.headers.get('content-type')).toMatch(/javascript/);
+      const missingAsset = await fetch(`${local.baseUrl}/app/assets/does-not-exist.js`);
+      expect(missingAsset.status).toBe(404);
+      // Unauthenticated HTML and APIs remain protected.
+      expect((await fetch(`${local.baseUrl}/app/`)).status).toBe(401);
+      expect((await fetch(`${local.baseUrl}/fleet`)).status).toBe(401);
+      console.log('[signed-dashboard-test] public asset and auth gates verified');
+      const response = await page.goto(`${local.baseUrl}/app/?token=${encodeURIComponent(token)}`,
+        { waitUntil: 'domcontentloaded', timeout: 8_000 });
+      expect(response?.status()).toBe(200);
+      await page.getByRole('link', { name: 'Fleet' }).waitFor({ state: 'visible', timeout: 6_000 });
+      console.log('[signed-dashboard-test] SPA mounted and Fleet link visible');
+      // The credential must not disappear on BrowserRouter navigation and reload.
+      const fleetResponse = page.waitForResponse(r =>
+        new URL(r.url()).pathname === '/fleet' && r.request().method() === 'GET', { timeout: 7_000 });
+      await page.getByRole('link', { name: 'Fleet' }).click();
+      expect((await fleetResponse).status()).toBe(200);
+      console.log('[signed-dashboard-test] Fleet API authorized after navigation');
+      await page.reload({ waitUntil: 'domcontentloaded', timeout: 8_000 });
+      await page.getByRole('link', { name: 'Fleet' }).waitFor({ state: 'visible', timeout: 5_000 });
+      console.log('[signed-dashboard-test] reload restored SPA');
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await context.close();
+      local.server.closeAllConnections();
+      await new Promise<void>(resolve => local.server.close(() => resolve()));
+      rmSync(local.root, { recursive: true, force: true });
     }
   });
 

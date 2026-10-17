@@ -16,7 +16,7 @@ import {
   readSync,
   statSync,
 } from "node:fs";
-import { timingSafeEqual } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve, sep } from "node:path";
@@ -94,6 +94,34 @@ export interface DashboardOptions {
     getWorkflowId?: () => string | undefined;
     setWorkflowId?: (workflowId: string | undefined) => void;
   };
+}
+
+const HTML_SESSION_COOKIE = 'ff_dashboard_html';
+const HTML_SESSION_LIFETIME_SECONDS = 7 * 24 * 60 * 60;
+
+// Only an authenticated GET of the SPA HTML can issue this read-only session
+// ticket. Its HMAC is bound to the Dashboard admin credential, so restarting
+// the server preserves reloadability, but rotating that credential revokes it.
+// A valid HTML ticket NEVER authenticates API requests or owner permissions.
+function htmlSessionTicket(adminToken: string, expiresAt: number): string {
+  const signature = createHmac('sha256', adminToken)
+    .update(`folderforge:dashboard-html:v1:${expiresAt}`)
+    .digest('base64url');
+  return `${expiresAt}.${signature}`;
+}
+
+function validHtmlSessionTicket(req: IncomingMessage, adminToken: string): boolean {
+  const cookie = req.headers.cookie?.split(';').map(part => part.trim())
+    .find(part => part.startsWith(HTML_SESSION_COOKIE + '='))
+    ?.slice(HTML_SESSION_COOKIE.length + 1);
+  if (!cookie) return false;
+  const period = cookie.indexOf('.');
+  if (period < 1) return false;
+  const expires = Number(cookie.slice(0, period));
+  const now = Math.floor(Date.now() / 1000);
+  if (!Number.isSafeInteger(expires) || expires <= now ||
+      expires > now + HTML_SESSION_LIFETIME_SECONDS) return false;
+  return timingSafeEqualStr(cookie, htmlSessionTicket(adminToken, expires));
 }
 
 /** True when the bind host is loopback-only and therefore safe without a token. */
@@ -177,10 +205,29 @@ export function startDashboard(
   const sshOperatorWebSessions = opts.sshOperatorBroker
     ? new SshOperatorWebSessions(opts.sshOperatorBroker) : null;
   const server = createServer((req, res) => {
+    // Built Vite <script>/<link> URLs do not inherit the signed /app/?token=
+    // query. Serve ONLY public, filename-scoped immutable frontend build
+    // assets anonymously; all HTML, APIs and host-execution writes still pass
+    // through the credential gate below. This is not an owner grant.
+    const requestPath = new URL(req.url ?? '/', 'http://localhost').pathname;
+    if (req.method === 'GET' &&
+        /^\/app\/assets\/[a-zA-Z0-9][a-zA-Z0-9._-]*\.(?:js|css|svg|png|jpe?g|gif|webp|ico|woff2?|ttf|otf|wasm)$/.test(requestPath)) {
+      serveMissionControlApp(res, requestPath);
+      return;
+    }
     const credential = extractDashboardCredential(req);
+    const validBearer = Boolean(credential && opts.token &&
+      timingSafeEqualStr(credential, opts.token));
+    const htmlNavigation = req.method === 'GET' &&
+      (requestPath === '/app' ||
+       (requestPath.startsWith('/app/') && !requestPath.startsWith('/app/assets/')));
+    // Ticket has a single purpose: permit HTML reload after the SPA strips
+    // ?token= from history. It cannot authorize any REST, MCP or Fleet route.
+    const validHtmlTicket = Boolean(requireAuth && htmlNavigation && opts.token &&
+      validHtmlSessionTicket(req, opts.token));
     if (
       requireAuth &&
-      (!credential || !timingSafeEqualStr(credential, opts.token!))
+      !validBearer && !validHtmlTicket
     ) {
       res.writeHead(401, {
         "content-type": "application/json; charset=utf-8",
@@ -193,6 +240,13 @@ export function startDashboard(
         }),
       );
       return;
+    }
+    if (requireAuth && htmlNavigation && (validBearer || validHtmlTicket)) {
+      res.setHeader('cache-control', 'no-store');
+      if (validBearer) {
+        const expires = Math.floor(Date.now() / 1000) + HTML_SESSION_LIFETIME_SECONDS;
+        res.setHeader('set-cookie', `${HTML_SESSION_COOKIE}=${htmlSessionTicket(opts.token!, expires)}; HttpOnly; SameSite=Strict; Path=/app; Max-Age=${HTML_SESSION_LIFETIME_SECONDS}`);
+      }
     }
     if (sshOperatorWebSessions?.isRoute(req)) {
       // This route never recognizes ordinary Dashboard credentials as SSH
@@ -336,13 +390,40 @@ function serveMissionControlApp(res: ServerResponse, path: string): void {
           ? "text/css"
           : relative.endsWith(".svg")
             ? "image/svg+xml"
-            : relative.endsWith(".json")
-              ? "application/json"
-              : "text/html; charset=utf-8";
-      res.writeHead(200, { "content-type": type });
+            : relative.endsWith(".png")
+              ? "image/png"
+              : relative.endsWith(".jpg") || relative.endsWith(".jpeg")
+                ? "image/jpeg"
+                : relative.endsWith(".webp")
+                  ? "image/webp"
+                  : relative.endsWith(".gif")
+                    ? "image/gif"
+                    : relative.endsWith(".ico")
+                      ? "image/x-icon"
+                      : relative.endsWith(".woff2")
+                        ? "font/woff2"
+                        : relative.endsWith(".woff")
+                          ? "font/woff"
+                          : relative.endsWith(".ttf")
+                            ? "font/ttf"
+                            : relative.endsWith(".otf")
+                              ? "font/otf"
+                              : relative.endsWith(".wasm")
+                                ? "application/wasm"
+                                : relative.endsWith(".json")
+                                  ? "application/json"
+                                  : "text/html; charset=utf-8";
+      res.writeHead(200, { "content-type": type, "x-content-type-options": "nosniff" });
       res.end(readFileSync(file));
       return;
     }
+  }
+  // Never respond with a misleading 200 HTML fallback for a missing script.
+  if (path.startsWith('/app/assets/')) {
+    res.writeHead(404, { "content-type": "text/plain; charset=utf-8",
+      "x-content-type-options": "nosniff" });
+    res.end('asset not found');
+    return;
   }
   // Client-side routes (e.g. /app/fleet) have no asset file: fall back to the SPA shell.
   if (!/\.[a-z0-9]+$/i.test(relative)) {
