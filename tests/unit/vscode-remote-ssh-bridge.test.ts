@@ -56,11 +56,11 @@ describe('VS Code Remote-SSH UI host verification (no trust in forwarded HTTP)',
       authority: parsed.host, path: parsed.pathname,
       query: parsed.search.slice(1), fragment: parsed.hash.slice(1) })).toBe(true);
   });
-  it('provides a VS Code handoff in Fleet without accepting browser-specified host identity', () => {
+  it('keeps the optional VS Code extension secure without requiring it for Fleet access', () => {
     const ui = readFileSync(resolve('packages/mission-control/src/screens/Fleet.tsx'), 'utf8');
-    expect(ui).toContain('Verify in VS Code');
-    expect(ui).toContain('vscode://musashishao.folderforge-remote-ssh/verify');
-    expect(ui).not.toMatch(/vscode:\/\/musashishao\.folderforge-remote-ssh\/verify\?/);
+    expect(ui).not.toContain('vscode://');
+    expect(ui).toContain('Enable AI access');
+    expect(ui).toContain('/fleet/owner-capability');
     const extension = readFileSync(resolve('packages/vscode-remote-ssh/src/extension.cjs'), 'utf8');
     expect(extension).toContain('shell: false');
     expect(extension).toContain('modal: true');
