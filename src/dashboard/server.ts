@@ -33,6 +33,7 @@ import {
 } from "../chatgpt/lifecycle.js";
 import type { Container } from "../runtime/container.js";
 import type { SshSessionBroker } from "../operator/ssh-session-broker.js";
+import type { FleetProfileTuple } from "../operator/trusted-host-scope.js";
 import { SshOperatorWebSessions } from "./ssh-operator-session.js";
 import type { ToolRegistry } from "../tools/registry.js";
 import type { PolicyMode, ToolPrincipal } from "../core/types.js";
@@ -917,8 +918,8 @@ async function handle(
       }
     }
     const applyOwnerProfile = (
-      id: string, tuple: { toolsPreset: string; policyMode: string; terminalExecution: 'trusted-host' },
-      commit: (approved: { toolsPreset: string; policyMode: string; terminalExecution: 'trusted-host' }, upgradeAuth: boolean) => void,
+      id: string, tuple: FleetProfileTuple,
+      commit: (approved: FleetProfileTuple, upgradeAuth: boolean) => void,
     ) => dashboardOwner
       ? service.applyAuthenticatedDashboardProfile(id, tuple, operator, commit)
       : service.applyVerifiedSshProfile(id, tuple, operator, opts.sshOperatorBroker!,
