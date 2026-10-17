@@ -19,6 +19,21 @@ describe('forwarded VS Code PORTS tab — accessible AI access recovery', () => 
     expect(fleet).toContain('setInterval(refreshOwnerSession, 15_000)');
   });
 
+  it('requires verified owner authority for the Config Modal primary and advanced host actions', () => {
+    expect(fleet).toContain('ownerSessionVerified={ownerSessionVerified}');
+    expect(fleet).toContain('const ownerProofRequired = props.ownerSessionVerified !== true || needsReverification;');
+    expect(fleet).toContain('Verify in VS Code to allow AI access');
+    expect(fleet).toContain('Verify in VS Code to save AI access');
+    expect(fleet).toContain('ownerProofRequired ? openVerifiedVSCodeSession() : void applyFromVerifiedOwnerSession');
+  });
+
+  it('offers recovery instead of leaking an opaque origin/owner-session denial', () => {
+    expect(fleet).toContain("message.includes('SSH_OPERATOR_ORIGIN_DENIED')");
+    expect(fleet).toContain("message.includes('VERIFIED_OWNER_SESSION_REQUIRED')");
+    expect(fleet).toContain('setNeedsReverification(true)');
+    expect(fleet).toContain('Open a new verified session in VS Code and retry in the browser tab it opens.');
+  });
+
   it('retains server owner proof and session CSRF gating before host privilege changes', () => {
     expect(fleet).toContain("const VERIFIED_VSCODE_LINK = 'vscode://musashishao.folderforge-remote-ssh/verify'");
     expect(fleet).toContain('if (!owner.verified || !owner.csrfToken)');
