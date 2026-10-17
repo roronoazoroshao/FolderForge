@@ -6,16 +6,40 @@
  */
 
 const TOKEN_KEY = 'folderforge.dashboard.token';
+const TAB_TOKEN_KEY = 'folderforge.dashboard.tab-token';
+
+// A signed URL is an entry ticket to the current browser TAB, not a token
+// that should remain in the address bar, browser history or referrer.
+// BrowserRouter replaces ?token= during navigation: keep it in sessionStorage
+// so reload/navigation still authorize APIs without another setup step.
+let signedTabToken = '';
+if (typeof window !== 'undefined') {
+  const entry = new URL(window.location.href);
+  const signed = entry.searchParams.get('token');
+  if (signed) {
+    signedTabToken = signed;
+    try { sessionStorage.setItem(TAB_TOKEN_KEY, signed); } catch { /* restricted storage */ }
+    entry.searchParams.delete('token');
+    window.history.replaceState(window.history.state, '', entry.pathname + entry.search + entry.hash);
+  }
+}
 
 export function getToken(): string {
-  return new URLSearchParams(location.search).get('token') || localStorage.getItem(TOKEN_KEY) || '';
+  let storedTabToken = '';
+  let savedToken = '';
+  try { storedTabToken = sessionStorage.getItem(TAB_TOKEN_KEY) || ''; } catch { /* restricted storage */ }
+  try { savedToken = localStorage.getItem(TOKEN_KEY) || ''; } catch { /* restricted storage */ }
+  return signedTabToken || storedTabToken || savedToken;
 }
 
 export function setToken(token: string): void {
-  if (token) {
-    localStorage.setItem(TOKEN_KEY, token);
-  } else {
-    localStorage.removeItem(TOKEN_KEY);
+  signedTabToken = token;
+  try {
+    if (token) localStorage.setItem(TOKEN_KEY, token);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch { /* restricted storage */ }
+  if (!token) {
+    try { sessionStorage.removeItem(TAB_TOKEN_KEY); } catch { /* restricted storage */ }
   }
 }
 
