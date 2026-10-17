@@ -252,6 +252,26 @@ describe("OpenAI Secure MCP Tunnel CLI", () => {
     expect(args).not.toContain("--dangerously-allow-critical");
   });
 
+  it("forwards only an explicitly supplied Fleet-managed config to the tunnel child", () => {
+    const configPath = "/workspace/project/.folderforge/fleet/flt_test.yaml";
+    const opts = parseOpenAiTunnelArgs([
+      "connect", "--openai-tunnel", "--project", "/workspace/project",
+      "--config", configPath, "--tunnel-id", TUNNEL_ID,
+    ]);
+    expect(opts.configPath).toBe(configPath);
+    const launch = buildFolderForgeServerArgs("/pkg/dist/main.js", {
+      projectRoot: opts.projectRoot, dashboard: false, configPath: opts.configPath,
+      mcpPort: 7417, policyMode: "danger", toolsPreset: "full",
+    });
+    expect(launch.slice(launch.indexOf("--config"), launch.indexOf("--config") + 2))
+      .toEqual(["--config", configPath]);
+    const standalone = buildFolderForgeServerArgs("/pkg/dist/main.js", {
+      projectRoot: opts.projectRoot, dashboard: false,
+      mcpPort: 7417, policyMode: "danger", toolsPreset: "full",
+    });
+    expect(standalone).not.toContain("--config");
+  });
+
   it("accepts --dangerously-allow-critical as a deprecated no-op", () => {
     const parsed = parseOpenAiTunnelArgs([
       "connect",
