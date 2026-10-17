@@ -306,13 +306,25 @@ describe.skipIf(!CHROMIUM)('Mission Control SPA visual regression (proposal 018)
       await modal.getByText('Allow AI to work on this computer').waitFor({ timeout: 6_000 });
       // No profile-intent CLI flow should ever be surfaced as a prerequisite.
       expect(await modal.getByText(/folderforge operator trusted-host approve/).count()).toBe(0);
-      await modal.getByRole('button', { name: 'Allow AI access', exact: true }).click();
-      await modal.getByText(/Cannot verify this browser as the machine owner/).waitFor({
-        state: 'visible', timeout: 6_000,
+      // Config must offer a verified VS Code handoff, not a doomed host mutation.
+      expect(await modal.getByRole('button', { name: 'Allow AI access', exact: true }).count()).toBe(0);
+      const verifyInModal = modal.getByRole('button', {
+        name: 'Verify in VS Code to allow AI access', exact: true,
       });
-      // One status read comes from Fleet's background owner check and another
-      // from the attempted Configure consent; future polling may add reads.
-      expect(statusReads).toBeGreaterThanOrEqual(2);
+      await verifyInModal.waitFor({ state: 'visible', timeout: 6_000 });
+      expect(await verifyInModal.isEnabled()).toBe(true);
+
+      // Advanced trusted-host changes also require the verified handoff.
+      await modal.getByRole('button', { name: 'Advanced settings', exact: true }).click();
+      await modal.getByRole('combobox', { name: 'Terminal execution' }).selectOption('trusted-host');
+      const verifyAdvanced = modal.getByRole('button', {
+        name: 'Verify in VS Code to save AI access', exact: true,
+      });
+      await verifyAdvanced.waitFor({ state: 'visible', timeout: 6_000 });
+      expect(await verifyAdvanced.isEnabled()).toBe(true);
+
+      // Polling may repeat owner status reads, but no privileged/legacy mutation occurs.
+      expect(statusReads).toBeGreaterThanOrEqual(1);
       expect(privilegedWrites).toBe(0);
       expect(legacyWrites).toBe(0);
       expect(local.container.fleet.get(instance.id)).toMatchObject({
