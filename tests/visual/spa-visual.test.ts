@@ -264,6 +264,19 @@ describe.skipIf(!CHROMIUM)('Mission Control SPA visual regression (proposal 018)
     try {
       const signed = await fetch(`${local.baseUrl}/app/?token=${encodeURIComponent(token)}`);
       expect(signed.status).toBe(200);
+      const htmlSession = signed.headers.get('set-cookie');
+      expect(htmlSession).toMatch(/^ff_dashboard_html=[^;]+; HttpOnly; SameSite=Strict; Path=\/app;/);
+      const htmlTicketCookie = htmlSession!.split(';')[0]!;
+      // Reload ticket works ONLY for HTML; it cannot authorize API/host writes.
+      expect((await fetch(`${local.baseUrl}/app/fleet`, {
+        headers: { cookie: htmlTicketCookie },
+      })).status).toBe(200);
+      expect((await fetch(`${local.baseUrl}/fleet`, {
+        headers: { cookie: htmlTicketCookie },
+      })).status).toBe(401);
+      expect((await fetch(`${local.baseUrl}/app/fleet`, {
+        headers: { cookie: 'ff_dashboard_html=invalid' },
+      })).status).toBe(401);
       const html = await signed.text();
       const jsFile = html.match(/src="\.\/assets\/([^"]+\.js)"/)?.[1];
       expect(jsFile).toBeTruthy();
