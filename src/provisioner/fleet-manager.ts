@@ -1000,6 +1000,18 @@ export class FleetManager {
     if (record.openAiTunnel?.state === 'running' || record.openAiTunnel?.state === 'starting') {
       throw new Error(`OpenAI tunnel for ${id} is already ${record.openAiTunnel.state}.`);
     }
+    // The tunnel supervisor spawns a second MCP server (not the local Fleet
+    // process). Revalidate scoped host permission before inheriting its YAML.
+    this.assertSavedProfile(record);
+    if (record.terminalExecution === 'trusted-host' && !this.allowTrustedHostExecution) {
+      const consent = this.trustedHostConsent ?? this.consentResolver?.();
+      if (!consent) throw new Error('TRUSTED_HOST_CONSENT_REQUIRED');
+      consent.assertAuthorized(record.id, {
+        toolsPreset: record.toolsPreset,
+        policyMode: record.policyMode,
+        terminalExecution: 'trusted-host',
+      });
+    }
     const tunnelId = input.tunnelId.trim();
     if (!OPENAI_TUNNEL_ID_RE.test(tunnelId)) {
       throw new Error('OpenAI tunnel ID must be tunnel_ followed by 32 lowercase hexadecimal characters.');
@@ -1576,6 +1588,8 @@ export class FleetManager {
         : ['--api-key-env', JSON.stringify(tunnel.apiKeyEnv)]),
       '--project',
       JSON.stringify(record.projectPath),
+      '--config',
+      JSON.stringify(this.configPathFor(record.id)),
       '--port',
       String(record.port),
       '--no-dashboard',
