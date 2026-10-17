@@ -375,6 +375,9 @@ describe.skipIf(!CHROMIUM)('Mission Control SPA visual regression (proposal 018)
       });
     } finally {
       await page.close();
+      // The owner-capability GET may have an in-flight keepalive connection.
+      // Drain it so an assertion failure isn't obscured by an outer 30s timeout.
+      local.server.closeAllConnections();
       await new Promise<void>(resolve => local.server.close(() => resolve()));
       rmSync(local.root, { recursive: true, force: true });
     }
