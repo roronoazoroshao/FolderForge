@@ -177,6 +177,16 @@ export function startDashboard(
   const sshOperatorWebSessions = opts.sshOperatorBroker
     ? new SshOperatorWebSessions(opts.sshOperatorBroker) : null;
   const server = createServer((req, res) => {
+    // Built Vite <script>/<link> URLs do not inherit the signed /app/?token=
+    // query. Serve ONLY public, filename-scoped immutable frontend build
+    // assets anonymously; all HTML, APIs and host-execution writes still pass
+    // through the credential gate below. This is not an owner grant.
+    const requestPath = new URL(req.url ?? '/', 'http://localhost').pathname;
+    if (req.method === 'GET' &&
+        /^\/app\/assets\/[a-zA-Z0-9][a-zA-Z0-9._-]*\.(?:js|css|svg|png|jpe?g|gif|webp|ico|woff2?|ttf|otf|wasm)$/.test(requestPath)) {
+      serveMissionControlApp(res, requestPath);
+      return;
+    }
     const credential = extractDashboardCredential(req);
     if (
       requireAuth &&
@@ -336,13 +346,40 @@ function serveMissionControlApp(res: ServerResponse, path: string): void {
           ? "text/css"
           : relative.endsWith(".svg")
             ? "image/svg+xml"
-            : relative.endsWith(".json")
-              ? "application/json"
-              : "text/html; charset=utf-8";
-      res.writeHead(200, { "content-type": type });
+            : relative.endsWith(".png")
+              ? "image/png"
+              : relative.endsWith(".jpg") || relative.endsWith(".jpeg")
+                ? "image/jpeg"
+                : relative.endsWith(".webp")
+                  ? "image/webp"
+                  : relative.endsWith(".gif")
+                    ? "image/gif"
+                    : relative.endsWith(".ico")
+                      ? "image/x-icon"
+                      : relative.endsWith(".woff2")
+                        ? "font/woff2"
+                        : relative.endsWith(".woff")
+                          ? "font/woff"
+                          : relative.endsWith(".ttf")
+                            ? "font/ttf"
+                            : relative.endsWith(".otf")
+                              ? "font/otf"
+                              : relative.endsWith(".wasm")
+                                ? "application/wasm"
+                                : relative.endsWith(".json")
+                                  ? "application/json"
+                                  : "text/html; charset=utf-8";
+      res.writeHead(200, { "content-type": type, "x-content-type-options": "nosniff" });
       res.end(readFileSync(file));
       return;
     }
+  }
+  // Never respond with a misleading 200 HTML fallback for a missing script.
+  if (path.startsWith('/app/assets/')) {
+    res.writeHead(404, { "content-type": "text/plain; charset=utf-8",
+      "x-content-type-options": "nosniff" });
+    res.end('asset not found');
+    return;
   }
   // Client-side routes (e.g. /app/fleet) have no asset file: fall back to the SPA shell.
   if (!/\.[a-z0-9]+$/i.test(relative)) {
