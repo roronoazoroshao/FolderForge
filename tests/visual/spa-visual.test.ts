@@ -360,7 +360,7 @@ describe.skipIf(!CHROMIUM)('Mission Control SPA visual regression (proposal 018)
       await modal.getByRole('button', { name: 'Advanced settings', exact: true }).click();
       await modal.getByRole('combobox', { name: 'Terminal execution' }).selectOption('trusted-host');
       const verifyAdvanced = modal.getByRole('button', {
-        name: 'Set up Dashboard owner access', exact: true,
+        name: 'Set up Dashboard owner access to save', exact: true,
       });
       await verifyAdvanced.waitFor({ state: 'visible', timeout: 6_000 });
       expect(await verifyAdvanced.isEnabled()).toBe(true);
