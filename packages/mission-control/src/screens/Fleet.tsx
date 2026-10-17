@@ -476,7 +476,7 @@ export function FleetScreen() {
                 aria-label="Terminal execution for new MCP">
                 <option value="inherit">Default (inherit operator host opt-in)</option>
                 <option value="sandbox-required">Require sandbox in danger mode</option>
-                <option value="trusted-host">Trusted host (verified owner required to start)</option>
+                <option value="trusted-host">Trusted host (authenticated Dashboard owner)</option>
               </Select>
             </Field>
             {executionProfile === 'trusted-host' ? (
@@ -860,15 +860,15 @@ function ConfigModal(props: {
   const [hostBusy, setHostBusy] = useState(false);
   const [hostError, setHostError] = useState<string | null>(null);
   const [needsReverification, setNeedsReverification] = useState(false);
-  // A persisted Fleet permission (even full/danger) is not live browser owner proof.
+  // A saved Fleet grant is not itself an authenticated Dashboard admin capability.
   const ownerProofRequired = props.ownerSessionVerified !== true || needsReverification;
   const advancedHostChange = terminalExecution === 'trusted-host' &&
     (preset !== props.instance.toolsPreset || policy !== props.instance.policyMode ||
       terminalExecution !== (props.instance.terminalExecution ?? 'sandbox-required'));
 
-  // No host command appears in the everyday user flow. The browser must be
-  // bound to a live server-owned SSH/operator session; loopback alone is not
-  // evidence that the caller owns the machine.
+  // The everyday browser flow uses an authenticated loopback Dashboard admin
+  // credential (or an already-live legacy SSH owner session). Loopback alone
+  // does not prove authority.
   const applyFromVerifiedOwnerSession = async (
     tuple: { toolsPreset: string; policyMode: string; terminalExecution: 'trusted-host' },
   ) => {
@@ -910,9 +910,9 @@ function ConfigModal(props: {
           message.includes('SSH_OPERATOR_CSRF_DENIED') ||
           message.includes('VERIFIED_OWNER_SESSION_REQUIRED')) {
         // A live lease may expire between the status poll and the POST.
-        // Offer the authenticated VS Code handoff instead of a raw 403 code.
+        // Offer authenticated Dashboard owner setup instead of a raw 403 code.
         setNeedsReverification(true);
-        setHostError('Open a new verified session in VS Code and retry in the browser tab it opens.');
+        setHostError('Open the signed Dashboard owner link and retry Enable AI access.');
       } else {
         setHostError(message);
       }
@@ -967,8 +967,8 @@ function ConfigModal(props: {
           ) : null}
           {!ownerProofRequired ? (
             <p className="mt-3 text-xs text-muted">
-              Owner session verified. Your saved workspace permissions remain in effect
-              while the authorized session is live.
+              Dashboard owner access is ready. Workspace permissions are persistent
+              and remain revocable.
             </p>
           ) : null}
           <div className="mt-3">
