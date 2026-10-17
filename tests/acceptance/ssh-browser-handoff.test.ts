@@ -182,7 +182,7 @@ describe.skipIf(!required)(
 
       try {
         await expect.poll(() => page.getByRole('button', {
-          name: /Allow AI to operate on this computer/i,
+          name: /Enable AI access/i,
         }).count(), { timeout: 12_000 }).toBe(1);
       } catch (error) {
         // On CI, print diagnostic-only paths/content (never cookies or tokens).
@@ -218,7 +218,7 @@ describe.skipIf(!required)(
         }
       });
       await page.getByRole('button', {
-        name: /Allow AI to operate on this computer/i,
+        name: /Enable AI access/i,
       }).click();
       try {
         await expect.poll(() => container.fleet.get(instance.id).terminalExecution, {
@@ -271,7 +271,7 @@ describe.skipIf(!required)(
         } catch { return false; }
       }, { timeout: 8_000 }).toBe(false);
       await expect.poll(() => page.getByRole('button', {
-        name: /Allow AI to operate on this computer/i,
+        name: /Enable AI access/i,
       }).count(), { timeout: 8_000 }).toBe(1);
       await context.close();
     }, 50_000);
