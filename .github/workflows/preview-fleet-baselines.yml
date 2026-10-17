@@ -5,7 +5,7 @@ on:
     branches: ['feat/no-extension-dashboard-owner-oneclick']
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: fleet-baseline-preview-${{ github.ref }}
@@ -50,3 +50,16 @@ jobs:
             tests/visual/baselines/fleet.desktop.png
             tests/visual/baselines/fleet.mobile.png
           retention-days: 7
+      - name: Commit exactly two visually reviewed Fleet baselines
+        if: contains(github.event.head_commit.message, '[commit-reviewed-baselines]')
+        run: |
+          echo '7c4c33d47b90648cd735d8324cbc1670b8d30fbf65a31b26eaad9e453aa57c9e  tests/visual/baselines/fleet.desktop.png' > /tmp/reviewed.sha256
+          echo 'b3cf03cab498cb88e87ea0659c97100450643e6081cf32b2e3a49a4bcd89b57a  tests/visual/baselines/fleet.mobile.png' >> /tmp/reviewed.sha256
+          sha256sum --check /tmp/reviewed.sha256
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- tests/visual/baselines/fleet.desktop.png tests/visual/baselines/fleet.mobile.png
+          git diff --cached --name-only | sort > /tmp/staged.txt
+          diff -u /tmp/expected.txt /tmp/staged.txt
+          git commit -m 'test(visual): record reviewed Fleet baselines (pinned Chromium)'
+          git push origin HEAD:refs/heads/feat/no-extension-dashboard-owner-oneclick
