@@ -492,7 +492,10 @@ export class FleetManager {
       item.terminalExecution === 'trusted-host' &&
       (item.state === 'running' || item.state === 'starting' || item.state === 'stopping' ||
         (item.state === 'failed' && (item.lastError === 'REVOKED_EXECUTION_UNCERTAIN_AFTER_RESTART' ||
-          item.lastError === 'TRUSTED_HOST_STOP_UNCERTAIN_AFTER_RESTART'))),
+          item.lastError === 'TRUSTED_HOST_STOP_UNCERTAIN_AFTER_RESTART')) ||
+        (item.openAiTunnel !== undefined &&
+          (['running', 'starting', 'stopping'].includes(item.openAiTunnel.state) ||
+           (item.openAiTunnel.state !== 'stopped' && item.openAiTunnel.pid !== undefined)))),
     );
     if (candidates.length === 0) return [];
     const consent = this.trustedHostConsent ?? this.consentResolver?.();
@@ -507,7 +510,38 @@ export class FleetManager {
         });
         authorized = consent !== undefined && consent !== null;
       } catch { /* A revoked/invalid grant must fail closed. */ }
-      if (authorized && record.state !== 'stopping') continue;
+      const tunnel = record.openAiTunnel;
+      if (authorized && record.state !== 'stopping' && tunnel?.state !== 'stopping') continue;
+      // A tunnel is a *separate* host-command-capable MCP server. A revoked
+      // Fleet grant must terminate its supervisor as well as a local Fleet
+      // child; otherwise a remote ChatGPT session retains stale privileges.
+      if (tunnel && (['running', 'starting', 'stopping'].includes(tunnel.state) ||
+          (tunnel.state !== 'stopped' && tunnel.pid !== undefined))) {
+        if (tunnel.state !== 'stopping') {
+          tunnel.state = 'stopping';
+          tunnel.lastError = 'TRUSTED_HOST_REVOKED_STOP_PENDING';
+          this.persist();
+          if (tunnel.sessionId && this.stopFn) {
+            try { this.stopFn(tunnel.sessionId); } catch { /* Verify PID before converging. */ }
+          }
+        }
+        affected.push(record.id);
+        if ((tunnel.pid !== undefined && this.isAliveFn(tunnel.pid)) ||
+            (tunnel.pid === undefined && tunnel.sessionId !== undefined)) {
+          tunnel.lastError = 'REVOKED_EXECUTION_UNCERTAIN';
+          this.persist();
+          continue;
+        }
+        tunnel.state = 'stopped';
+        delete tunnel.pid;
+        delete tunnel.sessionId;
+        delete tunnel.leaseId;
+        tunnel.updatedAt = new Date(this.now()).toISOString();
+        this.touch(record);
+        this.persist();
+        if (record.state !== 'running' && record.state !== 'starting' &&
+            record.state !== 'stopping') continue;
+      }
       if (record.state !== 'stopping') {
         record.state = 'stopping';
         record.lastError = 'TRUSTED_HOST_REVOKED_STOP_PENDING';
@@ -999,6 +1033,18 @@ export class FleetManager {
     }
     if (record.openAiTunnel?.state === 'running' || record.openAiTunnel?.state === 'starting') {
       throw new Error(`OpenAI tunnel for ${id} is already ${record.openAiTunnel.state}.`);
+    }
+    // The tunnel supervisor spawns a second MCP server (not the local Fleet
+    // process). Revalidate scoped host permission before inheriting its YAML.
+    this.assertSavedProfile(record);
+    if (record.terminalExecution === 'trusted-host' && !this.allowTrustedHostExecution) {
+      const consent = this.trustedHostConsent ?? this.consentResolver?.();
+      if (!consent) throw new Error('TRUSTED_HOST_CONSENT_REQUIRED');
+      consent.assertAuthorized(record.id, {
+        toolsPreset: record.toolsPreset,
+        policyMode: record.policyMode,
+        terminalExecution: 'trusted-host',
+      });
     }
     const tunnelId = input.tunnelId.trim();
     if (!OPENAI_TUNNEL_ID_RE.test(tunnelId)) {
@@ -1576,6 +1622,8 @@ export class FleetManager {
         : ['--api-key-env', JSON.stringify(tunnel.apiKeyEnv)]),
       '--project',
       JSON.stringify(record.projectPath),
+      '--config',
+      JSON.stringify(this.configPathFor(record.id)),
       '--port',
       String(record.port),
       '--no-dashboard',

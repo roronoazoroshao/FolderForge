@@ -58,6 +58,35 @@ describe('Fleet trusted-host execution boundary', () => {
     expect(h.spawned[0]).toContain('--config');
   });
 
+  it('inherits the exact approved Fleet config for the OpenAI tunnel and terminates it on revocation', () => {
+    const h = fixture(true);
+    const tunnelId = 'tunnel_' + 'a'.repeat(32);
+    h.approveApply();
+    h.fleet.startOpenAiTunnel(h.instance.id, { tunnelId, apiKey: 'sk-test-tunnel-key' });
+    expect(h.spawned).toHaveLength(1);
+    const argv = h.spawned[0]!;
+    expect(argv).toContain('--openai-tunnel');
+    expect(argv).toContain('--config');
+    expect(argv).toContain(join(h.root, '.folderforge', 'fleet', h.instance.id + '.yaml'));
+    expect(readFileSync(join(h.root, '.folderforge', 'fleet', h.instance.id + '.yaml'), 'utf8'))
+      .toContain('    requireInDanger: false');
+    h.auth.revokeFromLocal(h.instance.id);
+    expect(h.fleet.reconcileRevokedTrustedHosts()).toContain(h.instance.id);
+    expect(h.fleet.get(h.instance.id).openAiTunnel?.state).toBe('stopped');
+    expect(() => h.fleet.startOpenAiTunnel(h.instance.id, {
+      tunnelId, apiKey: 'sk-test-tunnel-key',
+    })).toThrow();
+  });
+
+  it('denies a trusted-host tunnel without a scoped owner grant, even when it has an API key', () => {
+    const h = fixture();
+    h.approveApply();
+    expect(() => h.fleet.startOpenAiTunnel(h.instance.id, {
+      tunnelId: 'tunnel_' + 'b'.repeat(32), apiKey: 'sk-test-tunnel-key',
+    })).toThrow('TRUSTED_HOST_CONSENT_REQUIRED');
+    expect(h.spawned).toHaveLength(0);
+  });
+
   it('supervises a revoked running child and never reports stopped while PID survives', () => {
     const h = fixture(true);
     h.approveApply();
