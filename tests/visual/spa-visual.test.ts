@@ -254,6 +254,48 @@ describe.skipIf(!CHROMIUM)('Mission Control SPA visual regression (proposal 018)
     }
   });
 
+  it('keeps the advanced AI access modal inside a short mobile viewport with scrollable actions', { timeout: 30_000 }, async () => {
+    const local = await startHarness();
+    const project = join(local.root, 'modal-project');
+    mkdirSync(project);
+    local.container.fleet.create({ projectPath: project, authMode: 'api-key' });
+    const context = await browser.newContext({
+      viewport: { width: 390, height: 560 }, deviceScaleFactor: 1, isMobile: true,
+    });
+    const page = await context.newPage();
+    try {
+      await page.route('**/operator/ssh-session/status', route => route.fulfill({
+        status: 200, contentType: 'application/json', body: '{"verified":false}',
+      }));
+      await page.goto(`${local.baseUrl}/app/fleet?token=local-preview-token`, { waitUntil: 'networkidle' });
+      await page.getByRole('button', { name: 'Configure', exact: true }).first().click();
+      const modal = page.getByRole('dialog', { name: 'AI access to this computer' });
+      await modal.getByRole('button', { name: 'Advanced settings', exact: true }).click();
+      const dimensions = await modal.evaluate(element => {
+        const rect = element.getBoundingClientRect();
+        const body = element.querySelector('[data-modal-scroll-content]') as HTMLElement | null;
+        return {
+          top: rect.top, bottom: rect.bottom, viewport: window.innerHeight,
+          scrollHeight: body?.scrollHeight ?? 0, clientHeight: body?.clientHeight ?? 0,
+        };
+      });
+      expect(dimensions.top).toBeGreaterThanOrEqual(0);
+      expect(dimensions.bottom).toBeLessThanOrEqual(dimensions.viewport);
+      expect(dimensions.scrollHeight).toBeGreaterThan(dimensions.clientHeight);
+      await modal.locator('[data-modal-scroll-content]').evaluate(element => {
+        element.scrollTop = element.scrollHeight;
+      });
+      expect(await modal.getByRole('button', { name: 'Save advanced settings' }).isVisible()).toBe(true);
+      // Close must remain accessible even while the long content scrolls.
+      await modal.getByRole('button', { name: 'Close dialog' }).click();
+      expect(await modal.count()).toBe(0);
+    } finally {
+      await context.close();
+      await new Promise<void>(resolve => local.server.close(() => resolve()));
+      rmSync(local.root, { recursive: true, force: true });
+    }
+  });
+
   it('rejects one-click host enrollment in Fleet Configure without an OS-verified owner session', { timeout: 30_000 }, async () => {
     const local = await startHarness();
     const page = await desktop.newPage();

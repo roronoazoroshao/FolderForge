@@ -48,9 +48,11 @@ const AUTH_MODES: FleetAuthMode[] = ['token', 'api-key', 'oauth', 'none'];
 // explicitly asks permission before opening FolderForge's trusted SSH helper.
 // No browser-facing forwarded-port request is promoted to owner authority.
 const VERIFIED_VSCODE_LINK = 'vscode://musashishao.folderforge-remote-ssh/verify';
-function openVerifiedVSCodeSession(): void {
-  window.location.assign(VERIFIED_VSCODE_LINK);
-}
+// This extension is currently distributed as an installable GitHub Release VSIX,
+// not as a Marketplace extension. Never treat an unhandled vscode:// URL as an
+// installation mechanism: VS Code's Marketplace fallback reports "not found".
+const VERIFIED_VSIX_URL =
+  'https://github.com/roronoazoroshao/FolderForge/releases/download/v3.2.4/folderforge-remote-ssh-0.1.0.vsix';
 
 
 interface OneTimeCredential {
@@ -113,6 +115,8 @@ export function FleetScreen() {
   // Live browser authority is independent from saved per-instance host grants.
   // The old forwarded tab may read a saved grant but can never use it as owner proof.
   const [ownerSessionVerified, setOwnerSessionVerified] = useState<boolean | null>(null);
+  const [verificationHelpOpen, setVerificationHelpOpen] = useState(false);
+  const openVerifiedVSCodeSession = () => setVerificationHelpOpen(true);
   const [grantsByInstance, setGrantsByInstance] = useState<Record<string, 'approved' | 'not_requested' | 'unavailable'>>({});
   const [configFor, setConfigFor] = useState<FleetInstance | null>(null);
   const [authFor, setAuthFor] = useState<FleetInstance | null>(null);
@@ -776,6 +780,10 @@ export function FleetScreen() {
         <ConfigModal
           instance={configFor}
           ownerSessionVerified={ownerSessionVerified}
+          onVerifyOwner={() => {
+            setConfigFor(null);
+            setVerificationHelpOpen(true);
+          }}
           onClose={() => setConfigFor(null)}
           onSaved={() => { setConfigFor(null); fleet.reload(); }}
           onCredential={(value) => setOptionalConnectionKey({
@@ -783,6 +791,10 @@ export function FleetScreen() {
           })}
         />
       ) : null}
+      <OwnerVerificationGuide
+        open={verificationHelpOpen}
+        onClose={() => setVerificationHelpOpen(false)}
+      />
       {authFor ? (
         <AuthModal
           instance={authFor}
@@ -850,9 +862,11 @@ function CredentialModal(props: { credential: OneTimeCredential; onClose: () => 
 
 function ConfigModal(props: {
   instance: FleetInstance; ownerSessionVerified: boolean | null;
+  onVerifyOwner: () => void;
   onClose: () => void; onSaved: () => void;
   onCredential: (value: string) => void;
 }) {
+  const openVerifiedVSCodeSession = props.onVerifyOwner;
   const toast = useToast();
   const action = useAction();
   const [preset, setPreset] = useState(props.instance.toolsPreset);
@@ -971,17 +985,17 @@ function ConfigModal(props: {
           ) : null}
           {ownerProofRequired ? (
             <Banner tone="info">
-              This browser tab has no verified owner session. A normal VS Code PORTS-forwarded
-              tab cannot authorize AI command execution on the VPS. Verify your SSH host
-              in local VS Code, then continue in the newly opened verified browser tab.
+              This forwarded tab is not verified for VPS commands. Set up owner access
+              once from your Mac; then AI can run approved workspace commands without
+              prompting for each one.
             </Banner>
           ) : null}
-          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted">
-            <span>Using VS Code Remote-SSH port forwarding?</span>
-            <Button variant="ghost" size="sm" onClick={openVerifiedVSCodeSession}>
-              Verify in VS Code
-            </Button>
-          </div>
+          {!ownerProofRequired ? (
+            <p className="mt-3 text-xs text-muted">
+              Owner session verified. Your saved workspace permissions remain in effect
+              while the authorized session is live.
+            </p>
+          ) : null}
           <div className="mt-3">
             <Button
               variant="primary"
@@ -1049,6 +1063,52 @@ function ConfigModal(props: {
         <div className="flex justify-end">
           <Button variant="ghost" onClick={props.onClose}>Close</Button>
         </div>
+      </div>
+    </Modal>
+  );
+}
+
+function OwnerVerificationGuide(props: { open: boolean; onClose: () => void }) {
+  return (
+    <Modal open={props.open} title="Set up VPS owner access" onClose={props.onClose}>
+      <div className="grid gap-3 text-sm">
+        <p className="m-0 text-muted">
+          One-time setup on your Mac. This FolderForge extension is released as a
+          VSIX file, not on the VS Code Marketplace. You do not need to approve
+          each AI command after host access is granted.
+        </p>
+        <div className="rounded-xl border border-border-soft p-3">
+          <h3 className="m-0 font-semibold">Option A — VS Code Desktop</h3>
+          <p className="mt-2 text-xs text-muted">
+            Download the verified release VSIX on your Mac. In local VS Code:
+            Extensions → … → Install from VSIX… . Keep your Remote-SSH workspace
+            open, then use the button below.
+          </p>
+          <a href={VERIFIED_VSIX_URL} target="_blank" rel="noreferrer"
+             className="mt-3 inline-flex min-h-10 items-center rounded-lg border border-border px-3 py-2 text-sm text-blue hover:bg-raised">
+            Download FolderForge Remote-SSH (.vsix)
+          </a>
+          <div className="mt-3">
+            <Button variant="primary" onClick={() => window.location.assign(VERIFIED_VSCODE_LINK)}>
+              Open VS Code (extension installed)
+            </Button>
+          </div>
+        </div>
+        <div className="rounded-xl border border-border-soft p-3">
+          <h3 className="m-0 font-semibold">Option B — No VS Code extension</h3>
+          <p className="mt-2 text-xs text-muted">
+            On your local Mac (not on the VPS), with FolderForge CLI installed,
+            use your existing SSH alias to open an owner-verified browser tab:
+          </p>
+          <Code className="mt-2 block whitespace-pre-wrap break-all rounded-lg border border-border-soft p-2 text-xs">
+            folderforge dashboard ssh --host YOUR_SSH_ALIAS
+          </Code>
+          <p className="mt-2 text-xs text-muted">
+            Use the new browser tab opened by FolderForge. An ordinary VS Code
+            PORTS-forwarded tab cannot authorize host command execution.
+          </p>
+        </div>
+        <Button variant="ghost" onClick={props.onClose}>Close</Button>
       </div>
     </Modal>
   );

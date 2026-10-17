@@ -34,6 +34,15 @@ describe('forwarded VS Code PORTS tab — accessible AI access recovery', () => 
     expect(fleet).toContain('Open a new verified session in VS Code and retry in the browser tab it opens.');
   });
 
+  it('offers the release VSIX and extension-free SSH CLI instead of a missing Marketplace extension', () => {
+    expect(fleet).toContain('const VERIFIED_VSIX_URL =');
+    expect(fleet).toContain('releases/download/v3.2.4/folderforge-remote-ssh-0.1.0.vsix');
+    expect(fleet).toContain('Install from VSIX');
+    expect(fleet).toContain('folderforge dashboard ssh --host YOUR_SSH_ALIAS');
+    expect(fleet).toContain('setVerificationHelpOpen(true)');
+    expect(fleet).toContain('Open VS Code (extension installed)');
+  });
+
   it('retains server owner proof and session CSRF gating before host privilege changes', () => {
     expect(fleet).toContain("const VERIFIED_VSCODE_LINK = 'vscode://musashishao.folderforge-remote-ssh/verify'");
     expect(fleet).toContain('if (!owner.verified || !owner.csrfToken)');
