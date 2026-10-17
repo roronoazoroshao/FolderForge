@@ -1028,7 +1028,7 @@ function ConfigModal(props: {
             >
               {advancedHostChange && ownerProofRequired
                 ? props.ownerSessionVerified === null && !needsReverification
-                  ? 'Checking owner session…' : 'Set up Dashboard owner access'
+                  ? 'Checking owner session…' : 'Set up Dashboard owner access to save'
                 : 'Save advanced settings'}
             </Button>
           </div>
