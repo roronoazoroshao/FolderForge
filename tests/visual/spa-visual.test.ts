@@ -106,7 +106,7 @@ interface VisualHarness {
   container: Container;
 }
 
-async function startHarness(withGit = false): Promise<VisualHarness> {
+async function startHarness(withGit = false, auth: { token?: string; requireAuth?: boolean } = {}): Promise<VisualHarness> {
   const root = mkdtempSync(join(tmpdir(), 'folderforge-visual-'));
   if (withGit) {
     execFileSync('git', ['init', '-b', 'main'], { cwd: root });
@@ -121,7 +121,7 @@ async function startHarness(withGit = false): Promise<VisualHarness> {
   config.policy.defaultMode = 'dev';
   const container = new Container(config);
   const registry = buildRegistry(container);
-  const server = startDashboard(container, registry, { host: '127.0.0.1', port: 0 });
+  const server = startDashboard(container, registry, { host: '127.0.0.1', port: 0, ...auth });
   if (!server.listening) await once(server, 'listening');
   const address = server.address() as AddressInfo;
   return { root, server, container, baseUrl: `http://127.0.0.1:${address.port}` };
@@ -251,6 +251,48 @@ describe.skipIf(!CHROMIUM)('Mission Control SPA visual regression (proposal 018)
       expect(dimensions.bodyWidth).toBeLessThanOrEqual(MOBILE.width);
     } finally {
       await page.close();
+    }
+  });
+
+  it('renders a signed token-authenticated Dashboard directly through a normal forwarded browser port', { timeout: 30_000 }, async () => {
+    const token = 'test-authenticated-dashboard-' + 'a'.repeat(40);
+    const local = await startHarness(false, { token, requireAuth: true });
+    const context = await browser.newContext({ viewport: DESKTOP, deviceScaleFactor: 1 });
+    const page = await context.newPage();
+    const pageErrors: string[] = [];
+    page.on('pageerror', error => pageErrors.push(error.message));
+    try {
+      const signed = await fetch(`${local.baseUrl}/app/?token=${encodeURIComponent(token)}`);
+      expect(signed.status).toBe(200);
+      const html = await signed.text();
+      const jsFile = html.match(/src="\.\/assets\/([^"]+\.js)"/)?.[1];
+      expect(jsFile).toBeTruthy();
+      // Build assets are publicly readable and never contain a host grant.
+      const asset = await fetch(`${local.baseUrl}/app/assets/${jsFile}`);
+      expect(asset.status).toBe(200);
+      expect(asset.headers.get('content-type')).toMatch(/javascript/);
+      const missingAsset = await fetch(`${local.baseUrl}/app/assets/does-not-exist.js`);
+      expect(missingAsset.status).toBe(404);
+      // Unauthenticated HTML and APIs remain protected.
+      expect((await fetch(`${local.baseUrl}/app/`)).status).toBe(401);
+      expect((await fetch(`${local.baseUrl}/fleet`)).status).toBe(401);
+      const response = await page.goto(`${local.baseUrl}/app/?token=${encodeURIComponent(token)}`,
+        { waitUntil: 'networkidle' });
+      expect(response?.status()).toBe(200);
+      await page.getByRole('link', { name: 'Fleet' }).waitFor({ state: 'visible', timeout: 6_000 });
+      // The credential must not disappear on BrowserRouter navigation and reload.
+      const fleetResponse = page.waitForResponse(r =>
+        new URL(r.url()).pathname === '/fleet' && r.request().method() === 'GET');
+      await page.getByRole('link', { name: 'Fleet' }).click();
+      expect((await fleetResponse).status()).toBe(200);
+      await page.reload({ waitUntil: 'networkidle' });
+      await page.getByRole('link', { name: 'Fleet' }).waitFor({ state: 'visible' });
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await context.close();
+      local.server.closeAllConnections();
+      await new Promise<void>(resolve => local.server.close(() => resolve()));
+      rmSync(local.root, { recursive: true, force: true });
     }
   });
 
