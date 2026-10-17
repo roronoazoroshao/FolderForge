@@ -25,11 +25,19 @@ if (typeof window !== 'undefined') {
 }
 
 export function getToken(): string {
+  // Keep compatibility with callers that supply location without Window
+  // (unit harness and embedded SPA), while normal browser entry strips the
+  // signed URL immediately and retains the credential per tab.
+  let locationToken = '';
   let storedTabToken = '';
   let savedToken = '';
+  try {
+    if (typeof location !== 'undefined')
+      locationToken = new URLSearchParams(location.search).get('token') || '';
+  } catch { /* inaccessible location */ }
   try { storedTabToken = sessionStorage.getItem(TAB_TOKEN_KEY) || ''; } catch { /* restricted storage */ }
   try { savedToken = localStorage.getItem(TOKEN_KEY) || ''; } catch { /* restricted storage */ }
-  return signedTabToken || storedTabToken || savedToken;
+  return locationToken || signedTabToken || storedTabToken || savedToken;
 }
 
 export function setToken(token: string): void {
