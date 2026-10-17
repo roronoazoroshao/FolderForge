@@ -775,6 +775,7 @@ export function FleetScreen() {
       {configFor ? (
         <ConfigModal
           instance={configFor}
+          ownerSessionVerified={ownerSessionVerified}
           onClose={() => setConfigFor(null)}
           onSaved={() => { setConfigFor(null); fleet.reload(); }}
           onCredential={(value) => setOptionalConnectionKey({
@@ -848,7 +849,8 @@ function CredentialModal(props: { credential: OneTimeCredential; onClose: () => 
 }
 
 function ConfigModal(props: {
-  instance: FleetInstance; onClose: () => void; onSaved: () => void;
+  instance: FleetInstance; ownerSessionVerified: boolean | null;
+  onClose: () => void; onSaved: () => void;
   onCredential: (value: string) => void;
 }) {
   const toast = useToast();
@@ -859,6 +861,12 @@ function ConfigModal(props: {
   const [advanced, setAdvanced] = useState(false);
   const [hostBusy, setHostBusy] = useState(false);
   const [hostError, setHostError] = useState<string | null>(null);
+  const [needsReverification, setNeedsReverification] = useState(false);
+  // A persisted Fleet permission (even full/danger) is not live browser owner proof.
+  const ownerProofRequired = props.ownerSessionVerified !== true || needsReverification;
+  const advancedHostChange = terminalExecution === 'trusted-host' &&
+    (preset !== props.instance.toolsPreset || policy !== props.instance.policyMode ||
+      terminalExecution !== (props.instance.terminalExecution ?? 'sandbox-required'));
 
   // No host command appears in the everyday user flow. The browser must be
   // bound to a live server-owned SSH/operator session; loopback alone is not
@@ -866,6 +874,10 @@ function ConfigModal(props: {
   const applyFromVerifiedOwnerSession = async (
     tuple: { toolsPreset: string; policyMode: string; terminalExecution: 'trusted-host' },
   ) => {
+    if (ownerProofRequired) {
+      openVerifiedVSCodeSession();
+      return;
+    }
     setHostError(null);
     setHostBusy(true);
     const id = encodeURIComponent(props.instance.id);
@@ -901,7 +913,19 @@ function ConfigModal(props: {
       }
       props.onSaved();
     } catch (error) {
-      setHostError(error instanceof Error ? error.message : String(error));
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes('SSH_OPERATOR_ORIGIN_DENIED') ||
+          message.includes('HOST_OPERATOR_ORIGIN_DENIED') ||
+          message.includes('SSH_OPERATOR_SESSION_REQUIRED') ||
+          message.includes('SSH_OPERATOR_CSRF_DENIED') ||
+          message.includes('VERIFIED_OWNER_SESSION_REQUIRED')) {
+        // A live lease may expire between the status poll and the POST.
+        // Offer the authenticated VS Code handoff instead of a raw 403 code.
+        setNeedsReverification(true);
+        setHostError('Open a new verified session in VS Code and retry in the browser tab it opens.');
+      } else {
+        setHostError(message);
+      }
     } finally {
       setHostBusy(false);
     }
@@ -909,9 +933,11 @@ function ConfigModal(props: {
 
   const saveAdvanced = async () => {
     const id = encodeURIComponent(props.instance.id);
-    if (terminalExecution === 'trusted-host' && (preset !== props.instance.toolsPreset ||
-        policy !== props.instance.policyMode ||
-        terminalExecution !== (props.instance.terminalExecution ?? 'sandbox-required'))) {
+    if (advancedHostChange) {
+      if (ownerProofRequired) {
+        openVerifiedVSCodeSession();
+        return;
+      }
       await applyFromVerifiedOwnerSession({
         toolsPreset: preset, policyMode: policy, terminalExecution: 'trusted-host',
       });
@@ -941,7 +967,14 @@ function ConfigModal(props: {
             denials remain enforced. Review activity or disable access whenever needed.
           </p>
           {savedFullAccess ? (
-            <Banner tone="info">Full-access settings are saved. An already running MCP instance may need to restart before they take effect.</Banner>
+            <Banner tone="info">Full-access settings are saved. An already running MCP instance may need to restart before they take effect. Saved settings do not verify this browser tab.</Banner>
+          ) : null}
+          {ownerProofRequired ? (
+            <Banner tone="info">
+              This browser tab has no verified owner session. A normal VS Code PORTS-forwarded
+              tab cannot authorize AI command execution on the VPS. Verify your SSH host
+              in local VS Code, then continue in the newly opened verified browser tab.
+            </Banner>
           ) : null}
           <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted">
             <span>Using VS Code Remote-SSH port forwarding?</span>
@@ -953,13 +986,16 @@ function ConfigModal(props: {
             <Button
               variant="primary"
               busy={hostBusy}
-              disabled={hostBusy}
-              onClick={() => void applyFromVerifiedOwnerSession({
+              disabled={hostBusy || (props.ownerSessionVerified === null && !needsReverification)}
+              onClick={() => ownerProofRequired ? openVerifiedVSCodeSession() : void applyFromVerifiedOwnerSession({
                 toolsPreset: 'full', policyMode: 'danger', terminalExecution: 'trusted-host',
               })}
             >
               <ShieldCheck size={15} aria-hidden />
-              {savedFullAccess ? 'Verify and reapply AI access' : 'Allow AI access'}
+              {ownerProofRequired
+                ? props.ownerSessionVerified === null && !needsReverification
+                  ? 'Checking owner session…' : 'Verify in VS Code to allow AI access'
+                : savedFullAccess ? 'Verify and reapply AI access' : 'Allow AI access'}
             </Button>
           </div>
         </div>
@@ -995,8 +1031,16 @@ function ConfigModal(props: {
             <Banner tone="info">
               Changes to a running MCP instance take effect after a controlled restart.
             </Banner>
-            <Button variant="primary" busy={action.busy || hostBusy} onClick={() => void saveAdvanced()}>
-              Save advanced settings
+            <Button
+              variant="primary"
+              busy={action.busy || hostBusy}
+              disabled={advancedHostChange && props.ownerSessionVerified === null && !needsReverification}
+              onClick={() => void saveAdvanced()}
+            >
+              {advancedHostChange && ownerProofRequired
+                ? props.ownerSessionVerified === null && !needsReverification
+                  ? 'Checking owner session…' : 'Verify in VS Code to save AI access'
+                : 'Save advanced settings'}
             </Button>
           </div>
         ) : null}
