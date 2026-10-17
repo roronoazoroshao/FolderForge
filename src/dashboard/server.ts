@@ -241,10 +241,12 @@ export function startDashboard(
       );
       return;
     }
-    if (requireAuth && htmlNavigation && validBearer) {
-      const expires = Math.floor(Date.now() / 1000) + HTML_SESSION_LIFETIME_SECONDS;
-      res.setHeader('set-cookie', `${HTML_SESSION_COOKIE}=${htmlSessionTicket(opts.token!, expires)}; HttpOnly; SameSite=Strict; Path=/app; Max-Age=${HTML_SESSION_LIFETIME_SECONDS}`);
+    if (requireAuth && htmlNavigation && (validBearer || validHtmlTicket)) {
       res.setHeader('cache-control', 'no-store');
+      if (validBearer) {
+        const expires = Math.floor(Date.now() / 1000) + HTML_SESSION_LIFETIME_SECONDS;
+        res.setHeader('set-cookie', `${HTML_SESSION_COOKIE}=${htmlSessionTicket(opts.token!, expires)}; HttpOnly; SameSite=Strict; Path=/app; Max-Age=${HTML_SESSION_LIFETIME_SECONDS}`);
+      }
     }
     if (sshOperatorWebSessions?.isRoute(req)) {
       // This route never recognizes ordinary Dashboard credentials as SSH
