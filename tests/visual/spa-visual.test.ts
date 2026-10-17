@@ -330,7 +330,7 @@ describe.skipIf(!CHROMIUM)('Mission Control SPA visual regression (proposal 018)
       // Quickstart is prominent; manual sandbox settings stay collapsed.
       await page.getByRole('textbox', { name: 'Folder path to provision' }).fill(project);
       const quickStartCta = page.getByRole('button', {
-        name: 'Verify in VS Code to create Fleet', exact: true,
+        name: 'Secure Dashboard access required', exact: true,
       });
       await quickStartCta.waitFor({ state: 'visible', timeout: 6_000 });
       expect(await quickStartCta.isEnabled()).toBe(true);
@@ -339,7 +339,7 @@ describe.skipIf(!CHROMIUM)('Mission Control SPA visual regression (proposal 018)
       // An ordinary localhost/forwarded browser can initiate a verified owner
       // handoff without gaining authority or invoking any privileged mutation.
       const verifyCta = page.getByRole('button', {
-        name: 'Verify in VS Code to allow AI access', exact: true,
+        name: 'Set up owner access to enable AI', exact: true,
       });
       await verifyCta.waitFor({ state: 'visible', timeout: 6_000 });
       expect(await verifyCta.isEnabled()).toBe(true);
@@ -348,19 +348,19 @@ describe.skipIf(!CHROMIUM)('Mission Control SPA visual regression (proposal 018)
       await modal.getByText('Allow AI to work on this computer').waitFor({ timeout: 6_000 });
       // No profile-intent CLI flow should ever be surfaced as a prerequisite.
       expect(await modal.getByText(/folderforge operator trusted-host approve/).count()).toBe(0);
-      // Config must offer a verified VS Code handoff, not a doomed host mutation.
+      // Unauthenticated browser must offer an owner setup path, not a host mutation.
       expect(await modal.getByRole('button', { name: 'Allow AI access', exact: true }).count()).toBe(0);
       const verifyInModal = modal.getByRole('button', {
-        name: 'Verify in VS Code to allow AI access', exact: true,
+        name: 'Set up Dashboard owner access', exact: true,
       });
       await verifyInModal.waitFor({ state: 'visible', timeout: 6_000 });
       expect(await verifyInModal.isEnabled()).toBe(true);
 
-      // Advanced trusted-host changes also require the verified handoff.
+      // Advanced trusted-host changes also require an authenticated owner.
       await modal.getByRole('button', { name: 'Advanced settings', exact: true }).click();
       await modal.getByRole('combobox', { name: 'Terminal execution' }).selectOption('trusted-host');
       const verifyAdvanced = modal.getByRole('button', {
-        name: 'Verify in VS Code to save AI access', exact: true,
+        name: 'Set up Dashboard owner access to save', exact: true,
       });
       await verifyAdvanced.waitFor({ state: 'visible', timeout: 6_000 });
       expect(await verifyAdvanced.isEnabled()).toBe(true);
@@ -375,6 +375,9 @@ describe.skipIf(!CHROMIUM)('Mission Control SPA visual regression (proposal 018)
       });
     } finally {
       await page.close();
+      // The owner-capability GET may have an in-flight keepalive connection.
+      // Drain it so an assertion failure isn't obscured by an outer 30s timeout.
+      local.server.closeAllConnections();
       await new Promise<void>(resolve => local.server.close(() => resolve()));
       rmSync(local.root, { recursive: true, force: true });
     }

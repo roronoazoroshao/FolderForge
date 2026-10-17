@@ -44,8 +44,9 @@ function fleetRevision(record: FleetInstance): string {
 }
 
 /**
- * Only host-local CLI is allowed to consume pending intents. This class never
- * makes a grant over HTTP and never modifies the process-global sandbox config.
+ * Only a host-local CLI, verified SSH/OS owner, or explicitly authenticated
+ * loopback Control Dashboard may approve a grant. This class never modifies
+ * the process-global sandbox configuration.
  */
 export class TrustedHostConsentService {
   constructor(private readonly deps: TrustedHostConsentOptions) {}
@@ -204,35 +205,25 @@ export class TrustedHostConsentService {
   }
 
   /**
-   * One-click Trusted Host enrollment is restricted to a genuinely live
-   * server-owned SSH operator browser session. Neither localhost, a Dashboard
-   * bearer token, request headers nor URL parameters are valid substitutes.
+   * SSH sessions and explicitly credential-authenticated loopback Control
+   * Dashboard sessions enter through separate HTTP authorization gates.
+   * Neither caller may mint a grant from an unauthenticated forwarded tab.
    *
-   * The operator's one explicit UI action stages, approves and applies one
-   * exact per-instance profile; a failed apply invalidates the freshly minted
-   * grant before the request can report success. Runtime activation remains a
-   * separate, accurately reported lifecycle step (no forced restart).
+   * The common operation retains exact-instance, workspace realpath, auth,
+   * CAS revision, PID-fencing, audit and revocation guarantees.
    */
-  applyVerifiedSshProfile(
+  private applyOwnerAuthorizedProfile(
     instanceId: string,
     tuple: FleetProfileTuple,
     principal: OperatorPrincipal,
-    broker: SshSessionBroker,
-    authority: SshOperatorAuthority,
+    assertProofLive: () => void,
+    auditEvent: string,
     commit: (tuple: FleetProfileTuple, upgradeAuth: boolean) => void,
   ): { newlyApproved: boolean } {
-    broker.assertAuthorityLive(authority);
-    if (!['ssh-remote-exec', 'local-operator-launch'].includes(authority.source) ||
-        authority.installationId !== this.deps.installationId ||
-        authority.serviceUid !== this.deps.serviceUid) {
-      throw new Error('SSH_OPERATOR_INSTALLATION_MISMATCH');
-    }
+    assertProofLive();
     this.checkOperator(principal);
     this.assertWritable();
     const record = this.deps.fleet.get(instanceId);
-    // Repeating the owner's click on an already-authorized live instance is
-    // read-only and safe. The PID fence below is for NEW elevations only.
-    // Check the bound scope again; never trust persisted settings alone.
     if (record.authMode !== 'none' &&
         record.toolsPreset === tuple.toolsPreset &&
         record.policyMode === tuple.policyMode &&
@@ -241,7 +232,7 @@ export class TrustedHostConsentService {
         if (this.deps.store.validateGrant(this.identityFor(instanceId), tuple)) {
           return { newlyApproved: false };
         }
-      } catch { /* A stale or revoked grant is not idempotent authority. */ }
+      } catch { /* Never interpret stale/revoked metadata as authority. */ }
     }
     const requiresTokenUpgrade = record.authMode === 'none';
     if (record.pid !== undefined || record.sessionId !== undefined ||
@@ -259,22 +250,62 @@ export class TrustedHostConsentService {
     if (!pending || pending.instanceId !== instanceId) {
       throw new Error('CONSENT_REQUEST_UNAVAILABLE');
     }
-    // The remote helper's SSH channel must still be connected immediately
-    // before issuing a durable host-execution capability.
-    broker.assertAuthorityLive(authority);
+    // Revalidate immediately before issuing a durable capability.
+    assertProofLive();
     this.deps.store.consumeLocalApproval(pending.requestId, pending.scopeHash);
     try {
       this.applyApprovedProfile(instanceId, pending.requestId, approved =>
         commit(approved, requiresTokenUpgrade));
     } catch (error) {
-      // Prefer revocation (including any other older grants for this instance)
-      // over leaving a capability live following an ambiguous failed update.
       this.deps.store.revoke(pending.identity);
-      this.deps.recordAudit('trusted_host_verified_ssh_apply_failed_revoked');
+      this.deps.recordAudit('trusted_host_owner_apply_failed_revoked');
       throw error;
     }
-    this.deps.recordAudit('trusted_host_verified_ssh_one_click_approved');
+    this.deps.recordAudit(auditEvent);
     return { newlyApproved: true };
+  }
+
+  applyVerifiedSshProfile(
+    instanceId: string,
+    tuple: FleetProfileTuple,
+    principal: OperatorPrincipal,
+    broker: SshSessionBroker,
+    authority: SshOperatorAuthority,
+    commit: (tuple: FleetProfileTuple, upgradeAuth: boolean) => void,
+  ): { newlyApproved: boolean } {
+    const assertProofLive = () => {
+      broker.assertAuthorityLive(authority);
+      if (!['ssh-remote-exec', 'local-operator-launch'].includes(authority.source) ||
+          authority.installationId !== this.deps.installationId ||
+          authority.serviceUid !== this.deps.serviceUid) {
+        throw new Error('SSH_OPERATOR_INSTALLATION_MISMATCH');
+      }
+    };
+    return this.applyOwnerAuthorizedProfile(
+      instanceId, tuple, principal, assertProofLive,
+      'trusted_host_verified_ssh_one_click_approved', commit,
+    );
+  }
+
+  /**
+   * Call ONLY after the Control Dashboard's HTTP gate has checked a real
+   * header bearer credential, explicit requireAuth=true, and local loopback
+   * bind/peer. A Dashboard with auth=none MUST NOT reach this method.
+   *
+   * This is intentional delegated host authority, not OS/SSH identity proof.
+   * Anyone holding the Control Dashboard admin credential can authorize
+   * full/danger/trusted-host; keep its file 0600 and never expose externally.
+   */
+  applyAuthenticatedDashboardProfile(
+    instanceId: string,
+    tuple: FleetProfileTuple,
+    principal: OperatorPrincipal,
+    commit: (tuple: FleetProfileTuple, upgradeAuth: boolean) => void,
+  ): { newlyApproved: boolean } {
+    return this.applyOwnerAuthorizedProfile(
+      instanceId, tuple, principal, () => {},
+      'trusted_host_authenticated_dashboard_one_click_approved', commit,
+    );
   }
 
   /** A network caller may request application only AFTER separate local approval. */

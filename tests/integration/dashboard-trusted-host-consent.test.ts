@@ -45,7 +45,7 @@ async function harness(auth: { token?: string; requireAuth?: boolean } = { token
   const tuple = { toolsPreset: 'full', policyMode: 'danger', terminalExecution: 'trusted-host' };
   const request = (headers: Record<string,string>, suffix = '', method = 'POST') =>
     fetch(`${base}${path}${suffix}`, { method, headers: { 'content-type': 'application/json', ...headers }, body: method === 'POST' ? JSON.stringify(tuple) : undefined });
-  return { container, instance, base, path, service, store, request };
+  return { container, instance, base, path, service, store, request, tuple };
 }
 
 describe('sensitive Fleet profile-intents API', () => {
@@ -110,6 +110,47 @@ describe('sensitive Fleet profile-intents API', () => {
     expect(noOrigin.status).toBe(403);
     const crossOrigin = await h.request({ origin: 'https://attacker.example' });
     expect(crossOrigin.status).toBe(403);
+  });
+
+  it('allows one-click host access from an explicitly token-authenticated loopback Dashboard, without VS Code', async () => {
+    const h = await harness({ token: 'dev-host-token', requireAuth: true });
+    const url = `${h.base}/fleet/${h.instance.id}/one-click-trusted-host`;
+    const headers = {
+      origin: h.base, 'sec-fetch-site': 'same-origin',
+      authorization: 'Bearer dev-host-token', 'content-type': 'application/json',
+    };
+    const status = await fetch(h.base + '/fleet/owner-capability', { headers });
+    expect(status.status).toBe(200);
+    expect(await status.json()).toMatchObject({ ready: true, mode: 'dashboard-admin' });
+    const saved = await fetch(url, { method: 'POST', headers, body: JSON.stringify(h.tuple) });
+    expect(saved.status).toBe(200);
+    expect(h.container.fleet.get(h.instance.id)).toMatchObject(h.tuple);
+    expect(h.service.assertAuthorized(h.instance.id, h.tuple as {
+      toolsPreset: string; policyMode: string; terminalExecution: 'trusted-host';
+    })).toBeUndefined();
+  });
+
+  it('never treats unauthenticated port forwarding, query tokens, or cross-site requests as owner consent', async () => {
+    const h = await harness({ token: undefined, requireAuth: false });
+    const url = `${h.base}/fleet/${h.instance.id}/one-click-trusted-host`;
+    const body = JSON.stringify(h.tuple);
+    const plain = await fetch(url, { method: 'POST', headers: {
+      origin: h.base, 'sec-fetch-site': 'same-origin', 'content-type': 'application/json',
+    }, body });
+    expect(plain.status).toBe(403);
+    expect(h.container.fleet.get(h.instance.id).terminalExecution).not.toBe('trusted-host');
+    const secured = await harness({ token: 'dev-host-token', requireAuth: true });
+    const protectedUrl = `${secured.base}/fleet/${secured.instance.id}/one-click-trusted-host`;
+    const withQuery = await fetch(protectedUrl + '?token=dev-host-token', {
+      method: 'POST', headers: { origin: secured.base, 'content-type': 'application/json' }, body,
+    });
+    expect(withQuery.status).toBe(401);
+    const wrongOrigin = await fetch(protectedUrl, { method: 'POST', headers: {
+      origin: 'https://attacker.invalid', 'sec-fetch-site': 'cross-site',
+      authorization: 'Bearer dev-host-token', 'content-type': 'application/json',
+    }, body });
+    expect(wrongOrigin.status).toBe(403);
+    expect(secured.container.fleet.get(secured.instance.id).terminalExecution).not.toBe('trusted-host');
   });
 
   it('keeps credential enforcement when token is configured, even if the dashboard is bound to localhost', async () => {

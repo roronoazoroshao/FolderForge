@@ -43,16 +43,21 @@ const POLICIES = ['readonly', 'safe', 'dev', 'danger'];
 const EXECUTION_PROFILES = ['sandbox-required', 'trusted-host'] as const;
 const AUTH_MODES: FleetAuthMode[] = ['token', 'api-key', 'oauth', 'none'];
 
-// The VS Code URI carries NO host, port, credential, nonce, or OS authority.
-// The LOCAL VS Code UI extension resolves the actual Remote-SSH workspace and
-// explicitly asks permission before opening FolderForge's trusted SSH helper.
-// No browser-facing forwarded-port request is promoted to owner authority.
-const VERIFIED_VSCODE_LINK = 'vscode://musashishao.folderforge-remote-ssh/verify';
-// This extension is currently distributed as an installable GitHub Release VSIX,
-// not as a Marketplace extension. Never treat an unhandled vscode:// URL as an
-// installation mechanism: VS Code's Marketplace fallback reports "not found".
-const VERIFIED_VSIX_URL =
-  'https://github.com/roronoazoroshao/FolderForge/releases/download/v3.2.4/folderforge-remote-ssh-0.1.0.vsix';
+// Authenticated loopback Dashboard owners can enable a scoped Fleet with one
+// button. Never mistake an anonymous PORTS-forwarded browser for that owner.
+// The optional legacy verified SSH bridge remains accepted on the server.
+async function resolveOwnerHeaders(): Promise<Record<string, string>> {
+  const dashboard = await api<{ ready: boolean }>('/fleet/owner-capability',
+    { sensitive: true }).catch(() => ({ ready: false }));
+  if (dashboard.ready) return {};
+  const ssh = await api<{ verified: boolean; csrfToken?: string }>(
+    '/operator/ssh-session/status', { sensitive: true },
+  ).catch(() => ({ verified: false, csrfToken: undefined }));
+  if (ssh.verified && ssh.csrfToken) {
+    return { 'x-folderforge-operator-csrf': ssh.csrfToken };
+  }
+  throw new Error('Owner access requires the signed Dashboard link created by the VPS administrator.');
+}
 
 
 interface OneTimeCredential {
@@ -116,7 +121,7 @@ export function FleetScreen() {
   // The old forwarded tab may read a saved grant but can never use it as owner proof.
   const [ownerSessionVerified, setOwnerSessionVerified] = useState<boolean | null>(null);
   const [verificationHelpOpen, setVerificationHelpOpen] = useState(false);
-  const openVerifiedVSCodeSession = () => setVerificationHelpOpen(true);
+  const openOwnerSetup = () => setVerificationHelpOpen(true);
   const [grantsByInstance, setGrantsByInstance] = useState<Record<string, 'approved' | 'not_requested' | 'unavailable'>>({});
   const [configFor, setConfigFor] = useState<FleetInstance | null>(null);
   const [authFor, setAuthFor] = useState<FleetInstance | null>(null);
@@ -181,7 +186,7 @@ export function FleetScreen() {
 
   const quickStart = async () => {
     if (ownerSessionVerified !== true) {
-      openVerifiedVSCodeSession();
+      openOwnerSetup();
       return;
     }
     const projectPath = path.trim();
@@ -189,15 +194,8 @@ export function FleetScreen() {
     setFormError(null);
     setQuickStartBusy(true);
     try {
-      // A stored grant is NOT browser owner proof. Recheck the live session
-      // and bind this one-shot host privilege request to its CSRF token.
-      const owner = await api<{ verified: boolean; csrfToken?: string }>(
-        '/operator/ssh-session/status', { sensitive: true },
-      );
-      if (!owner.verified || !owner.csrfToken) {
-        setOwnerSessionVerified(false);
-        throw new Error('Owner session expired. Choose Verify in VS Code to reopen it.');
-      }
+      // Recheck privileged Dashboard auth (or a preexisting SSH owner lease).
+      const headers = await resolveOwnerHeaders();
       const created = await api<{
         ok: boolean;
         data?: { id: string; token: string;
@@ -206,7 +204,7 @@ export function FleetScreen() {
       }>('/fleet/quickstart', {
         method: 'POST',
         sensitive: true,
-        headers: { 'x-folderforge-operator-csrf': owner.csrfToken },
+        headers,
         body: { projectPath },
       });
       if (!created.ok || !created.data?.id) {
@@ -253,15 +251,9 @@ export function FleetScreen() {
     }
     setQuickAccessBusy(instance.id);
     try {
-      const owner = await api<{ verified: boolean; csrfToken?: string }>(
-        '/operator/ssh-session/status', { sensitive: true },
-      );
-      if (!owner.verified || !owner.csrfToken) {
-        throw new Error('Verified owner session required. Reopen Mission Control from the app.');
-      }
+      const headers = await resolveOwnerHeaders();
       await api(endpoint, {
-        method: 'POST', sensitive: true,
-        headers: { 'x-folderforge-operator-csrf': owner.csrfToken },
+        method: 'POST', sensitive: true, headers,
       });
       fleet.reload();
       toast('success', `${instance.id} ${lifecycle} requested; check runtime readiness.`);
@@ -275,12 +267,7 @@ export function FleetScreen() {
   const enableFullAiAccess = async (instance: FleetInstance) => {
     setQuickAccessBusy(instance.id);
     try {
-      const owner = await api<{ verified: boolean; csrfToken?: string }>(
-        '/operator/ssh-session/status', { sensitive: true },
-      );
-      if (!owner.verified || !owner.csrfToken) {
-        throw new Error('Owner session not verified. Open Mission Control from the app on this computer.');
-      }
+      const headers = await resolveOwnerHeaders();
       const outcome = await api<{
         status: 'persisted';
         credential?: { kind: 'token'; value: string };
@@ -288,7 +275,7 @@ export function FleetScreen() {
       }>(`/fleet/${encodeURIComponent(instance.id)}/one-click-trusted-host`, {
         method: 'POST',
         sensitive: true,
-        headers: { 'x-folderforge-operator-csrf': owner.csrfToken },
+        headers,
         body: { toolsPreset: 'full', policyMode: 'danger', terminalExecution: 'trusted-host' },
       });
       if (outcome.credential?.kind === 'token') {
@@ -320,16 +307,11 @@ export function FleetScreen() {
   const disableFullAiAccess = async (instance: FleetInstance) => {
     setQuickAccessBusy(instance.id);
     try {
-      const owner = await api<{ verified: boolean; csrfToken?: string }>(
-        '/operator/ssh-session/status', { sensitive: true },
-      );
-      if (!owner.verified || !owner.csrfToken) {
-        throw new Error('Owner session not verified. Open Mission Control from the app on this computer.');
-      }
+      const headers = await resolveOwnerHeaders();
       const disabled = await api<{ status: 'revoked'; stopAffected?: boolean }>(
         `/fleet/${encodeURIComponent(instance.id)}/one-click-trusted-host`, {
           method: 'DELETE', sensitive: true,
-          headers: { 'x-folderforge-operator-csrf': owner.csrfToken },
+          headers,
         },
       );
       if (disabled.status !== 'revoked') throw new Error('Permission revocation was not confirmed.');
@@ -372,14 +354,18 @@ export function FleetScreen() {
   useEffect(() => {
     let active = true;
     const refreshOwnerSession = () => {
-      // Never put Dashboard credentials in a URL: use bearer auth where configured.
-      void api<{ verified: boolean }>('/operator/ssh-session/status', { sensitive: true })
-        .then(status => {
-          if (active) setOwnerSessionVerified(status.verified === true);
+      // One-click mode requires a real authenticated Dashboard admin credential,
+      // not a tokenless forwarded port. Keep older verified SSH sessions working.
+      void api<{ ready: boolean }>('/fleet/owner-capability', { sensitive: true })
+        .then(async status => {
+          if (status.ready) return true;
+          const ssh = await api<{ verified: boolean }>(
+            '/operator/ssh-session/status', { sensitive: true },
+          ).catch(() => ({ verified: false }));
+          return ssh.verified === true;
         })
-        .catch(() => {
-          if (active) setOwnerSessionVerified(false);
-        });
+        .then(ready => { if (active) setOwnerSessionVerified(ready); })
+        .catch(() => { if (active) setOwnerSessionVerified(false); });
     };
     refreshOwnerSession();
     const interval = setInterval(refreshOwnerSession, 15_000);
@@ -448,7 +434,7 @@ export function FleetScreen() {
               onClick={() => void quickStart()}>
               <ShieldCheck size={14} aria-hidden />
               {ownerSessionVerified === false
-                ? 'Verify in VS Code to create Fleet'
+                ? 'Secure Dashboard access required'
                 : ownerSessionVerified === null
                   ? 'Checking owner session…'
                   : 'Create & Start AI Fleet'}
@@ -456,9 +442,8 @@ export function FleetScreen() {
           </div>
           {ownerSessionVerified === false ? (
             <p className="mt-2 text-xs text-muted">
-              Remote-SSH PORTS tabs can browse but cannot grant VPS execution rights.
-              The button opens local VS Code verification; complete the Fleet setup in
-              its new verified browser tab. No terminal approval command is needed.
+              Open the signed Dashboard link provided by the VPS owner.
+              No VS Code extension or per-command approval is needed.
             </p>
           ) : null}
         </div>
@@ -491,7 +476,7 @@ export function FleetScreen() {
                 aria-label="Terminal execution for new MCP">
                 <option value="inherit">Default (inherit operator host opt-in)</option>
                 <option value="sandbox-required">Require sandbox in danger mode</option>
-                <option value="trusted-host">Trusted host (verified owner required to start)</option>
+                <option value="trusted-host">Trusted host (authenticated Dashboard owner)</option>
               </Select>
             </Field>
             {executionProfile === 'trusted-host' ? (
@@ -664,10 +649,9 @@ export function FleetScreen() {
                   {needsOwnerVerification ? (
                     <div className="grid gap-2 text-xs text-muted">
                       <p>
-                        This VS Code PORTS tab can manage ordinary Dashboard tasks, but cannot
-                        grant AI command execution on your VPS. Choose the primary verification
-                        button below, confirm your SSH host in local VS Code, then select Allow
-                        AI access in the new verified browser tab. No terminal approval needed.
+                        This tab does not have Dashboard owner access. Open the signed
+                        admin link once, then use Enable AI access directly. No extension
+                        is required.
                       </p>
                     </div>
                   ) : grantsByInstance[instance.id] === 'unavailable' ? (
@@ -682,9 +666,9 @@ export function FleetScreen() {
                         as this computer's FolderForge user, within configured workspaces.
                       </p>
                       <div className="flex flex-wrap items-center gap-2">
-                        <span>Using VS Code Remote-SSH?</span>
-                        <Button size="sm" variant="ghost" onClick={openVerifiedVSCodeSession}>
-                          Verify in VS Code
+                        <span>Need owner access?</span>
+                        <Button size="sm" variant="ghost" onClick={openOwnerSetup}>
+                          Open access setup
                         </Button>
                       </div>
                     </div>
@@ -717,15 +701,15 @@ export function FleetScreen() {
                         variant="primary"
                         busy={quickAccessBusy === instance.id}
                         disabled={quickAccessBusy !== null || ownerSessionVerified === null}
-                        onClick={() => needsOwnerVerification ? openVerifiedVSCodeSession() : void enableFullAiAccess(instance)}
+                        onClick={() => needsOwnerVerification ? openOwnerSetup() : void enableFullAiAccess(instance)}
                       >
                         <ShieldCheck size={13} aria-hidden /> {needsOwnerVerification
                           ? grantsByInstance[instance.id] === 'approved'
-                            ? 'Verify in VS Code to manage AI access'
-                            : 'Verify in VS Code to allow AI access'
+                            ? 'Set up owner access to manage AI'
+                            : 'Set up owner access to enable AI'
                           : ownerSessionVerified === null
                             ? 'Checking owner session…'
-                            : 'Allow AI to operate on this computer'}
+                            : 'Enable AI access'}
                       </Button>
                     )}
                     <Button size="sm" variant="ghost" onClick={() => setConfigFor(instance)}><Settings2 size={13} aria-hidden /> Configure</Button>
@@ -866,7 +850,7 @@ function ConfigModal(props: {
   onClose: () => void; onSaved: () => void;
   onCredential: (value: string) => void;
 }) {
-  const openVerifiedVSCodeSession = props.onVerifyOwner;
+  const openOwnerSetup = props.onVerifyOwner;
   const toast = useToast();
   const action = useAction();
   const [preset, setPreset] = useState(props.instance.toolsPreset);
@@ -876,42 +860,34 @@ function ConfigModal(props: {
   const [hostBusy, setHostBusy] = useState(false);
   const [hostError, setHostError] = useState<string | null>(null);
   const [needsReverification, setNeedsReverification] = useState(false);
-  // A persisted Fleet permission (even full/danger) is not live browser owner proof.
+  // A saved Fleet grant is not itself an authenticated Dashboard admin capability.
   const ownerProofRequired = props.ownerSessionVerified !== true || needsReverification;
   const advancedHostChange = terminalExecution === 'trusted-host' &&
     (preset !== props.instance.toolsPreset || policy !== props.instance.policyMode ||
       terminalExecution !== (props.instance.terminalExecution ?? 'sandbox-required'));
 
-  // No host command appears in the everyday user flow. The browser must be
-  // bound to a live server-owned SSH/operator session; loopback alone is not
-  // evidence that the caller owns the machine.
+  // The everyday browser flow uses an authenticated loopback Dashboard admin
+  // credential (or an already-live legacy SSH owner session). Loopback alone
+  // does not prove authority.
   const applyFromVerifiedOwnerSession = async (
     tuple: { toolsPreset: string; policyMode: string; terminalExecution: 'trusted-host' },
   ) => {
     if (ownerProofRequired) {
-      openVerifiedVSCodeSession();
+      openOwnerSetup();
       return;
     }
     setHostError(null);
     setHostBusy(true);
     const id = encodeURIComponent(props.instance.id);
     try {
-      const session = await api<{ verified: boolean; csrfToken?: string }>(
-        '/operator/ssh-session/status', { sensitive: true },
-      );
-      if (!session.verified || !session.csrfToken) {
-        throw new Error(
-          'Cannot verify this browser as the machine owner. Host access is not enabled. ' +
-          'A verified local operator session is required; a normal browser link is insufficient.',
-        );
-      }
+      const headers = await resolveOwnerHeaders();
       const outcome = await api<{
         credential?: { kind: 'token'; value: string };
         activation?: { status: 'start_requested' | 'not_started' | 'failed'; message?: string };
       }>(`/fleet/${id}/one-click-trusted-host`, {
         method: 'POST',
         sensitive: true,
-        headers: { 'x-folderforge-operator-csrf': session.csrfToken },
+        headers,
         body: tuple,
       });
       if (outcome.credential?.kind === 'token') {
@@ -934,9 +910,9 @@ function ConfigModal(props: {
           message.includes('SSH_OPERATOR_CSRF_DENIED') ||
           message.includes('VERIFIED_OWNER_SESSION_REQUIRED')) {
         // A live lease may expire between the status poll and the POST.
-        // Offer the authenticated VS Code handoff instead of a raw 403 code.
+        // Offer authenticated Dashboard owner setup instead of a raw 403 code.
         setNeedsReverification(true);
-        setHostError('Open a new verified session in VS Code and retry in the browser tab it opens.');
+        setHostError('Open the signed Dashboard owner link and retry Enable AI access.');
       } else {
         setHostError(message);
       }
@@ -949,7 +925,7 @@ function ConfigModal(props: {
     const id = encodeURIComponent(props.instance.id);
     if (advancedHostChange) {
       if (ownerProofRequired) {
-        openVerifiedVSCodeSession();
+        openOwnerSetup();
         return;
       }
       await applyFromVerifiedOwnerSession({
@@ -985,15 +961,14 @@ function ConfigModal(props: {
           ) : null}
           {ownerProofRequired ? (
             <Banner tone="info">
-              This forwarded tab is not verified for VPS commands. Set up owner access
-              once from your Mac; then AI can run approved workspace commands without
-              prompting for each one.
+              To enable AI directly, use the Dashboard's signed admin link.
+              No VS Code extension or repeated command approvals are needed.
             </Banner>
           ) : null}
           {!ownerProofRequired ? (
             <p className="mt-3 text-xs text-muted">
-              Owner session verified. Your saved workspace permissions remain in effect
-              while the authorized session is live.
+              Dashboard owner access is ready. Workspace permissions are persistent
+              and remain revocable.
             </p>
           ) : null}
           <div className="mt-3">
@@ -1001,15 +976,15 @@ function ConfigModal(props: {
               variant="primary"
               busy={hostBusy}
               disabled={hostBusy || (props.ownerSessionVerified === null && !needsReverification)}
-              onClick={() => ownerProofRequired ? openVerifiedVSCodeSession() : void applyFromVerifiedOwnerSession({
+              onClick={() => ownerProofRequired ? openOwnerSetup() : void applyFromVerifiedOwnerSession({
                 toolsPreset: 'full', policyMode: 'danger', terminalExecution: 'trusted-host',
               })}
             >
               <ShieldCheck size={15} aria-hidden />
               {ownerProofRequired
                 ? props.ownerSessionVerified === null && !needsReverification
-                  ? 'Checking owner session…' : 'Verify in VS Code to allow AI access'
-                : savedFullAccess ? 'Verify and reapply AI access' : 'Allow AI access'}
+                  ? 'Checking owner session…' : 'Set up Dashboard owner access'
+                : savedFullAccess ? 'Reapply AI access' : 'Enable AI access'}
             </Button>
           </div>
         </div>
@@ -1053,7 +1028,7 @@ function ConfigModal(props: {
             >
               {advancedHostChange && ownerProofRequired
                 ? props.ownerSessionVerified === null && !needsReverification
-                  ? 'Checking owner session…' : 'Verify in VS Code to save AI access'
+                  ? 'Checking owner session…' : 'Set up Dashboard owner access to save'
                 : 'Save advanced settings'}
             </Button>
           </div>
@@ -1070,42 +1045,25 @@ function ConfigModal(props: {
 
 function OwnerVerificationGuide(props: { open: boolean; onClose: () => void }) {
   return (
-    <Modal open={props.open} title="Set up VPS owner access" onClose={props.onClose}>
+    <Modal open={props.open} title="Enable Dashboard owner access" onClose={props.onClose}>
       <div className="grid gap-3 text-sm">
         <p className="m-0 text-muted">
-          One-time setup on your Mac. This FolderForge extension is released as a
-          VSIX file, not on the VS Code Marketplace. You do not need to approve
-          each AI command after host access is granted.
+          No VS Code extension is needed. FolderForge can enable trusted-host
+          AI directly when the Dashboard uses an administrator token created
+          on your VPS. The token stays in a private 0600 file.
         </p>
         <div className="rounded-xl border border-border-soft p-3">
-          <h3 className="m-0 font-semibold">Option A — VS Code Desktop</h3>
+          <h3 className="m-0 font-semibold">One-time setup on your VPS</h3>
           <p className="mt-2 text-xs text-muted">
-            Download the verified release VSIX on your Mac. In local VS Code:
-            Extensions → … → Install from VSIX… . Keep your Remote-SSH workspace
-            open, then use the button below.
-          </p>
-          <a href={VERIFIED_VSIX_URL} target="_blank" rel="noreferrer"
-             className="mt-3 inline-flex min-h-10 items-center rounded-lg border border-border px-3 py-2 text-sm text-blue hover:bg-raised">
-            Download FolderForge Remote-SSH (.vsix)
-          </a>
-          <div className="mt-3">
-            <Button variant="primary" onClick={() => window.location.assign(VERIFIED_VSCODE_LINK)}>
-              Open VS Code (extension installed)
-            </Button>
-          </div>
-        </div>
-        <div className="rounded-xl border border-border-soft p-3">
-          <h3 className="m-0 font-semibold">Option B — No VS Code extension</h3>
-          <p className="mt-2 text-xs text-muted">
-            On your local Mac (not on the VPS), with FolderForge CLI installed,
-            use your existing SSH alias to open an owner-verified browser tab:
+            If Dashboard authentication is not active, run this once in the
+            VPS terminal and open the signed Dashboard link it prints:
           </p>
           <Code className="mt-2 block whitespace-pre-wrap break-all rounded-lg border border-border-soft p-2 text-xs">
-            folderforge dashboard ssh --host YOUR_SSH_ALIAS
+            folderforge control auth token --project /home/devops
           </Code>
           <p className="mt-2 text-xs text-muted">
-            Use the new browser tab opened by FolderForge. An ordinary VS Code
-            PORTS-forwarded tab cannot authorize host command execution.
+            Then click Enable AI access in that authenticated browser tab.
+            The grant persists per Fleet/workspace and remains revocable.
           </p>
         </div>
         <Button variant="ghost" onClick={props.onClose}>Close</Button>
