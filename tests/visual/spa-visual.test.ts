@@ -351,7 +351,7 @@ describe.skipIf(!CHROMIUM)('Mission Control SPA visual regression (proposal 018)
       // Unauthenticated browser must offer an owner setup path, not a host mutation.
       expect(await modal.getByRole('button', { name: 'Allow AI access', exact: true }).count()).toBe(0);
       const verifyInModal = modal.getByRole('button', {
-        name: 'Set up owner access to enable AI', exact: true,
+        name: 'Set up Dashboard owner access', exact: true,
       });
       await verifyInModal.waitFor({ state: 'visible', timeout: 6_000 });
       expect(await verifyInModal.isEnabled()).toBe(true);
