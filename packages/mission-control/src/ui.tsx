@@ -312,21 +312,23 @@ export function Modal(props: { open: boolean; title: string; onClose: () => void
   }, [props.open, props.onClose]);
   if (!props.open) return null;
   return (
-    <div className="fixed inset-0 z-40 grid place-items-center p-4">
+    <div className="fixed inset-0 z-40 flex items-center justify-center p-2 sm:p-4">
       <div className="absolute inset-0 bg-black/60 animate-fade-in" onClick={props.onClose} />
       <div
         role="dialog"
         aria-modal="true"
         aria-label={props.title}
-        className="relative z-10 w-full max-w-md rounded-[14px] border border-border bg-panel p-4 shadow-pop animate-slide-up"
+        className="relative z-10 flex max-h-[calc(100dvh-1rem)] w-full max-w-md min-h-0 flex-col overflow-hidden rounded-[14px] border border-border bg-panel p-3 shadow-pop animate-slide-up sm:max-h-[calc(100dvh-2rem)] sm:p-4"
       >
-        <div className="flex items-center justify-between gap-3 mb-3">
+        <div className="mb-3 flex shrink-0 items-center justify-between gap-3">
           <h2 className="m-0 text-sm font-semibold">{props.title}</h2>
           <button onClick={props.onClose} aria-label="Close dialog" className="text-muted hover:text-fg p-1 rounded-md transition-colors">
             <X size={15} />
           </button>
         </div>
-        {props.children}
+        <div data-modal-scroll-content className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1">
+          {props.children}
+        </div>
       </div>
     </div>
   );
