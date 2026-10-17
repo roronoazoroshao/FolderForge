@@ -254,7 +254,7 @@ describe.skipIf(!CHROMIUM)('Mission Control SPA visual regression (proposal 018)
     }
   });
 
-  it('renders a signed token-authenticated Dashboard directly through a normal forwarded browser port', { timeout: 30_000 }, async () => {
+  it('renders a signed token-authenticated Dashboard directly through a normal forwarded browser port', { timeout: 25_000 }, async () => {
     const token = 'test-authenticated-dashboard-' + 'a'.repeat(40);
     const local = await startHarness(false, { token, requireAuth: true });
     const context = await browser.newContext({ viewport: DESKTOP, deviceScaleFactor: 1 });
@@ -276,17 +276,21 @@ describe.skipIf(!CHROMIUM)('Mission Control SPA visual regression (proposal 018)
       // Unauthenticated HTML and APIs remain protected.
       expect((await fetch(`${local.baseUrl}/app/`)).status).toBe(401);
       expect((await fetch(`${local.baseUrl}/fleet`)).status).toBe(401);
+      console.log('[signed-dashboard-test] public asset and auth gates verified');
       const response = await page.goto(`${local.baseUrl}/app/?token=${encodeURIComponent(token)}`,
-        { waitUntil: 'networkidle' });
+        { waitUntil: 'domcontentloaded', timeout: 8_000 });
       expect(response?.status()).toBe(200);
       await page.getByRole('link', { name: 'Fleet' }).waitFor({ state: 'visible', timeout: 6_000 });
+      console.log('[signed-dashboard-test] SPA mounted and Fleet link visible');
       // The credential must not disappear on BrowserRouter navigation and reload.
       const fleetResponse = page.waitForResponse(r =>
-        new URL(r.url()).pathname === '/fleet' && r.request().method() === 'GET');
+        new URL(r.url()).pathname === '/fleet' && r.request().method() === 'GET', { timeout: 7_000 });
       await page.getByRole('link', { name: 'Fleet' }).click();
       expect((await fleetResponse).status()).toBe(200);
-      await page.reload({ waitUntil: 'networkidle' });
-      await page.getByRole('link', { name: 'Fleet' }).waitFor({ state: 'visible' });
+      console.log('[signed-dashboard-test] Fleet API authorized after navigation');
+      await page.reload({ waitUntil: 'domcontentloaded', timeout: 8_000 });
+      await page.getByRole('link', { name: 'Fleet' }).waitFor({ state: 'visible', timeout: 5_000 });
+      console.log('[signed-dashboard-test] reload restored SPA');
       expect(pageErrors).toEqual([]);
     } finally {
       await context.close();
