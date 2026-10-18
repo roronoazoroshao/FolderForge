@@ -161,6 +161,30 @@ describe('isolation tools', () => {
     });
   });
 
+  it('new reconciliation surface is admin-only, defaults dry-run and does not mutate any Git ref', async () => {
+    const { root, registry, container } = setup();
+    const created = await registry.callAgent('isolation_create', { taskId: 'reconcile-admin' });
+    expect(created.ok).toBe(true);
+    const iso = (created.data as { isolation: { id: string; worktreeRoot: string; branch: string } }).isolation;
+    // Preserve commit ancestry while simulating a missing, clean fixture worktree.
+    git(root, 'worktree', 'remove', iso.worktreeRoot);
+    git(root, 'branch', '-d', iso.branch);
+    const registryPath = join(root, '.git', 'folderforge', 'isolations.json');
+    const sha = (await import('node:crypto')).createHash('sha256')
+      .update(readFileSync(registryPath)).digest('hex');
+    const before = readFileSync(registryPath);
+    const denied = await registry.callAgent('isolation_reconcile_missing', {
+      id: iso.id, expectedSha256: sha,
+    });
+    expect(denied).toMatchObject({ ok: false, error: expect.stringMatching(/Admin-only/) });
+    const preview = await registry.call('isolation_reconcile_missing', {
+      id: iso.id, expectedSha256: sha,
+    }, { principal: LOOPBACK_DASHBOARD_ADMIN_PRINCIPAL });
+    expect(preview).toMatchObject({ ok: true, data: { status: 'DRY_RUN' } });
+    expect(readFileSync(registryPath)).toEqual(before);
+    expect(container.isolation.get(iso.id)?.state).toBe('active');
+  });
+
   it('creates and reviews through the agent plane, but applies only through admin authority', async () => {
     const { root, registry } = setup();
     const created = await registry.callAgent('isolation_create', { taskId: 'tool-task' });

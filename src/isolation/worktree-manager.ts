@@ -1,6 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
   copyFileSync,
+  closeSync,
+  fsyncSync,
+  openSync,
+  unlinkSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -242,6 +246,7 @@ export class WorktreeManager {
   private readonly worktreesRoot: string;
   private readonly rollbacksRoot: string;
   private readonly projectRoot: string;
+  private loadedRegistrySha256: string | null = null;
   readonly available: boolean;
   readonly unavailableReason?: string;
 
@@ -775,6 +780,158 @@ export class WorktreeManager {
     return this.statusSource(isolation);
   }
 
+  /** Metadata-only reconciliation: never delete Git refs, worktrees, or source bytes. */
+  reconcileMissing(id: string, options: {
+    expectedSha256: string; dryRun?: boolean; acknowledgeUnrecoverableWorktreeBytes?: boolean;
+  }): {
+    status: "DRY_RUN" | "RECONCILED"; observedHealth: "missing_worktree";
+    branchRef: "absent"; beforeSha256: string; afterSha256?: string; backupPath?: string;
+  } {
+    this.requireAvailable();
+    if (!/^[a-f0-9]{64}$/.test(options.expectedSha256))
+      throw new Error("Invalid expected registry SHA-256 lease.");
+    return this.withRegistryLock(() => {
+      const original = this.readRegistryBytes();
+      const beforeSha256 = sha256(original);
+      if (beforeSha256 !== options.expectedSha256)
+        throw new Error("Registry digest lease changed.");
+      if (this.loadedRegistrySha256 !== beforeSha256)
+        throw new Error("Stale manager registry state.");
+      const record = this.requireState(id, "active");
+      const health = inspectWorktreeHealth(record);
+      if (health.observedHealth !== "missing_worktree" || health.branchRef !== "absent")
+        throw new Error("Missing worktree identity/health precondition failed.");
+      git(record.sourceRoot, ["cat-file", "-e", record.baseCommit + "^{commit}"]);
+      git(record.sourceRoot, ["cat-file", "-e", record.sourceHead + "^{commit}"]);
+      git(record.sourceRoot, ["merge-base", "--is-ancestor", record.sourceHead, "HEAD"]);
+      const preview = {
+        status: "DRY_RUN" as "DRY_RUN" | "RECONCILED",
+        observedHealth: "missing_worktree" as const,
+        branchRef: "absent" as const, beforeSha256,
+      };
+      if (options.dryRun !== false) return preview;
+      if (!options.acknowledgeUnrecoverableWorktreeBytes)
+        throw new Error("Explicit acknowledgement of unrecoverable worktree bytes required.");
+      if (record.sourceDirty)
+        throw new Error("sourceDirty record requires separate investigation.");
+      this.hooks.beforeFinalMutationCheck?.(cloneIsolation(record));
+      const healthAgain = inspectWorktreeHealth(record);
+      if (healthAgain.observedHealth !== "missing_worktree" || healthAgain.branchRef !== "absent")
+        throw new Error("Missing worktree identity changed before commit.");
+      if (sha256(this.readRegistryBytes()) !== beforeSha256)
+        throw new Error("Registry digest lease changed before commit.");
+      const replacement: WorktreeIsolation = {
+        ...record, state: "discarded", discardedAt: new Date().toISOString(),
+      };
+      const isolations = this.list().map(entry => entry.id === id ? replacement : entry);
+      const next: PersistedState = { version: 1, isolations, digest: isolationDigest(isolations) };
+      const afterBytes = Buffer.from(JSON.stringify(next, null, 2) + "\n");
+      const afterSha256 = sha256(afterBytes);
+      const historyRoot = resolve(dirname(this.statePath), "reconciliations");
+      this.assertInside(historyRoot, dirname(this.statePath));
+      mkdirSync(historyRoot, { recursive: true, mode: 0o700 });
+      const backupPath = resolve(historyRoot, id + "-" + beforeSha256 + ".registry.json");
+      this.writeDurableNewFile(backupPath, original);
+      this.writeDurableNewFile(backupPath + ".audit.json", JSON.stringify({
+        type: "METADATA_ONLY_MISSING_WORKTREE", id, beforeSha256, afterSha256,
+        sourceHead: record.sourceHead, sourceDirty: record.sourceDirty,
+        acknowledged: true, recordedAt: replacement.discardedAt,
+      }, null, 2) + "\n");
+      if (sha256(this.readRegistryBytes()) !== beforeSha256)
+        throw new Error("Registry changed before atomic replacement.");
+      this.atomicWriteRegistry(afterBytes);
+      this.loadedRegistrySha256 = afterSha256;
+      this.isolations.set(id, replacement);
+      return { ...preview, status: "RECONCILED", afterSha256, backupPath };
+    });
+  }
+
+  restoreMissingReconciliation(id: string, options: {
+    expectedSha256: string; backupPath: string;
+  }): { status: "RESTORED"; sha256: string } {
+    this.requireAvailable();
+    return this.withRegistryLock(() => {
+      const current = this.readRegistryBytes();
+      const hash = sha256(current);
+      if (hash !== options.expectedSha256 || hash !== this.loadedRegistrySha256)
+        throw new Error("Restore registry SHA-256 lease mismatch or stale manager.");
+      const record = this.isolations.get(id);
+      if (!record || record.state !== "discarded")
+        throw new Error("Only discarded metadata record can be restored.");
+      const root = resolve(dirname(this.statePath), "reconciliations");
+      this.assertInside(root, dirname(this.statePath));
+      const path = resolve(options.backupPath);
+      if (!path.startsWith(root + sep) || !path.endsWith(".registry.json"))
+        throw new Error("Backup path escapes reconciliation archive.");
+      this.assertInside(path, root);
+      this.assertInside(path + ".audit.json", root);
+      const backupStat = lstatSync(path);
+      const auditStat = lstatSync(path + ".audit.json");
+      if (!backupStat.isFile() || backupStat.isSymbolicLink() ||
+          !auditStat.isFile() || auditStat.isSymbolicLink())
+        throw new Error("Reconciliation backup is unsafe.");
+      const original = readFileSync(path);
+      const audit = JSON.parse(readFileSync(path + ".audit.json", "utf8")) as {
+        type: string; id: string; beforeSha256: string; afterSha256: string;
+      };
+      if (audit.type !== "METADATA_ONLY_MISSING_WORKTREE" ||
+          audit.id !== id || audit.beforeSha256 !== sha256(original) ||
+          audit.afterSha256 !== hash)
+        throw new Error("Reconciliation audit integrity/lease mismatch.");
+      const old = JSON.parse(original.toString("utf8")) as PersistedState;
+      if (old.digest !== isolationDigest(old.isolations))
+        throw new Error("Reconciliation backup state digest invalid.");
+      const prior = old.isolations.find(entry => entry.id === id);
+      if (!prior || prior.state !== "active") throw new Error("Invalid restoration target.");
+      this.validatePersistedIsolation(prior);
+      if (sha256(this.readRegistryBytes()) !== hash)
+        throw new Error("Registry changed before restore.");
+      this.atomicWriteRegistry(original);
+      this.loadedRegistrySha256 = sha256(original);
+      this.isolations.set(id, prior);
+      return { status: "RESTORED", sha256: sha256(original) };
+    });
+  }
+
+  private readRegistryBytes(): Buffer {
+    const stat = lstatSync(this.statePath);
+    if (!stat.isFile() || stat.isSymbolicLink())
+      throw new Error("Isolation registry must be a regular non-symlink file.");
+    return readFileSync(this.statePath);
+  }
+
+  private withRegistryLock<T>(action: () => T): T {
+    mkdirSync(dirname(this.statePath), { recursive: true, mode: 0o700 });
+    this.assertInside(this.statePath, dirname(this.statePath));
+    const path = this.statePath + ".lock";
+    const fd = openSync(path, "wx", 0o600);
+    try { return action(); }
+    finally { closeSync(fd); unlinkSync(path); }
+  }
+
+  private syncDirectory(path: string): void {
+    if (process.platform === "win32") return;
+    const dir = openSync(dirname(path), "r");
+    try { fsyncSync(dir); }
+    finally { closeSync(dir); }
+  }
+
+  private writeDurableNewFile(path: string, bytes: Buffer | string): void {
+    const fd = openSync(path, "wx", 0o600);
+    try { writeFileSync(fd, bytes); fsyncSync(fd); }
+    finally { closeSync(fd); }
+    this.syncDirectory(path);
+  }
+
+  private atomicWriteRegistry(bytes: Buffer): void {
+    const temp = this.statePath + "." + process.pid + "." + randomUUID() + ".tmp";
+    const fd = openSync(temp, "wx", 0o600);
+    try { writeFileSync(fd, bytes); fsyncSync(fd); }
+    finally { closeSync(fd); }
+    renameSync(temp, this.statePath);
+    this.syncDirectory(this.statePath);
+  }
+
   discard(id: string): WorktreeIsolation {
     const isolation = this.isolations.get(id);
     if (!isolation) throw new Error(`Isolation not found: ${id}`);
@@ -1119,9 +1276,8 @@ export class WorktreeManager {
 
   private load(): void {
     if (!existsSync(this.statePath)) return;
-    const parsed = JSON.parse(
-      readFileSync(this.statePath, "utf8"),
-    ) as PersistedState;
+    const original = this.readRegistryBytes();
+    const parsed = JSON.parse(original.toString("utf8")) as PersistedState;
     if (
       parsed.version !== 1 ||
       !Array.isArray(parsed.isolations) ||
@@ -1140,18 +1296,20 @@ export class WorktreeManager {
       seen.add(isolation.id);
       this.isolations.set(isolation.id, isolation);
     }
+    this.loadedRegistrySha256 = sha256(original);
   }
 
   private persist(): void {
-    mkdirSync(dirname(this.statePath), { recursive: true, mode: 0o700 });
-    const temp = `${this.statePath}.${process.pid}.${randomUUID()}.tmp`;
-    const isolations = this.list();
-    const state: PersistedState = {
-      version: 1,
-      isolations,
-      digest: isolationDigest(isolations),
-    };
-    writeFileSync(temp, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
-    renameSync(temp, this.statePath);
+    this.withRegistryLock(() => {
+      const actual = existsSync(this.statePath)
+        ? sha256(this.readRegistryBytes()) : null;
+      if (actual !== this.loadedRegistrySha256)
+        throw new Error("Stale manager: isolation registry changed since load.");
+      const isolations = this.list();
+      const state: PersistedState = { version: 1, isolations, digest: isolationDigest(isolations) };
+      const bytes = Buffer.from(JSON.stringify(state, null, 2) + "\n");
+      this.atomicWriteRegistry(bytes);
+      this.loadedRegistrySha256 = sha256(bytes);
+    });
   }
 }
