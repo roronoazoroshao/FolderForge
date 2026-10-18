@@ -42,6 +42,69 @@ afterEach(() => {
 });
 
 describe("WorktreeManager", () => {
+  it("R15: stale writer must not create a Git ref or worktree before registry CAS", () => {
+    const root = repository();
+    const stale = new WorktreeManager([root], root);
+    const fresh = new WorktreeManager([root], root);
+    const existing = fresh.create("newer-owner");
+    const statePath = join(root, ".git", "folderforge", "isolations.json");
+    const registryBefore = readFileSync(statePath);
+    const refsBefore = git(root, "show-ref");
+    const worktreesBefore = git(root, "worktree", "list", "--porcelain");
+
+    expect(() => stale.create("stale-owner")).toThrow(/stale|registry changed/i);
+    expect(readFileSync(statePath)).toEqual(registryBefore);
+    expect(git(root, "show-ref")).toBe(refsBefore);
+    expect(git(root, "worktree", "list", "--porcelain")).toBe(worktreesBefore);
+    expect(stale.list()).toEqual([]);
+    expect(existsSync(existing.worktreeRoot)).toBe(true);
+  });
+
+  it("R15: stale discard must not delete an existing worktree or Git ref", () => {
+    const root = repository();
+    const writer = new WorktreeManager([root], root);
+    const first = writer.create("important-task");
+    const stale = new WorktreeManager([root], root);
+    writer.create("newer-task");
+    const registryPath = join(root, ".git", "folderforge", "isolations.json");
+    const registryBefore = readFileSync(registryPath);
+    const refsBefore = git(root, "show-ref");
+    const worktreesBefore = git(root, "worktree", "list", "--porcelain");
+    expect(() => stale.discard(first.id)).toThrow(/stale|registry changed/i);
+    expect(readFileSync(registryPath)).toEqual(registryBefore);
+    expect(git(root, "show-ref")).toBe(refsBefore);
+    expect(git(root, "worktree", "list", "--porcelain")).toBe(worktreesBefore);
+    expect(existsSync(first.worktreeRoot)).toBe(true);
+  });
+
+  it("R15: occupied registry lock rejects discard without deleting source", () => {
+    const root = repository();
+    const manager = new WorktreeManager([root], root);
+    const first = manager.create("protected-task");
+    const registryPath = join(root, ".git", "folderforge", "isolations.json");
+    const lock = registryPath + ".lock";
+    const registryBefore = readFileSync(registryPath);
+    const refsBefore = git(root, "show-ref");
+    writeFileSync(lock, "other-writer", { flag: "wx" });
+    expect(() => manager.discard(first.id)).toThrow();
+    expect(readFileSync(registryPath)).toEqual(registryBefore);
+    expect(git(root, "show-ref")).toBe(refsBefore);
+    expect(existsSync(first.worktreeRoot)).toBe(true);
+  });
+
+  it("R15: occupied registry lock rejects create before any Git mutations", () => {
+    const root = repository();
+    const manager = new WorktreeManager([root], root);
+    const before = git(root, "worktree", "list", "--porcelain");
+    const refs = git(root, "show-ref");
+    const lock = join(root, ".git", "folderforge", "isolations.json.lock");
+    mkdirSync(join(root, ".git", "folderforge"), { recursive: true });
+    writeFileSync(lock, "other-writer", { flag: "wx" });
+    expect(() => manager.create("lock-contention")).toThrow();
+    expect(git(root, "worktree", "list", "--porcelain")).toBe(before);
+    expect(git(root, "show-ref")).toBe(refs);
+  });
+
   it("discard retains missing worktree branch and metadata", () => {
     const root = repository();
     const manager = new WorktreeManager([root], root);
