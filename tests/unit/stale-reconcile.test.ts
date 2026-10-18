@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, symlinkSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { WorktreeManager } from "../../src/isolation/worktree-manager.js";
@@ -10,7 +10,7 @@ const roots: string[] = [];
 const git = (root: string, ...args: string[]) =>
   execFileSync("git", args, { cwd: root, encoding: "utf8" });
 
-function fixture(dirtySource = false) {
+function fixture(dirtySource = false, externallyFenced = true, beforeFinalMutationCheck?: () => void) {
   const root = mkdtempSync(join(tmpdir(), "folderforge-stale-reconcile-"));
   roots.push(root);
   git(root, "init", "-b", "main");
@@ -20,7 +20,12 @@ function fixture(dirtySource = false) {
   git(root, "add", ".");
   git(root, "commit", "-m", "init");
   if (dirtySource) writeFileSync(join(root, "untracked.txt"), "at creation\n");
-  const manager = new WorktreeManager([root], root);
+  // Fixture runs against a single controlled Git repo: no legacy host writer.
+  // This stub is NOT proof that a production mixed-version fleet is fenced.
+  const manager = new WorktreeManager([root], root, {
+    ...(externallyFenced ? { withLegacyWritersFenced: (_statePath: string, action: () => unknown) => action() } : {}),
+    beforeFinalMutationCheck,
+  });
   const record = manager.create("stale-reconcile");
   // Only tests deliberately remove a disposable, known-clean fixture worktree.
   git(root, "worktree", "remove", record.worktreeRoot);
@@ -30,6 +35,17 @@ function fixture(dirtySource = false) {
   return { root, manager, record, statePath, hash };
 }
 afterEach(() => { for (const r of roots.splice(0)) rmSync(r, { force: true, recursive: true }); });
+/** Model the actual main-branch pre-CAS writer: write temporary v1 registry and rename
+ * without ever looking at the new coordinator lock. Only disposable test repos. */
+function legacyBlindWrite(statePath: string, modify: (state: { isolations: { taskId: string }[]; digest: string }) => void) {
+  const state = JSON.parse(readFileSync(statePath, "utf8")) as { isolations: { taskId: string }[]; digest: string };
+  modify(state);
+  state.digest = "sha256:" + createHash("sha256").update(JSON.stringify(state.isolations)).digest("hex");
+  const temporary = statePath + ".simulated-legacy.tmp";
+  writeFileSync(temporary, JSON.stringify(state, null, 2) + "\n", { flag: "wx" });
+  renameSync(temporary, statePath);
+}
+
 
 describe("metadata-only missing isolation reconciliation", () => {
   it("dry-run returns health and preserves registry bytes, refs and source files", () => {
@@ -96,7 +112,9 @@ describe("metadata-only missing isolation reconciliation", () => {
 
   it("rejects stale in-memory managers rather than clobbering newer registry data", () => {
     const f = fixture();
-    const other = new WorktreeManager([f.root], f.root);
+    const other = new WorktreeManager([f.root], f.root, {
+      withLegacyWritersFenced: (_statePath, action) => action(),
+    });
     f.manager.reconcileMissing(f.record.id, {
       expectedSha256: f.hash(), dryRun: false,
       acknowledgeUnrecoverableWorktreeBytes: true,
@@ -175,6 +193,64 @@ describe("metadata-only missing isolation reconciliation", () => {
       expectedSha256: f.hash(), backupPath: changed.backupPath!,
     })).toThrow(/integrity|audit/i);
     expect(readFileSync(f.statePath)).toEqual(before);
+  });
+
+
+  it("R13: dry-run remains available without an external writer fence", () => {
+    const f = fixture(false, false);
+    const before = readFileSync(f.statePath);
+    expect(f.manager.reconcileMissing(f.record.id, { expectedSha256: f.hash() }).status).toBe("DRY_RUN");
+    expect(readFileSync(f.statePath)).toEqual(before);
+  });
+
+  it("R13: restore also fails closed when the external fence is unavailable", () => {
+    const f = fixture();
+    const result = f.manager.reconcileMissing(f.record.id, {
+      expectedSha256: f.hash(), dryRun: false,
+      acknowledgeUnrecoverableWorktreeBytes: true,
+    });
+    const withoutFence = new WorktreeManager([f.root], f.root);
+    const afterReconcile = readFileSync(f.statePath);
+    expect(() => withoutFence.restoreMissingReconciliation(f.record.id, {
+      expectedSha256: f.hash(), backupPath: result.backupPath!,
+    })).toThrow(/legacy.*writer|writer.*fenc/i);
+    expect(readFileSync(f.statePath)).toEqual(afterReconcile);
+  });
+
+  it("R13: demonstrates the legacy atomic rename ignores a new-protocol lock", () => {
+    const f = fixture(false, false);
+    const old = f.hash();
+    writeFileSync(f.statePath + ".lock", "new writer locked", { flag: "wx" });
+    try {
+      legacyBlindWrite(f.statePath, state => { state.isolations[0].taskId = "legacy-unsafe"; });
+      expect(f.hash()).not.toBe(old);
+      expect(JSON.parse(readFileSync(f.statePath, "utf8")).isolations[0].taskId).toBe("legacy-unsafe");
+    } finally {
+      unlinkSync(f.statePath + ".lock");
+    }
+  });
+
+  it("R13: detects a pre-commit legacy change with the last digest check", () => {
+    let statePath = "";
+    const f = fixture(false, true, () => {
+      legacyBlindWrite(statePath, state => { state.isolations[0].taskId = "legacy-interleaved"; });
+    });
+    statePath = f.statePath;
+    const before = f.hash();
+    expect(() => f.manager.reconcileMissing(f.record.id, {
+      expectedSha256: before, dryRun: false, acknowledgeUnrecoverableWorktreeBytes: true,
+    })).toThrow(/digest.*changed|registry.*changed/i);
+    expect(JSON.parse(readFileSync(f.statePath, "utf8")).isolations[0].taskId).toBe("legacy-interleaved");
+  });
+
+  it("R13: blocks uncoordinated metadata mutation in a mixed-version deployment", () => {
+    const f = fixture(false, false);
+    const original = readFileSync(f.statePath);
+    expect(() => f.manager.reconcileMissing(f.record.id, {
+      expectedSha256: f.hash(), dryRun: false,
+      acknowledgeUnrecoverableWorktreeBytes: true,
+    })).toThrow(/legacy.*writer|writer.*fenc|quiescen/i);
+    expect(readFileSync(f.statePath)).toEqual(original);
   });
 
 });

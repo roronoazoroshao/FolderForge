@@ -82,6 +82,16 @@ export interface WorktreeStatus {
 }
 
 export interface WorktreeManagerHooks {
+  /**
+   * Externally ENFORCED writer-epoch fence. The trusted host coordinator must
+   * retire/block every pre-CAS writer for this registry, including after the
+   * callback returns. An advisory .lock, process scan, or user acknowledgement
+   * does NOT satisfy this contract. No production coordinator is wired yet:
+   * metadata reconciliation therefore fails closed by default.
+   *
+   * Disposable single-writer tests may supply an explicitly scoped stub.
+   */
+  withLegacyWritersFenced?: <T>(registryPath: string, action: () => T) => T;
   /** Test/fault-injection hook invoked immediately before an untracked copy. */
   beforeUntrackedCopy?: (entry: { source: string; target: string }) => void;
   /** Test-only interleaving point; health is checked after this hook. */
@@ -790,7 +800,13 @@ export class WorktreeManager {
     this.requireAvailable();
     if (!/^[a-f0-9]{64}$/.test(options.expectedSha256))
       throw new Error("Invalid expected registry SHA-256 lease.");
-    return this.withRegistryLock(() => {
+    // A legacy binary can rename over the registry while ignoring .lock/CAS.
+    // Do not make irreversible metadata changes unless an external coordinator
+    // enforces a durable writer epoch across all legacy processes.
+    const withFence = options.dryRun === false
+      ? (action: () => ReturnType<WorktreeManager["reconcileMissing"]>) => this.withLegacyWriterFence(action)
+      : (action: () => ReturnType<WorktreeManager["reconcileMissing"]>) => action();
+    return withFence(() => this.withRegistryLock(() => {
       const original = this.readRegistryBytes();
       const beforeSha256 = sha256(original);
       if (beforeSha256 !== options.expectedSha256)
@@ -846,14 +862,14 @@ export class WorktreeManager {
       this.loadedRegistrySha256 = afterSha256;
       this.isolations.set(id, replacement);
       return { ...preview, status: "RECONCILED", afterSha256, backupPath };
-    });
+    }));
   }
 
   restoreMissingReconciliation(id: string, options: {
     expectedSha256: string; backupPath: string;
   }): { status: "RESTORED"; sha256: string } {
     this.requireAvailable();
-    return this.withRegistryLock(() => {
+    return this.withLegacyWriterFence(() => this.withRegistryLock(() => {
       const current = this.readRegistryBytes();
       const hash = sha256(current);
       if (hash !== options.expectedSha256 || hash !== this.loadedRegistrySha256)
@@ -893,7 +909,14 @@ export class WorktreeManager {
       this.loadedRegistrySha256 = sha256(original);
       this.isolations.set(id, prior);
       return { status: "RESTORED", sha256: sha256(original) };
-    });
+    }));
+  }
+
+  private withLegacyWriterFence<T>(action: () => T): T {
+    const coordinator = this.hooks.withLegacyWritersFenced;
+    if (!coordinator)
+      throw new Error("Legacy writer fencing is not available; registry mutation blocked.");
+    return coordinator(this.statePath, action);
   }
 
   private readRegistryBytes(): Buffer {
