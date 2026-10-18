@@ -343,55 +343,61 @@ export class WorktreeManager {
 
   create(taskId: string, baseRef = "HEAD"): WorktreeIsolation {
     this.requireAvailable();
-    if (!TASK_ID.test(taskId)) {
-      throw new Error("taskId must match [A-Za-z0-9][A-Za-z0-9._-]{0,63}.");
-    }
-    if (
-      [...this.isolations.values()].some(
-        (item) => item.taskId === taskId && item.state !== "discarded",
-      )
-    ) {
-      throw new Error(
-        `An active isolation already exists for taskId=${taskId}.`,
-      );
-    }
-    const snapshot = sourceSnapshot(this.projectRoot);
-    const baseCommit = git(this.projectRoot, [
-      "rev-parse",
-      "--verify",
-      `${baseRef}^{commit}`,
-    ]).trim();
-    const id = `iso_${randomUUID().replace(/-/g, "").slice(0, 20)}`;
-    const suffix = id.slice(-8);
-    const branch = `folderforge/task/${taskId}-${suffix}`;
-    const worktreeRoot = resolve(this.worktreesRoot, id);
-    mkdirSync(dirname(worktreeRoot), { recursive: true, mode: 0o700 });
-    this.assertInside(worktreeRoot, this.worktreesRoot);
-    git(this.projectRoot, [
-      "worktree",
-      "add",
-      "-b",
-      branch,
-      worktreeRoot,
-      baseCommit,
-    ]);
+    // Acquire the cooperative lock BEFORE creating a Git ref/worktree.
+    // Without this, a stale manager can create an orphan worktree before
+    // persist() notices its stale registry lease.
+    return this.withRegistryLock(() => {
+      this.assertLoadedRegistryCurrent();
+      if (!TASK_ID.test(taskId)) {
+        throw new Error("taskId must match [A-Za-z0-9][A-Za-z0-9._-]{0,63}.");
+      }
+      if (
+        [...this.isolations.values()].some(
+          (item) => item.taskId === taskId && item.state !== "discarded",
+        )
+      ) {
+        throw new Error(
+          `An active isolation already exists for taskId=${taskId}.`,
+        );
+      }
+      const snapshot = sourceSnapshot(this.projectRoot);
+      const baseCommit = git(this.projectRoot, [
+        "rev-parse",
+        "--verify",
+        `${baseRef}^{commit}`,
+      ]).trim();
+      const id = `iso_${randomUUID().replace(/-/g, "").slice(0, 20)}`;
+      const suffix = id.slice(-8);
+      const branch = `folderforge/task/${taskId}-${suffix}`;
+      const worktreeRoot = resolve(this.worktreesRoot, id);
+      mkdirSync(dirname(worktreeRoot), { recursive: true, mode: 0o700 });
+      this.assertInside(worktreeRoot, this.worktreesRoot);
+      git(this.projectRoot, [
+        "worktree",
+        "add",
+        "-b",
+        branch,
+        worktreeRoot,
+        baseCommit,
+      ]);
 
-    const isolation: WorktreeIsolation = {
-      id,
-      taskId,
-      sourceRoot: this.projectRoot,
-      worktreeRoot,
-      branch,
-      baseCommit,
-      sourceHead: snapshot.head,
-      sourceFingerprint: snapshot.fingerprint,
-      sourceDirty: snapshot.dirty,
-      createdAt: new Date().toISOString(),
-      state: "active",
-    };
-    this.isolations.set(id, isolation);
-    this.persist();
-    return cloneIsolation(isolation);
+      const isolation: WorktreeIsolation = {
+        id,
+        taskId,
+        sourceRoot: this.projectRoot,
+        worktreeRoot,
+        branch,
+        baseCommit,
+        sourceHead: snapshot.head,
+        sourceFingerprint: snapshot.fingerprint,
+        sourceDirty: snapshot.dirty,
+        createdAt: new Date().toISOString(),
+        state: "active",
+      };
+      this.isolations.set(id, isolation);
+      this.persistUnderLock();
+      return cloneIsolation(isolation);
+    });
   }
 
   list(): WorktreeIsolation[] {
@@ -959,46 +965,51 @@ export class WorktreeManager {
   }
 
   discard(id: string): WorktreeIsolation {
-    const isolation = this.isolations.get(id);
-    if (!isolation) throw new Error(`Isolation not found: ${id}`);
-    if (isolation.state === "discarded") return cloneIsolation(isolation);
-    if (isolation.state === "applied" || isolation.state === "applying") {
-      throw new Error(
-        "Rollback applied isolation changes before discarding the recovery worktree.",
-      );
-    }
-    // A missing or foreign worktree does not mean its branch is disposable.
-    this.hooks.beforeFinalMutationCheck?.(cloneIsolation(isolation));
-    this.assertWorktreePresent(isolation);
-    const taskRef = `refs/heads/${isolation.branch}`;
-    const priorTaskHead = git(isolation.sourceRoot, ["rev-parse", "--verify", taskRef]).trim();
-    const observedWorktreeHead = git(isolation.worktreeRoot, ["rev-parse", "--verify", "HEAD"]).trim();
-    if (observedWorktreeHead !== priorTaskHead) {
-      throw new IsolationHealthError("ISOLATION_IDENTITY_MISMATCH", "identity_mismatch");
-    }
-    git(isolation.sourceRoot, [
-      "worktree",
-      "remove",
-      "--force",
-      isolation.worktreeRoot,
-    ]);
-    const currentTaskHead = git(isolation.sourceRoot, ["rev-parse", "--verify", taskRef]).trim();
-    if (currentTaskHead !== priorTaskHead) {
-      throw new IsolationHealthError("ISOLATION_IDENTITY_MISMATCH", "identity_mismatch");
-    }
-    // Ref deletion is compare-and-swap: Git refuses to delete if another
-    // actor replaced the task branch after our latest SHA observation.
-    this.hooks.beforeBranchDelete?.(cloneIsolation(isolation));
-    try {
-      git(isolation.sourceRoot, ["update-ref", "-d", taskRef, priorTaskHead]);
-    } catch {
-      throw new IsolationHealthError("ISOLATION_IDENTITY_MISMATCH", "identity_mismatch");
-    }
-    rmSync(this.rollbackPatchPath(isolation.id), { force: true });
-    isolation.state = "discarded";
-    isolation.discardedAt = new Date().toISOString();
-    this.persist();
-    return cloneIsolation(isolation);
+    // A stale process must never remove the native worktree/ref and only then
+    // discover its registry CAS failed. Hold the lock across the Git lifecycle.
+    return this.withRegistryLock(() => {
+      this.assertLoadedRegistryCurrent();
+      const isolation = this.isolations.get(id);
+      if (!isolation) throw new Error(`Isolation not found: ${id}`);
+      if (isolation.state === "discarded") return cloneIsolation(isolation);
+      if (isolation.state === "applied" || isolation.state === "applying") {
+        throw new Error(
+          "Rollback applied isolation changes before discarding the recovery worktree.",
+        );
+      }
+      // A missing or foreign worktree does not mean its branch is disposable.
+      this.hooks.beforeFinalMutationCheck?.(cloneIsolation(isolation));
+      this.assertWorktreePresent(isolation);
+      const taskRef = `refs/heads/${isolation.branch}`;
+      const priorTaskHead = git(isolation.sourceRoot, ["rev-parse", "--verify", taskRef]).trim();
+      const observedWorktreeHead = git(isolation.worktreeRoot, ["rev-parse", "--verify", "HEAD"]).trim();
+      if (observedWorktreeHead !== priorTaskHead) {
+        throw new IsolationHealthError("ISOLATION_IDENTITY_MISMATCH", "identity_mismatch");
+      }
+      git(isolation.sourceRoot, [
+        "worktree",
+        "remove",
+        "--force",
+        isolation.worktreeRoot,
+      ]);
+      const currentTaskHead = git(isolation.sourceRoot, ["rev-parse", "--verify", taskRef]).trim();
+      if (currentTaskHead !== priorTaskHead) {
+        throw new IsolationHealthError("ISOLATION_IDENTITY_MISMATCH", "identity_mismatch");
+      }
+      // Ref deletion is compare-and-swap: Git refuses to delete if another
+      // actor replaced the task branch after our latest SHA observation.
+      this.hooks.beforeBranchDelete?.(cloneIsolation(isolation));
+      try {
+        git(isolation.sourceRoot, ["update-ref", "-d", taskRef, priorTaskHead]);
+      } catch {
+        throw new IsolationHealthError("ISOLATION_IDENTITY_MISMATCH", "identity_mismatch");
+      }
+      rmSync(this.rollbackPatchPath(isolation.id), { force: true });
+      isolation.state = "discarded";
+      isolation.discardedAt = new Date().toISOString();
+      this.persistUnderLock();
+      return cloneIsolation(isolation);
+    });
   }
 
   private statusSource(isolation: WorktreeIsolation): WorktreeStatus {
@@ -1325,17 +1336,24 @@ export class WorktreeManager {
     this.loadedRegistrySha256 = sha256(original);
   }
 
+  private assertLoadedRegistryCurrent(): void {
+    const actual = existsSync(this.statePath)
+      ? sha256(this.readRegistryBytes()) : null;
+    if (actual !== this.loadedRegistrySha256)
+      throw new Error("Stale manager: isolation registry changed since load.");
+  }
+
+  /** Caller already holds the same cooperative registry lock. */
+  private persistUnderLock(): void {
+    this.assertLoadedRegistryCurrent();
+    const isolations = this.list();
+    const state: PersistedState = { version: 1, isolations, digest: isolationDigest(isolations) };
+    const bytes = Buffer.from(JSON.stringify(state, null, 2) + "\n");
+    this.atomicWriteRegistry(bytes);
+    this.loadedRegistrySha256 = sha256(bytes);
+  }
+
   private persist(): void {
-    this.withRegistryLock(() => {
-      const actual = existsSync(this.statePath)
-        ? sha256(this.readRegistryBytes()) : null;
-      if (actual !== this.loadedRegistrySha256)
-        throw new Error("Stale manager: isolation registry changed since load.");
-      const isolations = this.list();
-      const state: PersistedState = { version: 1, isolations, digest: isolationDigest(isolations) };
-      const bytes = Buffer.from(JSON.stringify(state, null, 2) + "\n");
-      this.atomicWriteRegistry(bytes);
-      this.loadedRegistrySha256 = sha256(bytes);
-    });
+    this.withRegistryLock(() => this.persistUnderLock());
   }
 }
