@@ -830,7 +830,10 @@ export class WorktreeManager {
       const historyRoot = resolve(dirname(this.statePath), "reconciliations");
       this.assertInside(historyRoot, dirname(this.statePath));
       mkdirSync(historyRoot, { recursive: true, mode: 0o700 });
-      const backupPath = resolve(historyRoot, id + "-" + beforeSha256 + ".registry.json");
+      // Unique create-once transaction preimage: a crash before registry commit
+      // must not make a later, independently validated retry impossible.
+      // Never replace or remove an earlier incomplete recovery artifact.
+      const backupPath = resolve(historyRoot, id + "-" + beforeSha256 + "-" + randomUUID() + ".registry.json");
       this.writeDurableNewFile(backupPath, original);
       this.writeDurableNewFile(backupPath + ".audit.json", JSON.stringify({
         type: "METADATA_ONLY_MISSING_WORKTREE", id, beforeSha256, afterSha256,

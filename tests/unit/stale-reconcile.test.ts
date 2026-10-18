@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, symlinkSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { WorktreeManager } from "../../src/isolation/worktree-manager.js";
@@ -126,6 +126,28 @@ describe("metadata-only missing isolation reconciliation", () => {
       acknowledgeUnrecoverableWorktreeBytes: true,
     })).toThrow();
     expect(readFileSync(f.statePath)).toEqual(before);
+  });
+
+  it("recovers from an abandoned pre-commit backup without overwriting recovery bytes", () => {
+    const f = fixture();
+    const original = readFileSync(f.statePath);
+    const orphan = join(f.root, ".git", "folderforge", "reconciliations",
+      f.record.id + "-" + f.hash() + ".registry.json");
+    mkdirSync(join(f.root, ".git", "folderforge", "reconciliations"), { recursive: true });
+    // Simulate an earlier process crashing after durable backup, before audit/commit.
+    writeFileSync(orphan, original, { flag: "wx" });
+    const changed = f.manager.reconcileMissing(f.record.id, {
+      expectedSha256: f.hash(), dryRun: false,
+      acknowledgeUnrecoverableWorktreeBytes: true,
+    });
+    expect(changed.status).toBe("RECONCILED");
+    expect(changed.backupPath).not.toBe(orphan);
+    expect(readFileSync(orphan)).toEqual(original);
+    expect(readFileSync(changed.backupPath!)).toEqual(original);
+    expect(f.manager.restoreMissingReconciliation(f.record.id, {
+      expectedSha256: f.hash(), backupPath: changed.backupPath!,
+    }).status).toBe("RESTORED");
+    expect(readFileSync(f.statePath)).toEqual(original);
   });
 
   it("rejects stale restore lease", () => {
