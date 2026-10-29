@@ -2,7 +2,7 @@
 
 > Turn a local project folder into a governed MCP workspace for AI coding agents.
 
-[![CI](https://github.com/roronoazoroshao369/FolderForge/actions/workflows/ci.yml/badge.svg)](https://github.com/roronoazoroshao369/FolderForge/actions/workflows/ci.yml)
+[![CI](https://github.com/roronoazoroshao/FolderForge/actions/workflows/ci.yml/badge.svg)](https://github.com/roronoazoroshao/FolderForge/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/@musashishao/folderforge)](https://www.npmjs.com/package/@musashishao/folderforge)
 [![Node](https://img.shields.io/node/v/@musashishao/folderforge)](package.json)
 [![License](https://img.shields.io/npm/l/@musashishao/folderforge)](LICENSE)
@@ -13,57 +13,53 @@ tools, and optionally connect browser, database, plugin, workflow, and Godot
 capabilities. Path restrictions, risk policy, approvals, secret redaction, rate
 limits, and audit logging remain enforced on the server side.
 
-## VS Code Remote-SSH: verified one-click host access (opt-in)
+## Remote-SSH: authenticated owner one-click Fleet access
 
-If you open Mission Control through **VS Code Remote-SSH → PORTS**, the
-forwarded browser tab is **not** automatically authorized to run commands on
-the VPS. Use **Fleet → Verify in VS Code** instead of disabling Origin checks.
+A Mission Control browser tab opened through **VS Code Remote-SSH → PORTS** is
+**not automatically authorized** to execute commands on the VPS. Start the
+Dashboard with explicit local owner authentication instead of disabling Origin
+checks or trusting port forwarding as proof of host ownership.
 
-An installable, local-UI VS Code extension in
-[packages/vscode-remote-ssh](packages/vscode-remote-ssh/README.md) identifies
-your active Remote-SSH workspace, confirms the SSH alias and opens a separate
-FolderForge-authenticated browser session. Your VS Code port forward remains
-usable for read-only/ordinary administration. The verified session is bound
-to a separate live OpenSSH channel and host OS UID.
+### Single-command VPS / Remote-SSH AI Fleet quickstart
 
-The extension is distributed as a **VSIX build artifact**, not yet published
-to VS Code Marketplace; installation on the local computer and the FolderForge
-CLI on both ends are currently prerequisites. macOS/Linux Desktop only.
-No plain forwarded HTTP request can mint a trusted-host grant.
-
-## Single-command VPS / Remote-SSH AI Fleet quickstart
-
-Run once on the **VPS** (not on the Mac):
+Run once on the **VPS** (not on the Mac), with a project root you control:
 
 ```bash
-folderforge control start --no-open --project /home/devops
+folderforge control start --auth token --no-open --project /home/devops
 ```
 
-The Dashboard serves on the VPS loopback `127.0.0.1:7332`. In **VS Code
-Desktop on your Mac**, use Remote-SSH → PORTS to forward port `7332`, then
-browse `http://127.0.0.1:7332/app/`. Ordinary dashboard browsing works in
-that tab. For privileged AI execution, install the matching local FolderForge
-CLI and [VSIX](packages/vscode-remote-ssh/README.md), choose **Verify in VS
-Code** once for the current SSH session, confirm the remote alias and continue
-in the **new verified browser tab**.
+FolderForge prints a signed Dashboard URL with an owner credential. The plane
+listens on VPS loopback `127.0.0.1:7332`. Forward port `7332` with VS Code
+Remote-SSH → PORTS, then open the signed URL through that forwarded port in
+your local browser. Treat this signed link as a secret; the SPA retains its
+credential only for the current browser tab and removes it from the address
+bar after startup. Never publish the signed URL in logs or screenshots.
 
-In **Fleet → Create an AI Fleet**, select a folder (or Browse), then choose
-**Create & Start AI Fleet**. One owner-authorized action provisions a
-token-authenticated MCP, configures **full tools + danger policy +
-trusted-host process execution**, grants permission to **that Fleet and
-workspace only**, and requests startup. There is no Docker prerequisite for
-trusted-host command execution, no individual command-approval step and no
-`trusted-host approve` terminal command. Runtime health must still be checked;
-a request to start does not prove that the MCP child is ready. The advanced
-manual Fleet form remains available for sandbox/Docker or custom authorization.
+For an **already-running tokenless Dashboard**, upgrade its authentication
+explicitly on the VPS rather than assuming `control start` will change a
+running service's mode:
 
-To manage folders beyond `/home/devops`, explicitly pass `--allow /srv`
-or another operator-approved root on startup. This is not root access:
-Linux user permissions, hard-denied commands, workspace isolation, audit
-and the live verified owner session for privileged lifecycle requests all
-remain enforced. Exposing tunnels still needs the provider's authentication,
-credentials and configuration; creating a Fleet does **not** automatically
-publish a tunnel.
+```bash
+folderforge control auth token --project /home/devops
+```
+
+From the **authenticated owner** Dashboard, choose **Fleet → Create an AI
+Fleet**, select an allowed folder, and use **Enable AI access**. The owner can
+create/start/restart/revoke Fleet privileges without a VS Code extension.
+The grant is scoped to the selected Fleet/workspace, subject to OS permissions,
+hard command denials, audit, and the selected execution policy. A requested
+start is **not** proof the child is healthy: check its runtime state.
+
+**VSIX is optional.** The separate
+[VS Code Remote-SSH verified workflow](packages/vscode-remote-ssh/README.md)
+remains available for operators who prefer SSH-session-bound verification. It
+is not a prerequisite for the authenticated Dashboard owner flow.
+An anonymous PORTS-forwarded browser session cannot mint trusted-host grants.
+
+To manage folders beyond `/home/devops`, explicitly pass approved roots such
+as `--allow /srv` when starting the control plane. No command here grants root
+privileges, bypasses sandbox policy, or publishes an MCP tunnel automatically.
+Remote tunnels still require their separate authenticated configuration.
 
 ## Quick start
 
