@@ -345,7 +345,10 @@ async function executeVerificationRun(
       // execa's ResultPromise is a ChildProcess at runtime, but its mapped
       // types do not satisfy the ChildProcess interface — narrow at the edge.
       const asProcess = child as unknown as ChildProcess;
-      const onAbort = (): void => terminateChildProcessTree(asProcess);
+      // Cancellation is an explicit stop request: force-reap the detached tree.
+      // SIGTERM alone can leave a command that traps it holding stdout open,
+      // indefinitely blocking synchronous cancellation (macOS CI regression).
+      const onAbort = (): void => terminateChildProcessTree(asProcess, true);
       signal.addEventListener('abort', onAbort, { once: true });
       // Covers an abort that landed between the loop-top check and the spawn.
       if (signal.aborted) onAbort();

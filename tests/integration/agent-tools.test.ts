@@ -642,6 +642,40 @@ describe('AI coding runtime tools', () => {
     expect(result.data).toMatchObject({ state: 'cancelled', overall: 'incomplete' });
   });
 
+  it('cancels a synchronous check promptly when its child ignores SIGTERM', async () => {
+    if (process.platform === 'win32') return; // Windows cancellation already uses taskkill /F.
+    const { registry } = registryFor(root);
+    const marker = join(root, 'stubborn-ready');
+    writeFileSync(
+      join(root, 'stubborn.mjs'),
+      `import { writeFileSync } from 'node:fs';\nprocess.on('SIGTERM', () => {});\nwriteFileSync(${JSON.stringify(marker)}, 'ready');\nsetTimeout(() => {}, 5000);\n`,
+    );
+    const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
+      scripts: Record<string, string>;
+    };
+    pkg.scripts.test = 'node stubborn.mjs';
+    writeFileSync(join(root, 'package.json'), JSON.stringify(pkg, null, 2));
+
+    const call = registry.call('project_verify', { checks: ['test'], timeoutMs: 10_000 });
+    const startupDeadline = Date.now() + 5_000;
+    while (!existsSync(marker) && Date.now() < startupDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    expect(existsSync(marker)).toBe(true); // Cancel only after the SIGTERM handler is installed.
+    const listed = await registry.call('project_verify', { action: 'list' });
+    const running = (listed.data as { runs: Array<{ id: string; state: string }> }).runs.find(
+      (entry) => entry.state === 'running',
+    );
+    expect(running).toBeDefined();
+    const cancelledAt = Date.now();
+    const cancelled = await registry.call('project_verify', { action: 'cancel', id: running!.id });
+    expect(cancelled.ok).toBe(true);
+    const result = await call;
+    expect(Date.now() - cancelledAt).toBeLessThan(2_500);
+    expect(result.ok).toBe(false);
+    expect(result.data).toMatchObject({ state: 'cancelled', overall: 'incomplete' });
+  }, 15_000);
+
   it('reaps an orphaned grandchild when a check hits its natural timeout', async () => {
     if (process.platform === 'win32') return; // POSIX group-kill proof
     const { registry } = registryFor(root);
