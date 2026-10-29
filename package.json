@@ -126,8 +126,8 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
     "@modelcontextprotocol/server": "2.3.1",
-    "@playwright/mcp": "^0.0.41",
-    "execa": "^10.0.0",
+    "@playwright/mcp": "^0.0.83",
+    "execa": "^10.2.1",
     "ignore": "^7.0.12",
     "jose": "^6.2.3",
     "pino": "^10.4.0",
