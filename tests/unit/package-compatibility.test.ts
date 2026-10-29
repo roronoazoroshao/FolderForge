@@ -114,6 +114,20 @@ describe('package and CI compatibility contract', () => {
     expect(workflowText).toContain('name: child-mcp-third-party-${{ matrix.os }}-');
   });
 
+  it('keeps Dependabot from proposing unsupported TypeScript minor or major upgrades', () => {
+    const dependabot = parseYaml(readFileSync(join(root, '.github', 'dependabot.yml'), 'utf8')) as {
+      updates?: Array<{ 'package-ecosystem'?: string; directory?: string; ignore?: Array<{
+        'dependency-name': string; 'update-types'?: string[];
+      }> }>;
+    };
+    const npmRoot = dependabot.updates?.find(update =>
+      update['package-ecosystem'] === 'npm' && update.directory === '/');
+    expect(npmRoot?.ignore).toContainEqual({
+      'dependency-name': 'typescript',
+      'update-types': ['version-update:semver-minor', 'version-update:semver-major'],
+    });
+  });
+
   it('tests both supported LTS lines on Linux, macOS, and Windows', () => {
     const workflow = parseYaml(readFileSync(join(root, '.github', 'workflows', 'ci.yml'), 'utf8')) as WorkflowMatrix;
     const matrix = workflow.jobs?.compatibility?.strategy?.matrix;
