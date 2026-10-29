@@ -105,6 +105,80 @@ describe("WorktreeManager", () => {
     expect(git(root, "show-ref")).toBe(refs);
   });
 
+  it("R16: occupied registry lock rejects apply before preparing or mutating source", () => {
+    const root = repository();
+    const manager = new WorktreeManager([root], root);
+    const isolation = manager.create("locked-apply");
+    writeFileSync(join(isolation.worktreeRoot, "tracked.txt"), "proposed\n");
+    const sourceBefore = readFileSync(join(root, "tracked.txt"));
+    const registry = join(root, ".git", "folderforge", "isolations.json");
+    const registryBefore = readFileSync(registry);
+    const lock = registry + ".lock";
+    writeFileSync(lock, "another-writer", { flag: "wx" });
+    try {
+      expect(() => manager.apply(isolation.id)).toThrow();
+      expect(readFileSync(join(root, "tracked.txt"))).toEqual(sourceBefore);
+      expect(readFileSync(registry)).toEqual(registryBefore);
+      expect(manager.list()[0]?.state).toBe("active");
+    } finally {
+      rmSync(lock, { force: true });
+    }
+  });
+
+  it("R16: occupied registry lock rejects rollback without reversing source changes", () => {
+    const root = repository();
+    const manager = new WorktreeManager([root], root);
+    const isolation = manager.create("locked-rollback");
+    writeFileSync(join(isolation.worktreeRoot, "tracked.txt"), "applied\n");
+    manager.apply(isolation.id);
+    const sourceBefore = readFileSync(join(root, "tracked.txt"));
+    const registry = join(root, ".git", "folderforge", "isolations.json");
+    const registryBefore = readFileSync(registry);
+    const lock = registry + ".lock";
+    writeFileSync(lock, "another-writer", { flag: "wx" });
+    try {
+      expect(() => manager.rollback(isolation.id)).toThrow();
+      expect(readFileSync(join(root, "tracked.txt"))).toEqual(sourceBefore);
+      expect(readFileSync(registry)).toEqual(registryBefore);
+      expect(manager.list()[0]?.state).toBe("applied");
+    } finally {
+      rmSync(lock, { force: true });
+    }
+  });
+
+  it("R16: stale manager refuses apply without changing source or local state", () => {
+    const root = repository();
+    const owner = new WorktreeManager([root], root);
+    const isolation = owner.create("stale-apply");
+    const stale = new WorktreeManager([root], root);
+    owner.create("newer-isolation");
+    writeFileSync(join(isolation.worktreeRoot, "tracked.txt"), "proposed\n");
+    const sourceBefore = readFileSync(join(root, "tracked.txt"));
+    const registry = join(root, ".git", "folderforge", "isolations.json");
+    const registryBefore = readFileSync(registry);
+    expect(() => stale.apply(isolation.id)).toThrow(/Stale manager/i);
+    expect(readFileSync(join(root, "tracked.txt"))).toEqual(sourceBefore);
+    expect(readFileSync(registry)).toEqual(registryBefore);
+    expect(stale.list()[0]?.state).toBe("active");
+  });
+
+  it("R16: stale manager refuses rollback without changing applied source", () => {
+    const root = repository();
+    const owner = new WorktreeManager([root], root);
+    const isolation = owner.create("stale-rollback");
+    writeFileSync(join(isolation.worktreeRoot, "tracked.txt"), "applied\n");
+    owner.apply(isolation.id);
+    const stale = new WorktreeManager([root], root);
+    owner.create("later-isolation");
+    const sourceBefore = readFileSync(join(root, "tracked.txt"));
+    const registry = join(root, ".git", "folderforge", "isolations.json");
+    const registryBefore = readFileSync(registry);
+    expect(() => stale.rollback(isolation.id)).toThrow(/Stale manager/i);
+    expect(readFileSync(join(root, "tracked.txt"))).toEqual(sourceBefore);
+    expect(readFileSync(registry)).toEqual(registryBefore);
+    expect(stale.list()[0]?.state).toBe("applied");
+  });
+
   it("discard retains missing worktree branch and metadata", () => {
     const root = repository();
     const manager = new WorktreeManager([root], root);

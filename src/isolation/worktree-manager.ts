@@ -504,6 +504,14 @@ export class WorktreeManager {
   }
 
   apply(id: string): WorktreeStatus {
+    // Hold the cooperative lease through journal preparation and every source mutation.
+    return this.withRegistryLock(() => {
+      this.assertLoadedRegistryCurrent();
+      return this.applyUnderLock(id);
+    });
+  }
+
+  private applyUnderLock(id: string): WorktreeStatus {
     const isolation = this.requireState(id, "active");
     if (isolation.sourceDirty) {
       throw new Error(
@@ -551,7 +559,7 @@ export class WorktreeManager {
     delete isolation.appliedAt;
     delete isolation.appliedSourceFingerprint;
     delete isolation.rolledBackAt;
-    this.persist();
+    this.persistUnderLock();
 
     const copied: string[] = [];
     let patchApplied = false;
@@ -585,7 +593,7 @@ export class WorktreeManager {
       isolation.appliedSourceFingerprint = sourceSnapshot(
         isolation.sourceRoot,
       ).fingerprint;
-      this.persist();
+      this.persistUnderLock();
       return this.statusSource(isolation);
     } catch (error) {
       let rollbackError: unknown;
@@ -606,10 +614,10 @@ export class WorktreeManager {
         delete isolation.appliedUntracked;
         delete isolation.rollbackPatchSha256;
         rmSync(patchPath, { force: true });
-        this.persist();
+        this.persistUnderLock();
       } catch (rollbackFailure) {
         rollbackError = rollbackFailure;
-        this.persist();
+        this.persistUnderLock();
       }
       if (rollbackError) {
         throw new Error(
@@ -621,6 +629,14 @@ export class WorktreeManager {
   }
 
   rollback(id: string): WorktreeStatus {
+    // Refuse stale or locked managers before undoing any source file.
+    return this.withRegistryLock(() => {
+      this.assertLoadedRegistryCurrent();
+      return this.rollbackUnderLock(id);
+    });
+  }
+
+  private rollbackUnderLock(id: string): WorktreeStatus {
     const isolation = this.requireExisting(id);
     if (isolation.state !== "applied" && isolation.state !== "applying") {
       throw new Error(
@@ -659,7 +675,7 @@ export class WorktreeManager {
       isolation.state = "rolled_back";
       isolation.rolledBackAt = new Date().toISOString();
       delete isolation.appliedSourceFingerprint;
-      this.persist();
+      this.persistUnderLock();
       return this.statusSource(isolation);
     }
     if (
@@ -792,7 +808,7 @@ export class WorktreeManager {
     isolation.state = "rolled_back";
     isolation.rolledBackAt = new Date().toISOString();
     delete isolation.appliedSourceFingerprint;
-    this.persist();
+    this.persistUnderLock();
     return this.statusSource(isolation);
   }
 
@@ -937,8 +953,25 @@ export class WorktreeManager {
     this.assertInside(this.statePath, dirname(this.statePath));
     const path = this.statePath + ".lock";
     const fd = openSync(path, "wx", 0o600);
-    try { return action(); }
-    finally { closeSync(fd); unlinkSync(path); }
+    let result: T | undefined;
+    let actionFailed = false;
+    let actionError: unknown;
+    try {
+      result = action();
+    } catch (error) {
+      actionFailed = true;
+      actionError = error;
+    }
+    let cleanupError: unknown;
+    try { closeSync(fd); } catch (error) { cleanupError = error; }
+    try { unlinkSync(path); } catch (error) {
+      // Preserve the original recovery failure if its repository vanished.
+      if (!actionFailed || (error as NodeJS.ErrnoException).code !== "ENOENT")
+        cleanupError ??= error;
+    }
+    if (actionFailed) throw actionError;
+    if (cleanupError) throw cleanupError;
+    return result as T;
   }
 
   private syncDirectory(path: string): void {
