@@ -62,13 +62,28 @@ describe('package and CI compatibility contract', () => {
     expect(smoke).not.toContain('commandInvocation');
   });
 
-  it('pins transitive security fixes required for publish audits', () => {
+  it('pins patched runtime dependencies in both manifest and lockfile', () => {
     const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
+      dependencies?: Record<string, string>;
       overrides?: Record<string, string>;
     };
-    expect(pkg.overrides?.['@hono/node-server']).toBe('2.0.11');
-    expect(pkg.overrides?.['fast-uri']).toBe('4.2.1');
-    expect(pkg.overrides?.['qs']).toBe('6.16.0');
+    const lock = JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8')) as {
+      packages?: Record<string, { version?: string }>;
+    };
+    const patchedOverrides = {
+      '@hono/node-server': '2.1.5',
+      'body-parser': '2.4.0',
+      'fast-uri': '4.2.3',
+      'hono': '4.13.14',
+      'ip-address': '10.7.5',
+      'qs': '6.17.1',
+    };
+    for (const [name, version] of Object.entries(patchedOverrides)) {
+      expect(pkg.overrides?.[name]).toBe(version);
+      expect(lock.packages?.[`node_modules/${name}`]?.version).toBe(version);
+    }
+    expect(pkg.dependencies?.zod).toBe('^4.6.7');
+    expect(lock.packages?.['node_modules/zod']?.version).toBe('4.6.7');
   });
 
   it('refreshes and re-verifies the release ref around all publish gates', () => {
