@@ -5,6 +5,10 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # typescript-eslint 8.x currently requires TypeScript <6.1; avoid auto PRs for TS 7.
+    ignore:
+      - dependency-name: typescript
+        update-types: [version-update:semver-minor, version-update:semver-major]
     groups:
       development-dependencies:
         dependency-type: development
