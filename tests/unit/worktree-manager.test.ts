@@ -8,6 +8,7 @@ import {
   readFileSync,
   rmSync,
   realpathSync,
+  renameSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -237,6 +238,95 @@ describe("WorktreeManager", () => {
     expect(manager.list()[0]?.state).toBe("applied");
   });
 
+  it("G01: rollback preserves a user file changed after initial checksum validation", () => {
+    const root = repository();
+    let target = "";
+    const manager = new WorktreeManager([root], root, {
+      beforeRollbackUntrackedRemove: () => {
+        writeFileSync(target, "concurrent user bytes\n");
+      },
+    });
+    const isolation = manager.create("rollback-user-race");
+    writeFileSync(join(isolation.worktreeRoot, "artifact.txt"), "task artifact\n");
+    manager.apply(isolation.id);
+    target = join(root, "artifact.txt");
+    const registry = join(root, ".git", "folderforge", "isolations.json");
+    const before = readFileSync(registry);
+
+    expect(() => manager.rollback(isolation.id)).toThrow(/ROLLBACK_SOURCE_CHANGED/);
+    expect(readFileSync(target, "utf8")).toBe("concurrent user bytes\n");
+    expect(readFileSync(registry)).toEqual(before);
+    expect(manager.get(isolation.id)?.state).toBe("applied");
+  });
+
+  it("G01: rollback preserves byte-identical replacement with new file identity", () => {
+    const root = repository();
+    const target = join(root, "artifact.txt");
+    const prior = join(root, "artifact-previous.txt");
+    const manager = new WorktreeManager([root], root, {
+      beforeRollbackUntrackedRemove: () => {
+        renameSync(target, prior);
+        writeFileSync(target, "task artifact\n");
+      },
+    });
+    const isolation = manager.create("rollback-identity-substitution");
+    writeFileSync(join(isolation.worktreeRoot, "artifact.txt"), "task artifact\n");
+    manager.apply(isolation.id);
+    const registry = join(root, ".git", "folderforge", "isolations.json");
+    const before = readFileSync(registry);
+
+    expect(() => manager.rollback(isolation.id)).toThrow(/ROLLBACK_SOURCE_CHANGED/);
+    expect(readFileSync(target, "utf8")).toBe("task artifact\n");
+    expect(readFileSync(prior, "utf8")).toBe("task artifact\n");
+    expect(readFileSync(registry)).toEqual(before);
+    expect(manager.get(isolation.id)?.state).toBe("applied");
+  });
+
+  it("G01: rollback classifies a disappeared source file as changed after preflight", () => {
+    const root = repository();
+    const target = join(root, "artifact.txt");
+    const prior = join(root, "artifact-previous.txt");
+    const manager = new WorktreeManager([root], root, {
+      beforeRollbackUntrackedRemove: () => renameSync(target, prior),
+    });
+    const isolation = manager.create("rollback-disappeared-source");
+    writeFileSync(join(isolation.worktreeRoot, "artifact.txt"), "task artifact\n");
+    manager.apply(isolation.id);
+    const registry = join(root, ".git", "folderforge", "isolations.json");
+    const before = readFileSync(registry);
+
+    expect(() => manager.rollback(isolation.id)).toThrow(/ROLLBACK_SOURCE_CHANGED/);
+    expect(existsSync(target)).toBe(false);
+    expect(readFileSync(prior, "utf8")).toBe("task artifact\n");
+    expect(readFileSync(registry)).toEqual(before);
+    expect(manager.get(isolation.id)?.state).toBe("applied");
+  });
+
+  it("G01: rollback refuses byte-identical replacement of a tracked source after reverse precheck", () => {
+    const root = repository();
+    const target = join(root, "tracked.txt");
+    const prior = join(root, ".git", "tracked-prior.txt");
+    const manager = new WorktreeManager([root], root, {
+      beforeRollbackMutation: () => {
+        renameSync(target, prior);
+        writeFileSync(target, "task change\n");
+      },
+    });
+    const isolation = manager.create("rollback-tracked-identity-race");
+    writeFileSync(join(isolation.worktreeRoot, "tracked.txt"), "task change\n");
+    writeFileSync(join(isolation.worktreeRoot, "artifact.txt"), "task artifact\n");
+    manager.apply(isolation.id);
+    const registry = join(root, ".git", "folderforge", "isolations.json");
+    const before = readFileSync(registry);
+
+    expect(() => manager.rollback(isolation.id)).toThrow(/ROLLBACK_SOURCE_CHANGED/);
+    expect(readFileSync(target, "utf8")).toBe("task change\n");
+    expect(readFileSync(prior, "utf8")).toBe("task change\n");
+    expect(readFileSync(join(root, "artifact.txt"), "utf8")).toBe("task artifact\n");
+    expect(readFileSync(registry)).toEqual(before);
+    expect(manager.get(isolation.id)?.state).toBe("applied");
+  });
+
   it("restores earlier source files if worktree disappears between rollback untracked removals", () => {
     const root = repository();
     let isolationRoot = "";
@@ -353,6 +443,27 @@ describe("WorktreeManager", () => {
     expect(existsSync(join(root, "new.txt"))).toBe(false);
     expect(readFileSync(join(root, "tracked.txt"), "utf8")).toBe("original\n");
     expect(manager.get(isolation.id)?.state).toBe("active");
+  });
+
+  it("G01: apply preserves a concurrent byte-identical replacement after untracked copy", () => {
+    const root = repository();
+    const target = join(root, "new.txt");
+    const original = join(root, ".git", "copied-original.txt");
+    const manager = new WorktreeManager([root], root, {
+      afterUntrackedCopy: () => {
+        renameSync(target, original);
+        writeFileSync(target, "task version\n");
+      },
+    });
+    const isolation = manager.create("copy-identical-replacement");
+    writeFileSync(join(isolation.worktreeRoot, "new.txt"), "task version\n");
+    const statePath = join(root, ".git", "folderforge", "isolations.json");
+
+    expect(() => manager.apply(isolation.id)).toThrow(/APPLY_RECOVERY_INCOMPLETE/);
+    expect(readFileSync(target, "utf8")).toBe("task version\n");
+    expect(readFileSync(original, "utf8")).toBe("task version\n");
+    expect(manager.get(isolation.id)?.state).toBe("applying");
+    expect(JSON.parse(readFileSync(statePath, "utf8")).isolations[0]?.state).toBe("applying");
   });
 
   it("preserves a concurrent edit after copy instead of deleting uncertain output", () => {

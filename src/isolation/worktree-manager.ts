@@ -535,7 +535,13 @@ export class WorktreeManager {
     delete isolation.rolledBackAt;
     this.persist();
 
-    const copied: Array<{ target: string; sha256: string }> = [];
+    const copied: Array<{
+      target: string;
+      sha256: string;
+      dev: number;
+      ino: number;
+      ctimeMs: number;
+    }> = [];
     let patchApplied = false;
     try {
       // The journal was persisted after the earlier preflight. Recheck at
@@ -566,9 +572,20 @@ export class WorktreeManager {
         // The preflight existence check is not atomic with the copy. A user
         // may have created this file meanwhile; never truncate their bytes.
         copyFileSync(source, target, constants.COPYFILE_EXCL);
-        copied.push({ target, sha256: expectedSha });
+        const created = lstatSync(target);
+        copied.push({
+          target,
+          sha256: expectedSha,
+          dev: created.dev,
+          ino: created.ino,
+          ctimeMs: created.ctimeMs,
+        });
         this.hooks.afterUntrackedCopy?.(entry);
-        if (sha256(readFileSync(target)) !== expectedSha) {
+        const observed = lstatSync(target);
+        if (!observed.isFile() || observed.isSymbolicLink() ||
+            observed.dev !== created.dev || observed.ino !== created.ino ||
+            observed.ctimeMs !== created.ctimeMs ||
+            sha256(readFileSync(target)) !== expectedSha) {
           throw new Error("Untracked task file changed during copy; refusing apply.");
         }
       }
@@ -584,9 +601,13 @@ export class WorktreeManager {
       try {
         for (const entry of copied.reverse()) {
           const target = this.validatedInside(entry.target, isolation.sourceRoot);
-          if (sha256(readFileSync(target)) !== entry.sha256) {
+          const observed = lstatSync(target);
+          if (!observed.isFile() || observed.isSymbolicLink() ||
+              observed.dev !== entry.dev || observed.ino !== entry.ino ||
+              observed.ctimeMs !== entry.ctimeMs ||
+              sha256(readFileSync(target)) !== entry.sha256) {
             throw new Error(
-              "APPLY_RECOVERY_INCOMPLETE: copied file changed; refusing to delete uncertain source data.",
+              "APPLY_RECOVERY_INCOMPLETE: copied file changed or replaced; refusing to delete uncertain source data.",
             );
           }
           rmSync(target);
@@ -698,7 +719,13 @@ export class WorktreeManager {
     }
     // Preserve bounded verified source bytes before the first rollback deletion.
     // A task worktree might disappear while later files are being removed.
-    const sourceBackups = new Map<string, { bytes: Buffer; mode: number }>();
+    const sourceBackups = new Map<string, {
+      bytes: Buffer;
+      mode: number;
+      device: number;
+      inode: number;
+      changedAtMs: number;
+    }>();
     let totalBackupBytes = 0;
     for (const entry of expectedUntracked) {
       const target = resolve(
@@ -725,7 +752,14 @@ export class WorktreeManager {
       if (totalBackupBytes > MAX_UNTRACKED_BYTES) {
         throw new Error("Rollback untracked file backup exceeds allowed limit.");
       }
-      sourceBackups.set(entry.path, { bytes, mode: lstatSync(target).mode & 0o777 });
+      const original = lstatSync(target);
+      sourceBackups.set(entry.path, {
+        bytes,
+        mode: original.mode & 0o777,
+        device: original.dev,
+        inode: original.ino,
+        changedAtMs: original.ctimeMs,
+      });
     }
     if (patch)
       git(
@@ -733,6 +767,30 @@ export class WorktreeManager {
         ["apply", "--reverse", "--check", "--binary", "-"],
         patch,
       );
+
+    // Git apply --reverse --check validates patch applicability, not the
+    // identity of source files at the later mutation boundary. Snapshot
+    // identity even for tracked deletions (where a path should stay absent).
+    const trackedIdentity = (path: string): string => {
+      const target = this.validatedInside(
+        resolve(isolation.sourceRoot, assertRelativePath(path)),
+        isolation.sourceRoot,
+      );
+      let stats: ReturnType<typeof lstatSync>;
+      try {
+        stats = lstatSync(target);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return "missing";
+        throw error;
+      }
+      if (!stats.isFile() || stats.isSymbolicLink()) {
+        throw new Error(`ROLLBACK_SOURCE_CHANGED: unsafe tracked source: ${path}`);
+      }
+      return `${stats.dev}:${stats.ino}:${stats.ctimeMs}:${stats.size}`;
+    };
+    const trackedBefore = new Map(
+      expectedTracked.map((path) => [path, trackedIdentity(path)]),
+    );
 
     this.hooks.beforeRollbackMutation?.(cloneIsolation(isolation));
     this.assertWorktreePresent(isolation);
@@ -745,11 +803,35 @@ export class WorktreeManager {
           resolve(isolation.sourceRoot, assertRelativePath(entry.path)),
           isolation.sourceRoot,
         );
+        // The earlier backup checksum is not a mutation-time lease. Another
+        // writer may replace the file after preflight; preserve uncertain data.
+        const backup = sourceBackups.get(entry.path);
+        let observed: ReturnType<typeof lstatSync>;
+        try {
+          observed = lstatSync(target);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+          throw new Error(`ROLLBACK_SOURCE_CHANGED: source file disappeared: ${entry.path}`);
+        }
+        // Equal bytes do not prove identity: another writer can replace the
+        // path with a fresh file containing the same bytes after preflight.
+        if (!backup || !observed.isFile() || observed.isSymbolicLink() ||
+            observed.dev !== backup.device || observed.ino !== backup.inode ||
+            observed.ctimeMs !== backup.changedAtMs ||
+            sha256(readFileSync(target)) !== entry.sha256) {
+          throw new Error(`ROLLBACK_SOURCE_CHANGED: preserving concurrent source data: ${entry.path}`);
+        }
         rmSync(target);
         removed.push(entry);
       }
       if (patch) {
         this.assertWorktreePresent(isolation);
+        for (const [path, identity] of trackedBefore) {
+          if (trackedIdentity(path) !== identity) {
+            throw new Error(`ROLLBACK_SOURCE_CHANGED: tracked source identity changed: ${path}`);
+          }
+        }
+        git(isolation.sourceRoot, ["apply", "--reverse", "--check", "--binary", "-"], patch);
         git(
           isolation.sourceRoot,
           ["apply", "--reverse", "--binary", "-"],
