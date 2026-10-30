@@ -513,8 +513,38 @@ export class WorktreeManager {
       "--",
     ]);
     const untracked = this.preflightUntracked(isolation, status.untracked);
+    // A byte-identical replacement of a tracked source file is not visible
+    // to Git's content fingerprint. Preserve file ownership at preflight.
+    const sourceFileIdentity = (path: string): string => {
+      const target = this.validatedInside(
+        resolve(isolation.sourceRoot, assertRelativePath(path)),
+        isolation.sourceRoot,
+      );
+      let stats: ReturnType<typeof lstatSync>;
+      try {
+        stats = lstatSync(target);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return "missing";
+        throw error;
+      }
+      if (!stats.isFile() || stats.isSymbolicLink()) {
+        throw new Error(`APPLY_SOURCE_IDENTITY_CHANGED: unsafe source file: ${path}`);
+      }
+      return `${stats.dev}:${stats.ino}:${stats.ctimeMs}:${stats.size}`;
+    };
+    const sourceIdentities = new Map(
+      status.changed.map((path) => [path, sourceFileIdentity(path)]),
+    );
+    const assertSourceIdentities = (): void => {
+      for (const [path, identity] of sourceIdentities) {
+        if (sourceFileIdentity(path) !== identity) {
+          throw new Error(`APPLY_SOURCE_IDENTITY_CHANGED: tracked source replaced: ${path}`);
+        }
+      }
+    };
     this.hooks.beforeFinalMutationCheck?.(cloneIsolation(isolation));
     this.assertWorktreePresent(isolation);
+    assertSourceIdentities();
     if (patch)
       git(isolation.sourceRoot, ["apply", "--check", "--binary", "-"], patch);
 
@@ -545,7 +575,9 @@ export class WorktreeManager {
       if (sourceSnapshot(isolation.sourceRoot).fingerprint !== isolation.sourceFingerprint) {
         throw new Error("Source workspace changed after isolation creation; refusing to overwrite user work.");
       }
+      assertSourceIdentities();
       if (patch) {
+        git(isolation.sourceRoot, ["apply", "--check", "--binary", "-"], patch);
         git(isolation.sourceRoot, ["apply", "--binary", "-"], patch);
         patchApplied = true;
       }

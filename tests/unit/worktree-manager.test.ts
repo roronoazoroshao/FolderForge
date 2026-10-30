@@ -8,6 +8,7 @@ import {
   readFileSync,
   rmSync,
   realpathSync,
+  renameSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -217,6 +218,28 @@ describe("WorktreeManager", () => {
     expect(() => manager.apply(isolation.id)).toThrow(/ISOLATION_WORKTREE_MISSING/);
     expect(readFileSync(join(root, "tracked.txt"))).toEqual(sourceBefore);
     expect(manager.list()[0]?.state).toBe("active");
+  });
+
+  it("G01: apply refuses tracked source file replacement with byte-identical content", () => {
+    const root = repository();
+    const source = join(root, "tracked.txt");
+    const prior = join(root, ".git", "tracked-original.txt");
+    const manager = new WorktreeManager([root], root, {
+      beforeFinalMutationCheck: () => {
+        renameSync(source, prior);
+        writeFileSync(source, "original\n");
+      },
+    });
+    const isolation = manager.create("apply-tracked-identity");
+    writeFileSync(join(isolation.worktreeRoot, "tracked.txt"), "task change\n");
+    const registry = join(root, ".git", "folderforge", "isolations.json");
+    const before = readFileSync(registry);
+
+    expect(() => manager.apply(isolation.id)).toThrow(/APPLY_SOURCE_IDENTITY_CHANGED/);
+    expect(readFileSync(source, "utf8")).toBe("original\n");
+    expect(readFileSync(prior, "utf8")).toBe("original\n");
+    expect(readFileSync(registry)).toEqual(before);
+    expect(manager.get(isolation.id)?.state).toBe("active");
   });
 
   it("rollback rechecks identity if worktree disappears after apply", () => {
