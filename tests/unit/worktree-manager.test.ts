@@ -213,10 +213,13 @@ describe("WorktreeManager", () => {
   it("refuses a concurrent untracked target without overwriting user bytes or leaking earlier copies", () => {
     const root = repository();
     const userBytes = "user wrote this after preflight\n";
+    let injected = false;
     const manager = new WorktreeManager([root], root, {
       beforeUntrackedCopy: ({ target }) => {
-        if (target === join(root, "z.txt"))
+        if (target === join(realpathSync.native(root), "z.txt")) {
+          injected = true;
           writeFileSync(target, userBytes, { flag: "wx" });
+        }
       },
     });
     const isolation = manager.create("concurrent-target");
@@ -224,6 +227,7 @@ describe("WorktreeManager", () => {
     writeFileSync(join(isolation.worktreeRoot, "z.txt"), "task output\n");
     const statePath = join(root, ".git", "folderforge", "isolations.json");
     expect(() => manager.apply(isolation.id)).toThrow();
+    expect(injected).toBe(true);
     expect(readFileSync(join(root, "z.txt"), "utf8")).toBe(userBytes);
     expect(existsSync(join(root, "a.txt"))).toBe(false);
     expect(readFileSync(join(root, "tracked.txt"), "utf8")).toBe("original\n");
