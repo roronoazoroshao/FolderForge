@@ -745,6 +745,13 @@ export class WorktreeManager {
           resolve(isolation.sourceRoot, assertRelativePath(entry.path)),
           isolation.sourceRoot,
         );
+        // The earlier backup checksum is not a mutation-time lease. Another
+        // writer may replace the file after preflight; preserve uncertain data.
+        const observed = lstatSync(target);
+        if (!observed.isFile() || observed.isSymbolicLink() ||
+            sha256(readFileSync(target)) !== entry.sha256) {
+          throw new Error(`ROLLBACK_SOURCE_CHANGED: preserving concurrent source data: ${entry.path}`);
+        }
         rmSync(target);
         removed.push(entry);
       }

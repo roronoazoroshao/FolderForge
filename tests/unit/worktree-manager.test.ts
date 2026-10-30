@@ -237,6 +237,27 @@ describe("WorktreeManager", () => {
     expect(manager.list()[0]?.state).toBe("applied");
   });
 
+  it("G01: rollback preserves a user file changed after initial checksum validation", () => {
+    const root = repository();
+    let target = "";
+    const manager = new WorktreeManager([root], root, {
+      beforeRollbackUntrackedRemove: () => {
+        writeFileSync(target, "concurrent user bytes\n");
+      },
+    });
+    const isolation = manager.create("rollback-user-race");
+    writeFileSync(join(isolation.worktreeRoot, "artifact.txt"), "task artifact\n");
+    manager.apply(isolation.id);
+    target = join(root, "artifact.txt");
+    const registry = join(root, ".git", "folderforge", "isolations.json");
+    const before = readFileSync(registry);
+
+    expect(() => manager.rollback(isolation.id)).toThrow(/ROLLBACK_SOURCE_CHANGED/);
+    expect(readFileSync(target, "utf8")).toBe("concurrent user bytes\n");
+    expect(readFileSync(registry)).toEqual(before);
+    expect(manager.get(isolation.id)?.state).toBe("applied");
+  });
+
   it("restores earlier source files if worktree disappears between rollback untracked removals", () => {
     const root = repository();
     let isolationRoot = "";
