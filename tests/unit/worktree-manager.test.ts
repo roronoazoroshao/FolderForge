@@ -247,6 +247,23 @@ describe("WorktreeManager", () => {
     expect(manager.get(isolation.id)?.state).toBe("active");
   });
 
+  it("preserves a concurrent edit after copy instead of deleting uncertain output", () => {
+    const root = repository();
+    const userBytes = "user edited the new file after copy\n";
+    const manager = new WorktreeManager([root], root, {
+      afterUntrackedCopy: ({ target }) => {
+        writeFileSync(target, userBytes);
+      },
+    });
+    const isolation = manager.create("copy-output-drift");
+    writeFileSync(join(isolation.worktreeRoot, "new.txt"), "task version\n");
+    expect(() => manager.apply(isolation.id)).toThrow(/RECOVERY_INCOMPLETE/);
+    expect(readFileSync(join(root, "new.txt"), "utf8")).toBe(userBytes);
+    expect(manager.get(isolation.id)?.state).toBe("applying");
+    expect(() => manager.rollback(isolation.id)).toThrow(/changed after apply/);
+    expect(readFileSync(join(root, "new.txt"), "utf8")).toBe(userBytes);
+  });
+
   it("rollback rejects a worktree lost after validating the journal but before mutation", () => {
     const root = repository();
     let armed = false;
