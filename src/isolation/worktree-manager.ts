@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
+  constants,
   copyFileSync,
   existsSync,
   lstatSync,
@@ -80,6 +81,8 @@ export interface WorktreeStatus {
 export interface WorktreeManagerHooks {
   /** Test/fault-injection hook invoked immediately before an untracked copy. */
   beforeUntrackedCopy?: (entry: { source: string; target: string }) => void;
+  /** Test-only race after an untracked copy, before checksum validation. */
+  afterUntrackedCopy?: (entry: { source: string; target: string }) => void;
   /** Test-only interleaving point; health is checked after this hook. */
   beforeFinalMutationCheck?: (isolation: WorktreeIsolation) => void;
   /** Test-only interleaving point after worktree removal, before branch deletion. */
@@ -532,7 +535,7 @@ export class WorktreeManager {
     delete isolation.rolledBackAt;
     this.persist();
 
-    const copied: string[] = [];
+    const copied: Array<{ target: string; sha256: string }> = [];
     let patchApplied = false;
     try {
       // The journal was persisted after the earlier preflight. Recheck at
@@ -546,18 +549,28 @@ export class WorktreeManager {
         git(isolation.sourceRoot, ["apply", "--binary", "-"], patch);
         patchApplied = true;
       }
-      for (const entry of untracked) {
+      for (const [index, entry] of untracked.entries()) {
         this.hooks.beforeUntrackedCopy?.(entry);
         this.assertWorktreePresent(isolation);
         const source = this.validatedInside(
           entry.source,
           isolation.worktreeRoot,
         );
+        const expectedSha = isolation.appliedUntracked?.[index]?.sha256;
+        if (!expectedSha || sha256(readFileSync(source)) !== expectedSha) {
+          throw new Error("Untracked task file changed after journal; refusing apply.");
+        }
         let target = this.validatedInside(entry.target, isolation.sourceRoot);
         mkdirSync(dirname(target), { recursive: true });
         target = this.validatedInside(entry.target, isolation.sourceRoot);
-        copyFileSync(source, target);
-        copied.push(target);
+        // The preflight existence check is not atomic with the copy. A user
+        // may have created this file meanwhile; never truncate their bytes.
+        copyFileSync(source, target, constants.COPYFILE_EXCL);
+        copied.push({ target, sha256: expectedSha });
+        this.hooks.afterUntrackedCopy?.(entry);
+        if (sha256(readFileSync(target)) !== expectedSha) {
+          throw new Error("Untracked task file changed during copy; refusing apply.");
+        }
       }
       isolation.state = "applied";
       isolation.appliedAt = new Date().toISOString();
@@ -569,10 +582,14 @@ export class WorktreeManager {
     } catch (error) {
       let rollbackError: unknown;
       try {
-        for (const target of copied.reverse()) {
-          rmSync(this.validatedInside(target, isolation.sourceRoot), {
-            force: true,
-          });
+        for (const entry of copied.reverse()) {
+          const target = this.validatedInside(entry.target, isolation.sourceRoot);
+          if (sha256(readFileSync(target)) !== entry.sha256) {
+            throw new Error(
+              "APPLY_RECOVERY_INCOMPLETE: copied file changed; refusing to delete uncertain source data.",
+            );
+          }
+          rmSync(target);
         }
         if (patchApplied)
           git(
