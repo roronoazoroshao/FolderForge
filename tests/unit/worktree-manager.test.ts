@@ -302,6 +302,31 @@ describe("WorktreeManager", () => {
     expect(manager.get(isolation.id)?.state).toBe("applied");
   });
 
+  it("G01: rollback refuses byte-identical replacement of a tracked source after reverse precheck", () => {
+    const root = repository();
+    const target = join(root, "tracked.txt");
+    const prior = join(root, ".git", "tracked-prior.txt");
+    const manager = new WorktreeManager([root], root, {
+      beforeRollbackMutation: () => {
+        renameSync(target, prior);
+        writeFileSync(target, "task change\n");
+      },
+    });
+    const isolation = manager.create("rollback-tracked-identity-race");
+    writeFileSync(join(isolation.worktreeRoot, "tracked.txt"), "task change\n");
+    writeFileSync(join(isolation.worktreeRoot, "artifact.txt"), "task artifact\n");
+    manager.apply(isolation.id);
+    const registry = join(root, ".git", "folderforge", "isolations.json");
+    const before = readFileSync(registry);
+
+    expect(() => manager.rollback(isolation.id)).toThrow(/ROLLBACK_SOURCE_CHANGED/);
+    expect(readFileSync(target, "utf8")).toBe("task change\n");
+    expect(readFileSync(prior, "utf8")).toBe("task change\n");
+    expect(readFileSync(join(root, "artifact.txt"), "utf8")).toBe("task artifact\n");
+    expect(readFileSync(registry)).toEqual(before);
+    expect(manager.get(isolation.id)?.state).toBe("applied");
+  });
+
   it("restores earlier source files if worktree disappears between rollback untracked removals", () => {
     const root = repository();
     let isolationRoot = "";

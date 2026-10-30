@@ -747,6 +747,30 @@ export class WorktreeManager {
         patch,
       );
 
+    // Git apply --reverse --check validates patch applicability, not the
+    // identity of source files at the later mutation boundary. Snapshot
+    // identity even for tracked deletions (where a path should stay absent).
+    const trackedIdentity = (path: string): string => {
+      const target = this.validatedInside(
+        resolve(isolation.sourceRoot, assertRelativePath(path)),
+        isolation.sourceRoot,
+      );
+      let stats: ReturnType<typeof lstatSync>;
+      try {
+        stats = lstatSync(target);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return "missing";
+        throw error;
+      }
+      if (!stats.isFile() || stats.isSymbolicLink()) {
+        throw new Error(`ROLLBACK_SOURCE_CHANGED: unsafe tracked source: ${path}`);
+      }
+      return `${stats.dev}:${stats.ino}:${stats.ctimeMs}:${stats.size}`;
+    };
+    const trackedBefore = new Map(
+      expectedTracked.map((path) => [path, trackedIdentity(path)]),
+    );
+
     this.hooks.beforeRollbackMutation?.(cloneIsolation(isolation));
     this.assertWorktreePresent(isolation);
     const removed: AppliedUntrackedFile[] = [];
@@ -781,6 +805,12 @@ export class WorktreeManager {
       }
       if (patch) {
         this.assertWorktreePresent(isolation);
+        for (const [path, identity] of trackedBefore) {
+          if (trackedIdentity(path) !== identity) {
+            throw new Error(`ROLLBACK_SOURCE_CHANGED: tracked source identity changed: ${path}`);
+          }
+        }
+        git(isolation.sourceRoot, ["apply", "--reverse", "--check", "--binary", "-"], patch);
         git(
           isolation.sourceRoot,
           ["apply", "--reverse", "--binary", "-"],
