@@ -565,7 +565,13 @@ export class WorktreeManager {
     delete isolation.rolledBackAt;
     this.persist();
 
-    const copied: Array<{ target: string; sha256: string }> = [];
+    const copied: Array<{
+      target: string;
+      sha256: string;
+      dev: number;
+      ino: number;
+      ctimeMs: number;
+    }> = [];
     let patchApplied = false;
     try {
       // The journal was persisted after the earlier preflight. Recheck at
@@ -598,10 +604,21 @@ export class WorktreeManager {
         // The preflight existence check is not atomic with the copy. A user
         // may have created this file meanwhile; never truncate their bytes.
         copyFileSync(source, target, constants.COPYFILE_EXCL);
-        copied.push({ target, sha256: expectedSha });
+        const created = lstatSync(target);
+        copied.push({
+          target,
+          sha256: expectedSha,
+          dev: created.dev,
+          ino: created.ino,
+          ctimeMs: created.ctimeMs,
+        });
         this.hooks.afterUntrackedCopy?.(entry);
-        if (sha256(readFileSync(target)) !== expectedSha) {
-          throw new Error("Untracked task file changed during copy; refusing apply.");
+        const observed = lstatSync(target);
+        if (!observed.isFile() || observed.isSymbolicLink() ||
+            observed.dev !== created.dev || observed.ino !== created.ino ||
+            observed.ctimeMs !== created.ctimeMs ||
+            sha256(readFileSync(target)) !== expectedSha) {
+          throw new Error("Untracked task file changed or replaced during copy; refusing apply.");
         }
       }
       isolation.state = "applied";
@@ -616,9 +633,15 @@ export class WorktreeManager {
       try {
         for (const entry of copied.reverse()) {
           const target = this.validatedInside(entry.target, isolation.sourceRoot);
-          if (sha256(readFileSync(target)) !== entry.sha256) {
+          // A matching checksum is not ownership: an unrelated writer may
+          // replace the copied path with identical bytes before recovery.
+          const observed = lstatSync(target);
+          if (!observed.isFile() || observed.isSymbolicLink() ||
+              observed.dev !== entry.dev || observed.ino !== entry.ino ||
+              observed.ctimeMs !== entry.ctimeMs ||
+              sha256(readFileSync(target)) !== entry.sha256) {
             throw new Error(
-              "APPLY_RECOVERY_INCOMPLETE: copied file changed; refusing to delete uncertain source data.",
+              "APPLY_RECOVERY_INCOMPLETE: copied file changed or replaced; refusing to delete uncertain source data.",
             );
           }
           rmSync(target);
