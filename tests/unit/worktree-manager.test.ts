@@ -8,6 +8,7 @@ import {
   readFileSync,
   rmSync,
   realpathSync,
+  renameSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -254,6 +255,49 @@ describe("WorktreeManager", () => {
 
     expect(() => manager.rollback(isolation.id)).toThrow(/ROLLBACK_SOURCE_CHANGED/);
     expect(readFileSync(target, "utf8")).toBe("concurrent user bytes\n");
+    expect(readFileSync(registry)).toEqual(before);
+    expect(manager.get(isolation.id)?.state).toBe("applied");
+  });
+
+  it("G01: rollback preserves byte-identical replacement with new file identity", () => {
+    const root = repository();
+    const target = join(root, "artifact.txt");
+    const prior = join(root, "artifact-previous.txt");
+    const manager = new WorktreeManager([root], root, {
+      beforeRollbackUntrackedRemove: () => {
+        renameSync(target, prior);
+        writeFileSync(target, "task artifact\n");
+      },
+    });
+    const isolation = manager.create("rollback-identity-substitution");
+    writeFileSync(join(isolation.worktreeRoot, "artifact.txt"), "task artifact\n");
+    manager.apply(isolation.id);
+    const registry = join(root, ".git", "folderforge", "isolations.json");
+    const before = readFileSync(registry);
+
+    expect(() => manager.rollback(isolation.id)).toThrow(/ROLLBACK_SOURCE_CHANGED/);
+    expect(readFileSync(target, "utf8")).toBe("task artifact\n");
+    expect(readFileSync(prior, "utf8")).toBe("task artifact\n");
+    expect(readFileSync(registry)).toEqual(before);
+    expect(manager.get(isolation.id)?.state).toBe("applied");
+  });
+
+  it("G01: rollback classifies a disappeared source file as changed after preflight", () => {
+    const root = repository();
+    const target = join(root, "artifact.txt");
+    const prior = join(root, "artifact-previous.txt");
+    const manager = new WorktreeManager([root], root, {
+      beforeRollbackUntrackedRemove: () => renameSync(target, prior),
+    });
+    const isolation = manager.create("rollback-disappeared-source");
+    writeFileSync(join(isolation.worktreeRoot, "artifact.txt"), "task artifact\n");
+    manager.apply(isolation.id);
+    const registry = join(root, ".git", "folderforge", "isolations.json");
+    const before = readFileSync(registry);
+
+    expect(() => manager.rollback(isolation.id)).toThrow(/ROLLBACK_SOURCE_CHANGED/);
+    expect(existsSync(target)).toBe(false);
+    expect(readFileSync(prior, "utf8")).toBe("task artifact\n");
     expect(readFileSync(registry)).toEqual(before);
     expect(manager.get(isolation.id)?.state).toBe("applied");
   });

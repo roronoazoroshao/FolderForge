@@ -698,7 +698,13 @@ export class WorktreeManager {
     }
     // Preserve bounded verified source bytes before the first rollback deletion.
     // A task worktree might disappear while later files are being removed.
-    const sourceBackups = new Map<string, { bytes: Buffer; mode: number }>();
+    const sourceBackups = new Map<string, {
+      bytes: Buffer;
+      mode: number;
+      device: number;
+      inode: number;
+      changedAtMs: number;
+    }>();
     let totalBackupBytes = 0;
     for (const entry of expectedUntracked) {
       const target = resolve(
@@ -725,7 +731,14 @@ export class WorktreeManager {
       if (totalBackupBytes > MAX_UNTRACKED_BYTES) {
         throw new Error("Rollback untracked file backup exceeds allowed limit.");
       }
-      sourceBackups.set(entry.path, { bytes, mode: lstatSync(target).mode & 0o777 });
+      const original = lstatSync(target);
+      sourceBackups.set(entry.path, {
+        bytes,
+        mode: original.mode & 0o777,
+        device: original.dev,
+        inode: original.ino,
+        changedAtMs: original.ctimeMs,
+      });
     }
     if (patch)
       git(
@@ -747,8 +760,19 @@ export class WorktreeManager {
         );
         // The earlier backup checksum is not a mutation-time lease. Another
         // writer may replace the file after preflight; preserve uncertain data.
-        const observed = lstatSync(target);
-        if (!observed.isFile() || observed.isSymbolicLink() ||
+        const backup = sourceBackups.get(entry.path);
+        let observed: ReturnType<typeof lstatSync>;
+        try {
+          observed = lstatSync(target);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+          throw new Error(`ROLLBACK_SOURCE_CHANGED: source file disappeared: ${entry.path}`);
+        }
+        // Equal bytes do not prove identity: another writer can replace the
+        // path with a fresh file containing the same bytes after preflight.
+        if (!backup || !observed.isFile() || observed.isSymbolicLink() ||
+            observed.dev !== backup.device || observed.ino !== backup.inode ||
+            observed.ctimeMs !== backup.changedAtMs ||
             sha256(readFileSync(target)) !== entry.sha256) {
           throw new Error(`ROLLBACK_SOURCE_CHANGED: preserving concurrent source data: ${entry.path}`);
         }
