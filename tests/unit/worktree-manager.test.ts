@@ -445,6 +445,27 @@ describe("WorktreeManager", () => {
     expect(manager.get(isolation.id)?.state).toBe("active");
   });
 
+  it("G01: apply preserves a concurrent byte-identical replacement after untracked copy", () => {
+    const root = repository();
+    const target = join(root, "new.txt");
+    const original = join(root, ".git", "copied-original.txt");
+    const manager = new WorktreeManager([root], root, {
+      afterUntrackedCopy: () => {
+        renameSync(target, original);
+        writeFileSync(target, "task version\n");
+      },
+    });
+    const isolation = manager.create("copy-identical-replacement");
+    writeFileSync(join(isolation.worktreeRoot, "new.txt"), "task version\n");
+    const statePath = join(root, ".git", "folderforge", "isolations.json");
+
+    expect(() => manager.apply(isolation.id)).toThrow(/APPLY_RECOVERY_INCOMPLETE/);
+    expect(readFileSync(target, "utf8")).toBe("task version\n");
+    expect(readFileSync(original, "utf8")).toBe("task version\n");
+    expect(manager.get(isolation.id)?.state).toBe("applying");
+    expect(JSON.parse(readFileSync(statePath, "utf8")).isolations[0]?.state).toBe("applying");
+  });
+
   it("preserves a concurrent edit after copy instead of deleting uncertain output", () => {
     const root = repository();
     const userBytes = "user edited the new file after copy\n";
