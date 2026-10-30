@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
+  constants,
   copyFileSync,
   existsSync,
   lstatSync,
@@ -546,18 +547,27 @@ export class WorktreeManager {
         git(isolation.sourceRoot, ["apply", "--binary", "-"], patch);
         patchApplied = true;
       }
-      for (const entry of untracked) {
+      for (const [index, entry] of untracked.entries()) {
         this.hooks.beforeUntrackedCopy?.(entry);
         this.assertWorktreePresent(isolation);
         const source = this.validatedInside(
           entry.source,
           isolation.worktreeRoot,
         );
+        const expectedSha = isolation.appliedUntracked?.[index]?.sha256;
+        if (!expectedSha || sha256(readFileSync(source)) !== expectedSha) {
+          throw new Error("Untracked task file changed after journal; refusing apply.");
+        }
         let target = this.validatedInside(entry.target, isolation.sourceRoot);
         mkdirSync(dirname(target), { recursive: true });
         target = this.validatedInside(entry.target, isolation.sourceRoot);
-        copyFileSync(source, target);
+        // The preflight existence check is not atomic with the copy. A user
+        // may have created this file meanwhile; never truncate their bytes.
+        copyFileSync(source, target, constants.COPYFILE_EXCL);
         copied.push(target);
+        if (sha256(readFileSync(target)) !== expectedSha) {
+          throw new Error("Untracked task file changed during copy; refusing apply.");
+        }
       }
       isolation.state = "applied";
       isolation.appliedAt = new Date().toISOString();

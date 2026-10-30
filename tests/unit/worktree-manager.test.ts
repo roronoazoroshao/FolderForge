@@ -210,6 +210,43 @@ describe("WorktreeManager", () => {
     expect(manager.list()[0]?.state).toBe("active");
   });
 
+  it("refuses a concurrent untracked target without overwriting user bytes or leaking earlier copies", () => {
+    const root = repository();
+    const userBytes = "user wrote this after preflight\n";
+    const manager = new WorktreeManager([root], root, {
+      beforeUntrackedCopy: ({ target }) => {
+        if (target === join(root, "z.txt"))
+          writeFileSync(target, userBytes, { flag: "wx" });
+      },
+    });
+    const isolation = manager.create("concurrent-target");
+    writeFileSync(join(isolation.worktreeRoot, "a.txt"), "first output\n");
+    writeFileSync(join(isolation.worktreeRoot, "z.txt"), "task output\n");
+    const statePath = join(root, ".git", "folderforge", "isolations.json");
+    expect(() => manager.apply(isolation.id)).toThrow();
+    expect(readFileSync(join(root, "z.txt"), "utf8")).toBe(userBytes);
+    expect(existsSync(join(root, "a.txt"))).toBe(false);
+    expect(readFileSync(join(root, "tracked.txt"), "utf8")).toBe("original\n");
+    expect(manager.get(isolation.id)?.state).toBe("active");
+    const persisted = JSON.parse(readFileSync(statePath, "utf8"));
+    expect(persisted.isolations[0]?.state).toBe("active");
+  });
+
+  it("refuses untracked task bytes changed after the recovery journal was recorded", () => {
+    const root = repository();
+    const manager = new WorktreeManager([root], root, {
+      beforeUntrackedCopy: ({ source }) => {
+        writeFileSync(source, "changed after journal\n");
+      },
+    });
+    const isolation = manager.create("changed-task-output");
+    writeFileSync(join(isolation.worktreeRoot, "new.txt"), "journaled output\n");
+    expect(() => manager.apply(isolation.id)).toThrow(/changed after journal/i);
+    expect(existsSync(join(root, "new.txt"))).toBe(false);
+    expect(readFileSync(join(root, "tracked.txt"), "utf8")).toBe("original\n");
+    expect(manager.get(isolation.id)?.state).toBe("active");
+  });
+
   it("rollback rejects a worktree lost after validating the journal but before mutation", () => {
     const root = repository();
     let armed = false;
