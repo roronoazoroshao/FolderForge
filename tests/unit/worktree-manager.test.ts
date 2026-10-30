@@ -378,6 +378,55 @@ describe("WorktreeManager", () => {
     expect(manager.get(isolation.id)?.state).toBe("active");
   });
 
+  it("G01: apply refuses a byte-identical post-copy replacement and preserves recovery evidence", () => {
+    const root = repository();
+    const target = join(root, "new.txt");
+    const original = join(root, ".git", "original-copied.txt");
+    const manager = new WorktreeManager([root], root, {
+      afterUntrackedCopy: () => {
+        renameSync(target, original);
+        writeFileSync(target, "task bytes\n");
+      },
+    });
+    const isolation = manager.create("post-copy-identity");
+    writeFileSync(join(isolation.worktreeRoot, "new.txt"), "task bytes\n");
+    const registry = join(root, ".git", "folderforge", "isolations.json");
+
+    expect(() => manager.apply(isolation.id)).toThrow(/APPLY_RECOVERY_INCOMPLETE/);
+    expect(readFileSync(original, "utf8")).toBe("task bytes\n");
+    expect(readFileSync(target, "utf8")).toBe("task bytes\n");
+    expect(readFileSync(join(root, "tracked.txt"), "utf8")).toBe("original\n");
+    expect(manager.get(isolation.id)?.state).toBe("applying");
+    expect(JSON.parse(readFileSync(registry, "utf8")).isolations[0]?.state).toBe("applying");
+  });
+
+  it("G01: automatic recovery cannot delete a byte-identical replacement of an earlier copy", () => {
+    const root = repository();
+    const target = join(root, "a.txt");
+    const original = join(root, ".git", "first-copied.txt");
+    const manager = new WorktreeManager([root], root, {
+      beforeUntrackedCopy: ({ target: next }) => {
+        if (next.endsWith("z.txt")) {
+          renameSync(target, original);
+          writeFileSync(target, "same bytes\n");
+          throw new Error("injected failure after concurrent replacement");
+        }
+      },
+    });
+    const isolation = manager.create("recovery-copy-identity");
+    writeFileSync(join(isolation.worktreeRoot, "a.txt"), "same bytes\n");
+    writeFileSync(join(isolation.worktreeRoot, "z.txt"), "second output\n");
+    const registry = join(root, ".git", "folderforge", "isolations.json");
+
+    expect(() => manager.apply(isolation.id)).toThrow(/APPLY_RECOVERY_INCOMPLETE/);
+    expect(readFileSync(original, "utf8")).toBe("same bytes\n");
+    expect(readFileSync(target, "utf8")).toBe("same bytes\n");
+    expect(existsSync(join(root, "z.txt"))).toBe(false);
+    expect(readFileSync(join(root, "tracked.txt"), "utf8")).toBe("original\n");
+    expect(manager.get(isolation.id)?.state).toBe("applying");
+    expect(JSON.parse(readFileSync(registry, "utf8")).isolations[0]?.state).toBe("applying");
+  });
+
   it("preserves a concurrent edit after copy instead of deleting uncertain output", () => {
     const root = repository();
     const userBytes = "user edited the new file after copy\n";
