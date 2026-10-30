@@ -197,6 +197,15 @@ describe('isolation tools', () => {
     );
     expect(rolledBack).toMatchObject({ ok: true, data: { isolation: { state: 'rolled_back' }, clean: true } });
     expect(readFileSync(join(root, 'file.txt'), 'utf8')).toBe('before\n');
+    const blocked = await registry.call(
+      'isolation_discard',
+      { id: isolation.id },
+      { principal: LOOPBACK_DASHBOARD_ADMIN_PRINCIPAL },
+    );
+    expect(blocked).toMatchObject({ ok: false, error: expect.stringMatching(/ISOLATION_TASK_WORKTREE_DIRTY/) });
+    expect(readFileSync(join(isolation.worktreeRoot, 'file.txt'), 'utf8')).toBe('after\n');
+    // Rollback restores the source, not disposable task worktree edits.
+    git(isolation.worktreeRoot, 'checkout', '--', 'file.txt');
 
     const discarded = await registry.call(
       'isolation_discard',

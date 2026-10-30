@@ -810,10 +810,27 @@ export class WorktreeManager {
     if (observedWorktreeHead !== priorTaskHead) {
       throw new IsolationHealthError("ISOLATION_IDENTITY_MISMATCH", "identity_mismatch");
     }
+    // A force-remove followed by ref deletion can orphan task-only commits.
+    // Only discard if the exact task head is already reachable from source HEAD.
+    const sourceHead = git(isolation.sourceRoot, ["rev-parse", "--verify", "HEAD"]).trim();
+    const uniqueCommits = git(isolation.sourceRoot, [
+      "rev-list", "--count", sourceHead + ".." + priorTaskHead,
+    ]).trim();
+    if (uniqueCommits !== "0") {
+      throw new Error("ISOLATION_UNMERGED_COMMITS: task branch has commits not reachable from source HEAD.");
+    }
+    // Never force-delete uncommitted or ignored task output; Git's ordinary
+    // worktree removal provides an additional dirty-state check at deletion.
+    const dirty = workingTreeStatus(isolation.worktreeRoot);
+    const ignored = git(isolation.worktreeRoot, [
+      "ls-files", "--others", "--ignored", "--exclude-standard", "-z",
+    ]);
+    if (!dirty.clean || ignored.length > 0) {
+      throw new Error("ISOLATION_TASK_WORKTREE_DIRTY: preserve uncommitted or ignored task files.");
+    }
     git(isolation.sourceRoot, [
       "worktree",
       "remove",
-      "--force",
       isolation.worktreeRoot,
     ]);
     const currentTaskHead = git(isolation.sourceRoot, ["rev-parse", "--verify", taskRef]).trim();
@@ -823,6 +840,11 @@ export class WorktreeManager {
     // Ref deletion is compare-and-swap: Git refuses to delete if another
     // actor replaced the task branch after our latest SHA observation.
     this.hooks.beforeBranchDelete?.(cloneIsolation(isolation));
+    // Recheck source ancestry immediately before deleting the only task ref.
+    // On a late ref rewrite, keep the branch and registry recovery evidence.
+    if (git(isolation.sourceRoot, ["rev-parse", "--verify", "HEAD"]).trim() !== sourceHead) {
+      throw new Error("ISOLATION_SOURCE_HEAD_CHANGED: preserving task ref after source HEAD moved.");
+    }
     try {
       git(isolation.sourceRoot, ["update-ref", "-d", taskRef, priorTaskHead]);
     } catch {

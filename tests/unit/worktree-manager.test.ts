@@ -42,6 +42,109 @@ afterEach(() => {
 });
 
 describe("WorktreeManager", () => {
+  it("G01: discard preserves a clean task branch with unique unmerged commits", () => {
+    const root = repository();
+    const manager = new WorktreeManager([root], root);
+    const isolation = manager.create("unmerged-discard");
+    writeFileSync(join(isolation.worktreeRoot, "tracked.txt"), "unique task commit\n");
+    git(isolation.worktreeRoot, "add", "tracked.txt");
+    git(isolation.worktreeRoot, "commit", "-m", "unique task commit");
+    const ref = "refs/heads/" + isolation.branch;
+    const taskHead = git(root, "rev-parse", ref).trim();
+    const registry = join(root, ".git", "folderforge", "isolations.json");
+    const stateBefore = readFileSync(registry);
+
+    expect(() => manager.discard(isolation.id)).toThrow(/ISOLATION_UNMERGED_COMMITS/);
+    expect(git(root, "rev-parse", ref).trim()).toBe(taskHead);
+    expect(existsSync(isolation.worktreeRoot)).toBe(true);
+    expect(readFileSync(registry)).toEqual(stateBefore);
+    expect(manager.get(isolation.id)?.state).toBe("active");
+  });
+
+  it("G01: discard preserves dirty and ignored worktree bytes", () => {
+    const root = repository();
+    writeFileSync(join(root, ".gitignore"), "private-cache.secret\n");
+    git(root, "add", ".gitignore");
+    git(root, "commit", "-m", "ignore disposable test cache");
+    const manager = new WorktreeManager([root], root);
+    const isolation = manager.create("dirty-discard");
+    const tracked = join(isolation.worktreeRoot, "tracked.txt");
+    const ignored = join(isolation.worktreeRoot, "private-cache.secret");
+    writeFileSync(tracked, "user uncommitted work\n");
+    writeFileSync(ignored, "private ignored bytes\n");
+    const registry = join(root, ".git", "folderforge", "isolations.json");
+    const stateBefore = readFileSync(registry);
+
+    expect(() => manager.discard(isolation.id)).toThrow(/ISOLATION_TASK_WORKTREE_DIRTY/);
+    expect(readFileSync(tracked, "utf8")).toBe("user uncommitted work\n");
+    expect(readFileSync(ignored, "utf8")).toBe("private ignored bytes\n");
+    expect(readFileSync(registry)).toEqual(stateBefore);
+    expect(manager.get(isolation.id)?.state).toBe("active");
+  });
+
+  it("G01: discard refuses ignored-only output even when Git status is clean", () => {
+    const root = repository();
+    writeFileSync(join(root, ".gitignore"), "private-cache.secret\n");
+    git(root, "add", ".gitignore");
+    git(root, "commit", "-m", "ignore test output");
+    const manager = new WorktreeManager([root], root);
+    const isolation = manager.create("ignored-only-discard");
+    const ignored = join(isolation.worktreeRoot, "private-cache.secret");
+    writeFileSync(ignored, "still needed\n");
+    const registry = join(root, ".git", "folderforge", "isolations.json");
+    const stateBefore = readFileSync(registry);
+    expect(git(isolation.worktreeRoot, "status", "--porcelain")).toBe("");
+
+    expect(() => manager.discard(isolation.id)).toThrow(/ISOLATION_TASK_WORKTREE_DIRTY/);
+    expect(readFileSync(ignored, "utf8")).toBe("still needed\n");
+    expect(readFileSync(registry)).toEqual(stateBefore);
+    expect(existsSync(isolation.worktreeRoot)).toBe(true);
+  });
+
+  it("G01: discard removes a clean task only after its commit is merged", () => {
+    const root = repository();
+    const manager = new WorktreeManager([root], root);
+    const isolation = manager.create("merged-discard");
+    writeFileSync(join(isolation.worktreeRoot, "tracked.txt"), "merged task commit\n");
+    git(isolation.worktreeRoot, "add", "tracked.txt");
+    git(isolation.worktreeRoot, "commit", "-m", "task merged");
+    const mergedHead = git(isolation.worktreeRoot, "rev-parse", "HEAD").trim();
+    git(root, "merge", "--ff-only", isolation.branch);
+    expect(git(root, "rev-parse", "HEAD").trim()).toBe(mergedHead);
+
+    const discarded = manager.discard(isolation.id);
+    expect(discarded.state).toBe("discarded");
+    expect(existsSync(isolation.worktreeRoot)).toBe(false);
+    expect(() => git(root, "show-ref", "--verify", "refs/heads/" + isolation.branch)).toThrow();
+    expect(readFileSync(join(root, "tracked.txt"), "utf8")).toBe("merged task commit\n");
+  });
+
+  it("G01: a post-preflight source HEAD rewind must preserve the task ref", () => {
+    const root = repository();
+    let movedSourceHead = false;
+    const manager = new WorktreeManager([root], root, {
+      beforeBranchDelete: (record) => {
+        movedSourceHead = true;
+        // Disposable fixture only: simulate a writer rewinding the source ref.
+        git(root, "update-ref", "refs/heads/main", record.baseCommit);
+      },
+    });
+    const isolation = manager.create("source-head-race");
+    writeFileSync(join(isolation.worktreeRoot, "tracked.txt"), "task-only history\n");
+    git(isolation.worktreeRoot, "add", "tracked.txt");
+    git(isolation.worktreeRoot, "commit", "-m", "history should remain referenced");
+    const head = git(isolation.worktreeRoot, "rev-parse", "HEAD").trim();
+    git(root, "merge", "--ff-only", isolation.branch);
+    const registry = join(root, ".git", "folderforge", "isolations.json");
+    const stateBefore = readFileSync(registry);
+
+    expect(() => manager.discard(isolation.id)).toThrow(/ISOLATION_SOURCE_HEAD_CHANGED/);
+    expect(movedSourceHead).toBe(true);
+    expect(git(root, "rev-parse", "refs/heads/" + isolation.branch).trim()).toBe(head);
+    expect(readFileSync(registry)).toEqual(stateBefore);
+    expect(manager.get(isolation.id)?.state).toBe("active");
+  });
+
   it("discard retains missing worktree branch and metadata", () => {
     const root = repository();
     const manager = new WorktreeManager([root], root);
@@ -179,19 +282,20 @@ describe("WorktreeManager", () => {
     const manager = new WorktreeManager([root], root, {
       beforeBranchDelete: (isolation) => {
         replaced = true;
-        git(root, "update-ref", `refs/heads/${isolation.branch}`, git(root, "rev-parse", "HEAD").trim());
+        git(root, "update-ref", `refs/heads/${isolation.branch}`, isolation.baseCommit);
       },
     });
     const isolation = manager.create("race-branch-ref");
     writeFileSync(join(isolation.worktreeRoot, "tracked.txt"), "committed independent task\n");
     git(isolation.worktreeRoot, "add", "tracked.txt");
     git(isolation.worktreeRoot, "commit", "-m", "task checkpoint");
+    git(root, "merge", "--ff-only", isolation.branch);
     const statePath = join(root, ".git", "folderforge", "isolations.json");
     const stateBefore = readFileSync(statePath);
     expect(() => manager.discard(isolation.id)).toThrow(/ISOLATION_IDENTITY_MISMATCH/);
     expect(replaced).toBe(true);
     expect(readFileSync(statePath)).toEqual(stateBefore);
-    expect(git(root, "rev-parse", `refs/heads/${isolation.branch}`).trim()).toBe(git(root, "rev-parse", "HEAD").trim());
+    expect(git(root, "rev-parse", `refs/heads/${isolation.branch}`).trim()).toBe(isolation.baseCommit);
   });
 
   it("apply catches worktree removal immediately before an untracked source copy", () => {
@@ -562,6 +666,10 @@ describe("WorktreeManager", () => {
     expect(readFileSync(join(root, "tracked.txt"), "utf8")).toBe("original\n");
     expect(existsSync(join(root, "new.txt"))).toBe(false);
 
+    // Rollback restores source, not the task's uncommitted files.
+    // Explicitly clean the disposable task fixture before discarding it.
+    git(isolation.worktreeRoot, "checkout", "--", "tracked.txt");
+    rmSync(join(isolation.worktreeRoot, "new.txt"));
     const discarded = manager.discard(isolation.id);
     expect(discarded.state).toBe("discarded");
     expect(existsSync(isolation.worktreeRoot)).toBe(false);
