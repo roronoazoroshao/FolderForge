@@ -3,9 +3,9 @@ name: mission-control-pages
 on:
   push:
     branches: [main]
+    # Workflow maintenance alone must never deploy to Cloudflare Pages.
     paths:
       - 'src/dashboard/static/**'
-      - '.github/workflows/mission-control-pages.yml'
   workflow_dispatch:
 
 permissions:
