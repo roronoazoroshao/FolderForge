@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   existsSync,
@@ -13,6 +13,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { tmpdir } from "node:os";
 import { WorktreeManager } from "../../src/isolation/worktree-manager.js";
 import { inspectWorktreeHealth } from "../../src/isolation/worktree-health.js";
@@ -43,6 +44,74 @@ afterEach(() => {
 });
 
 describe("WorktreeManager", () => {
+  it("G01: a stale process must not erase another process's durable isolation entry", () => {
+    const root = repository();
+    // The first writer remains alive with a snapshot taken before the second writer commits.
+    const stale = new WorktreeManager([root], root);
+    const sourceModule = pathToFileURL(
+      join(process.cwd(), "src/isolation/worktree-manager.ts"),
+    ).href;
+    const childScript = [
+      'import { WorktreeManager } from "' + sourceModule + '";',
+      "const root = process.argv[1];",
+      "const manager = new WorktreeManager([root], root);",
+      'const created = manager.create("cross-process-writer-b");',
+      "console.log(JSON.stringify({ id: created.id, branch: created.branch }));",
+    ].join("\n");
+    const child = spawnSync(
+      process.execPath,
+      ["--import", "tsx", "--input-type=module", "-e", childScript, root],
+      { cwd: process.cwd(), encoding: "utf8", timeout: 15000 },
+    );
+    expect(child.status, child.stderr).toBe(0);
+    const other = JSON.parse(child.stdout.trim()) as { id: string; branch: string };
+    const registryPath = join(root, ".git", "folderforge", "isolations.json");
+    const before = readFileSync(registryPath);
+    const branchesBefore = git(root, "branch", "--list");
+
+    // The stale writer must refuse BEFORE creating a task branch/worktree.
+    expect(() => stale.create("cross-process-writer-a")).toThrow(
+      /ISOLATION_REGISTRY_CHANGED/,
+    );
+    expect(readFileSync(registryPath)).toEqual(before);
+    expect(git(root, "branch", "--list")).toBe(branchesBefore);
+    const refreshed = new WorktreeManager([root], root);
+    expect(refreshed.get(other.id)?.branch).toBe(other.branch);
+  });
+
+  it("G01: stale apply refuses before source mutation and a fresh manager can recover", () => {
+    const root = repository();
+    const initial = new WorktreeManager([root], root);
+    const isolation = initial.create("cross-process-apply");
+    writeFileSync(join(isolation.worktreeRoot, "tracked.txt"), "task change\n");
+    const stale = new WorktreeManager([root], root);
+    const sourceModule = pathToFileURL(
+      join(process.cwd(), "src/isolation/worktree-manager.ts"),
+    ).href;
+    const script = [
+      'import { WorktreeManager } from "' + sourceModule + '";',
+      "const root = process.argv[1];",
+      "const manager = new WorktreeManager([root], root);",
+      'manager.create("cross-process-unrelated");',
+    ].join("\n");
+    const child = spawnSync(
+      process.execPath,
+      ["--import", "tsx", "--input-type=module", "-e", script, root],
+      { cwd: process.cwd(), encoding: "utf8", timeout: 15000 },
+    );
+    expect(child.status, child.stderr).toBe(0);
+    const statePath = join(root, ".git", "folderforge", "isolations.json");
+    const before = readFileSync(statePath);
+    expect(() => stale.apply(isolation.id)).toThrow(/ISOLATION_REGISTRY_CHANGED/);
+    expect(readFileSync(join(root, "tracked.txt"), "utf8")).toBe("original\n");
+    expect(readFileSync(statePath)).toEqual(before);
+
+    const recovered = new WorktreeManager([root], root);
+    recovered.apply(isolation.id);
+    expect(readFileSync(join(root, "tracked.txt"), "utf8")).toBe("task change\n");
+    expect(new WorktreeManager([root], root).list()).toHaveLength(2);
+  });
+
   it("G01: discard preserves a clean task branch with unique unmerged commits", () => {
     const root = repository();
     const manager = new WorktreeManager([root], root);

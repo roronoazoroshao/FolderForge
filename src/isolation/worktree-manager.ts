@@ -242,6 +242,8 @@ function assertRelativePath(value: string): string {
 export class WorktreeManager {
   private readonly isolations = new Map<string, WorktreeIsolation>();
   private readonly statePath: string;
+  /** Optimistic snapshot; not a kernel writer fence. */
+  private registryFileDigest: string | undefined;
   private readonly worktreesRoot: string;
   private readonly rollbacksRoot: string;
   private readonly projectRoot: string;
@@ -331,6 +333,7 @@ export class WorktreeManager {
 
   create(taskId: string, baseRef = "HEAD"): WorktreeIsolation {
     this.requireAvailable();
+    this.assertRegistryCurrent();
     if (!TASK_ID.test(taskId)) {
       throw new Error("taskId must match [A-Za-z0-9][A-Za-z0-9._-]{0,63}.");
     }
@@ -486,6 +489,7 @@ export class WorktreeManager {
   }
 
   apply(id: string): WorktreeStatus {
+    this.assertRegistryCurrent();
     const isolation = this.requireState(id, "active");
     if (isolation.sourceDirty) {
       throw new Error(
@@ -649,6 +653,7 @@ export class WorktreeManager {
   }
 
   rollback(id: string): WorktreeStatus {
+    this.assertRegistryCurrent();
     const isolation = this.requireExisting(id);
     if (isolation.state !== "applied" && isolation.state !== "applying") {
       throw new Error(
@@ -825,6 +830,7 @@ export class WorktreeManager {
   }
 
   discard(id: string): WorktreeIsolation {
+    this.assertRegistryCurrent();
     const isolation = this.isolations.get(id);
     if (!isolation) throw new Error(`Isolation not found: ${id}`);
     if (isolation.state === "discarded") return cloneIsolation(isolation);
@@ -1188,11 +1194,32 @@ export class WorktreeManager {
     return isolation;
   }
 
+  private currentRegistryDigest(): string | undefined {
+    try {
+      return sha256(readFileSync(this.statePath));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      throw error;
+    }
+  }
+
+  private assertRegistryCurrent(): void {
+    if (this.currentRegistryDigest() !== this.registryFileDigest) {
+      throw new Error(
+        "ISOLATION_REGISTRY_CHANGED: another writer updated the isolation registry; reload before mutating.",
+      );
+    }
+  }
+
   private load(): void {
-    if (!existsSync(this.statePath)) return;
-    const parsed = JSON.parse(
-      readFileSync(this.statePath, "utf8"),
-    ) as PersistedState;
+    let bytes: Buffer;
+    try {
+      bytes = readFileSync(this.statePath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw error;
+    }
+    const parsed = JSON.parse(bytes.toString("utf8")) as PersistedState;
     if (
       parsed.version !== 1 ||
       !Array.isArray(parsed.isolations) ||
@@ -1211,9 +1238,11 @@ export class WorktreeManager {
       seen.add(isolation.id);
       this.isolations.set(isolation.id, isolation);
     }
+    this.registryFileDigest = sha256(bytes);
   }
 
   private persist(): void {
+    this.assertRegistryCurrent();
     mkdirSync(dirname(this.statePath), { recursive: true, mode: 0o700 });
     const temp = `${this.statePath}.${process.pid}.${randomUUID()}.tmp`;
     const isolations = this.list();
@@ -1222,7 +1251,16 @@ export class WorktreeManager {
       isolations,
       digest: isolationDigest(isolations),
     };
-    writeFileSync(temp, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
-    renameSync(temp, this.statePath);
+    const nextBytes = `${JSON.stringify(state, null, 2)}\n`;
+    writeFileSync(temp, nextBytes, { mode: 0o600 });
+    try {
+      // This narrows stale-process overwrites but is not atomic CAS.
+      this.assertRegistryCurrent();
+      renameSync(temp, this.statePath);
+      this.registryFileDigest = sha256(nextBytes);
+    } catch (error) {
+      rmSync(temp, { force: true });
+      throw error;
+    }
   }
 }
