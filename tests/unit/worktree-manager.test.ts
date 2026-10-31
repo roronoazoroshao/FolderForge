@@ -44,6 +44,50 @@ afterEach(() => {
 });
 
 describe("WorktreeManager", () => {
+  it("G01: reports branch-only crash orphans without claiming branch ownership", () => {
+    const root = repository();
+    const orphanBranch = "folderforge/task/pre-add-crash-aabbccdd";
+    const checkedOutBranch = "folderforge/task/checked-out-11223344";
+    git(root, "branch", orphanBranch, "HEAD");
+    git(root, "branch", "unrelated-foreign", "HEAD");
+    const checkedOutRoot = join(root, ".git", "folderforge", "worktrees", "iso_0123456789abcdef0123");
+    git(root, "worktree", "add", "-b", checkedOutBranch, checkedOutRoot, "HEAD");
+    const refsBefore = git(root, "show-ref");
+    const observed = new WorktreeManager([root], root).discoverUnregisteredBranches();
+    expect(observed).toEqual([{
+      branch: orphanBranch,
+      headCommit: git(root, "rev-parse", "HEAD").trim(),
+      classification: "branch_only_not_owned",
+    }]);
+    expect(git(root, "show-ref")).toBe(refsBefore);
+    expect(git(root, "branch", "--list", orphanBranch)).toContain(orphanBranch);
+  });
+
+  it("G01: rejects a corrupt zero-HEAD Git inventory instead of trusting an ambiguous identity", () => {
+    const root = repository();
+    const orphanRoot = join(root, ".git", "folderforge", "worktrees", "iso_abcdef0123456789abcd");
+    git(root, "worktree", "add", "-b", "folderforge/task/broken-6789abcd", orphanRoot, "HEAD");
+    writeFileSync(join(orphanRoot, "precious.txt"), "preserve corrupt-inventory bytes\\n");
+    const gitdirLine = readFileSync(join(orphanRoot, ".git"), "utf8").trim();
+    expect(gitdirLine.startsWith("gitdir: ")).toBe(true);
+    const adminDir = gitdirLine.slice("gitdir: ".length);
+    renameSync(join(adminDir, "HEAD"), join(adminDir, "HEAD.broken"));
+    expect(git(root, "worktree", "list", "--porcelain")).toMatch(/HEAD 0{40}/);
+    const manager = new WorktreeManager([root], root);
+    expect(() => manager.discoverUnregisteredWorktrees()).toThrow(/ISOLATION_INVENTORY_INCOMPLETE/);
+    expect(readFileSync(join(orphanRoot, "precious.txt"), "utf8")).toBe("preserve corrupt-inventory bytes\\n");
+  });
+
+  it("G01: stale discovery refuses to return a registry-inconsistent snapshot", () => {
+    const root = repository();
+    const stale = new WorktreeManager([root], root);
+    const updated = new WorktreeManager([root], root);
+    updated.create("concurrent-record");
+    expect(() => stale.discoverUnregisteredWorktrees()).toThrow(/ISOLATION_REGISTRY_CHANGED/);
+    const refreshed = new WorktreeManager([root], root);
+    expect(refreshed.list()).toHaveLength(1);
+  });
+
   it("G01: discovers crash-window worktrees without claiming ownership or mutating Git/registry", () => {
     const root = repository();
     const manager = new WorktreeManager([root], root);

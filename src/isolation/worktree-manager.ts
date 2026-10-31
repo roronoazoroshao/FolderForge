@@ -63,6 +63,13 @@ export interface UnregisteredWorktreeObservation {
   classification: "candidate_not_owned" | "ambiguous_not_owned";
 }
 
+/** A Git branch ref without a checked-out worktree; no isolation ID or ownership is inferred. */
+export interface UnregisteredBranchObservation {
+  branch: string;
+  headCommit: string;
+  classification: "branch_only_not_owned";
+}
+
 export interface WorkingTreeStatus {
   headCommit: string;
   clean: boolean;
@@ -405,20 +412,20 @@ export class WorktreeManager {
    * These are NEVER eligible for automatic registration, reset, or deletion:
    * old writers and foreign actors can create paths with matching names.
    */
-  discoverUnregisteredWorktrees(): UnregisteredWorktreeObservation[] {
-    this.requireAvailable();
-    this.assertRegistryCurrent();
+  /** Fail-closed parsing of a read-only Git inventory; no ownership inference. */
+  private gitWorktreeEntries(): Array<{
+    worktreeRoot: string;
+    headCommit: string;
+    branch: string | null;
+  }> {
     const raw = git(this.projectRoot, [
       "--no-optional-locks", "worktree", "list", "--porcelain",
     ]);
     if (!/\r?\n\r?\n$/.test(raw)) {
       throw new Error("ISOLATION_INVENTORY_INCOMPLETE: incomplete Git worktree inventory.");
     }
-    const registered = new Set(
-      [...this.isolations.values()].map((item) => canonicalRoot(item.worktreeRoot)),
-    );
-    const observed: UnregisteredWorktreeObservation[] = [];
-    for (const block of raw.split(/\r?\n\r?\n/).filter(Boolean)) {
+    const seen = new Set<string>();
+    return raw.split(/\r?\n\r?\n/).filter(Boolean).map((block) => {
       const lines = block.split(/\r?\n/);
       const paths = lines.filter((line) => line.startsWith("worktree "));
       const heads = lines.filter((line) => /^HEAD [a-f0-9]{40,64}$/i.test(line));
@@ -431,21 +438,41 @@ export class WorktreeManager {
         throw new Error("ISOLATION_INVENTORY_INCOMPLETE: malformed Git worktree entry.");
       }
       const physicalPath = pathLine.slice("worktree ".length);
-      if (!isAbsolute(physicalPath)) {
-        throw new Error("ISOLATION_INVENTORY_INCOMPLETE: non-absolute Git worktree path.");
+      const headCommit = headLine.slice("HEAD ".length);
+      if (!isAbsolute(physicalPath) || /^0+$/.test(headCommit)) {
+        throw new Error("ISOLATION_INVENTORY_INCOMPLETE: invalid Git worktree path or HEAD.");
       }
       const worktreeRoot = canonicalRoot(physicalPath);
+      if (seen.has(worktreeRoot)) {
+        throw new Error("ISOLATION_INVENTORY_INCOMPLETE: duplicate Git worktree path.");
+      }
+      seen.add(worktreeRoot);
+      return {
+        worktreeRoot,
+        headCommit,
+        branch: branchLine === "detached" ? null : branchLine.slice("branch refs/heads/".length),
+      };
+    });
+  }
+
+  discoverUnregisteredWorktrees(): UnregisteredWorktreeObservation[] {
+    this.requireAvailable();
+    this.assertRegistryCurrent();
+    const inventory = this.gitWorktreeEntries();
+    const registered = new Set(
+      [...this.isolations.values()].map((item) => canonicalRoot(item.worktreeRoot)),
+    );
+    const observed: UnregisteredWorktreeObservation[] = [];
+    for (const entry of inventory) {
+      const { worktreeRoot, branch, headCommit } = entry;
       if (!isPathWithin(this.worktreesRoot, worktreeRoot) ||
           samePath(this.worktreesRoot, worktreeRoot) ||
           registered.has(worktreeRoot)) {
         continue;
       }
       const id = relative(this.worktreesRoot, worktreeRoot);
-      // Do not inspect arbitrary nested paths, or silently treat a foreign
-      // path with a matching parent prefix as a managed isolation.
+      // Git path/branch naming is only diagnostic evidence, never ownership.
       if (!/^iso_[a-f0-9]{20}$/.test(id)) continue;
-      const branch = branchLine === "detached"
-        ? null : branchLine.slice("branch refs/heads/".length);
       const expectedSuffix = id.slice(-8);
       const taskPart = branch?.startsWith("folderforge/task/")
         ? branch.slice("folderforge/task/".length, -expectedSuffix.length - 1)
@@ -463,16 +490,58 @@ export class WorktreeManager {
         id,
         worktreeRoot,
         branch,
-        headCommit: headLine.slice("HEAD ".length),
+        headCommit,
         classification: directoryValid && expectedBranch === branch
           ? "candidate_not_owned" : "ambiguous_not_owned",
       });
     }
-    // Fail closed if another cooperative writer updated the registry during
-    // the inventory; this is a diagnostic, NOT an atomic ownership snapshot.
     this.assertRegistryCurrent();
     return observed.sort((a, b) => a.id.localeCompare(b.id));
   }
+
+  /**
+   * Advisory scan of un-checked-out task refs (e.g. crash before git worktree
+   * add). Branch names never establish an isolation ID or ownership.
+   */
+  discoverUnregisteredBranches(): UnregisteredBranchObservation[] {
+    this.requireAvailable();
+    this.assertRegistryCurrent();
+    const checkoutBranches = new Set(
+      this.gitWorktreeEntries().map((entry) => entry.branch).filter((branch) => branch !== null),
+    );
+    const registeredBranches = new Set(
+      [...this.isolations.values()].map((entry) => entry.branch),
+    );
+    const refs = git(this.projectRoot, [
+      "--no-optional-locks", "for-each-ref",
+      "--format=%(refname)%00%(objectname)",
+      "refs/heads/folderforge/task/",
+    ]);
+    const seen = new Set<string>();
+    const observed: UnregisteredBranchObservation[] = [];
+    for (const line of refs.split(/\r?\n/).filter(Boolean)) {
+      const match = /^(refs\/heads\/folderforge\/task\/[^\0]+)\0([a-f0-9]{40,64})$/i.exec(line);
+      const refName = match?.[1];
+      const headCommit = match?.[2];
+      if (!refName || !headCommit || /^0+$/.test(headCommit)) {
+        throw new Error("ISOLATION_INVENTORY_INCOMPLETE: invalid Git task ref.");
+      }
+      const branch = refName.slice("refs/heads/".length);
+      if (seen.has(branch)) {
+        throw new Error("ISOLATION_INVENTORY_INCOMPLETE: duplicate Git task ref.");
+      }
+      seen.add(branch);
+      if (checkoutBranches.has(branch) || registeredBranches.has(branch)) continue;
+      observed.push({
+        branch,
+        headCommit,
+        classification: "branch_only_not_owned",
+      });
+    }
+    this.assertRegistryCurrent();
+    return observed.sort((a, b) => a.branch.localeCompare(b.branch));
+  }
+
 
   inspect(id: string): IsolationHealthObservation {
     const isolation = this.requireExisting(id);
