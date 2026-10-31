@@ -59,9 +59,15 @@ describe('third-party child MCP compatibility manifest', () => {
     expect(report.npmOverrides).toEqual([
       expect.objectContaining({
         package: 'glob',
-        version: '13.0.6',
-        integrity: expect.stringMatching(/^sha512-/),
-        reason: expect.stringMatching(/GHSA-mh99-v99m-4gvg/),
+        version: '14.0.3',
+        integrity: 'sha512-A1vjIwC3qpdCso45Iw127gnp7sPhqgY8lUQhDrArIs+GbmfaaVPFuoyy7WyLT9EPZCRZ7j7aLdwUhQmHWesEow==',
+        reason: expect.stringMatching(/GHSA-3g3m-2fjr-6pw4/),
+      }),
+      expect.objectContaining({
+        package: 'minimatch',
+        version: '11.0.3',
+        integrity: 'sha512-iny/40PEGkNJQ5/Pv6z3nm6FbRAby32GeZRjCUJk2WnNDbgPSTcdI+DDvLqsgBdD4cD5sMtMheqPPnehCCa8Nw==',
+        reason: expect.stringMatching(/GHSA-g3hv-75wg-m249/),
       }),
     ]);
   });
