@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   includesExpectedText,
+  pinnedInstallSpecs,
   resolveNpmLaunch,
 } from '../../scripts/child-mcp-third-party.mjs';
 
@@ -69,6 +70,18 @@ describe('third-party child MCP compatibility manifest', () => {
         integrity: 'sha512-iny/40PEGkNJQ5/Pv6z3nm6FbRAby32GeZRjCUJk2WnNDbgPSTcdI+DDvLqsgBdD4cD5sMtMheqPPnehCCa8Nw==',
         reason: expect.stringMatching(/GHSA-g3hv-75wg-m249/),
       }),
+    ]);
+  });
+
+  it('installs verified transitive overrides as exact direct package specs across npm platforms', () => {
+    const manifest = JSON.parse(readFileSync(MANIFEST, 'utf8')) as {
+      profiles: Array<{ package: string; version: string }>;
+      npmOverrides: Array<{ package: string; version: string }>;
+    };
+    expect(pinnedInstallSpecs(manifest)).toEqual([
+      ...manifest.profiles.map((profile) => `${profile.package}@${profile.version}`),
+      'glob@14.0.3',
+      'minimatch@11.0.3',
     ]);
   });
 

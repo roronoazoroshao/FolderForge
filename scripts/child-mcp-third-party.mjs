@@ -374,6 +374,13 @@ function npmOverrideMap(manifest) {
   );
 }
 
+function pinnedInstallSpecs(manifest) {
+  return [
+    ...manifest.profiles.map((profile) => `${profile.package}@${profile.version}`),
+    ...(manifest.npmOverrides ?? []).map((override) => `${override.package}@${override.version}`),
+  ];
+}
+
 function assertInside(parent, child, label) {
   const parentReal = realpathSync(parent);
   const childReal = realpathSync(child);
@@ -475,24 +482,10 @@ function inspectInstalledPackages(manifest, installRoot) {
       : packageRoot(installRoot, override.package);
     const packageJsonPath = join(root, 'package.json');
     const lockEntry = lockPackage?.entry;
-    if (!existsSync(packageJsonPath)) {
-      if (!lockEntry) {
-        overrides.push({ ...override, installed: false });
-        continue;
-      }
-      if (lockEntry.version !== override.version || lockEntry.integrity !== override.integrity) {
-        throw new Error(`${override.package} lock-only override does not match the pinned manifest.`);
-      }
-      overrides.push({ ...override, installed: false, resolvedInLock: true });
-      continue;
-    }
-    if (!lockEntry) {
-      const unrelatedPackage = readJson(packageJsonPath);
-      if (unrelatedPackage.version !== override.version) {
-        overrides.push({ ...override, installed: false });
-        continue;
-      }
-      throw new Error(`Override installation is incomplete for ${override.package}.`);
+    if (!lockEntry || !existsSync(packageJsonPath)) {
+      throw new Error(
+        `Pinned npm override ${override.package}@${override.version} is missing from the installed package tree or verified lockfile.`,
+      );
     }
     assertInside(installRoot, root, `${override.package} override`);
     const packageJson = readJson(packageJsonPath);
@@ -539,7 +532,7 @@ function installPackages(manifest, installRoot, skipInstall) {
       )}\n`,
       { encoding: 'utf8', mode: 0o600 },
     );
-    const specs = manifest.profiles.map((profile) => `${profile.package}@${profile.version}`);
+    const specs = pinnedInstallSpecs(manifest);
     const startedAt = performance.now();
     const installed = runNpm(
       [
@@ -888,4 +881,4 @@ if (invokedAsCli()) {
   });
 }
 
-export { includesExpectedText, resolveNpmLaunch };
+export { includesExpectedText, pinnedInstallSpecs, resolveNpmLaunch };
