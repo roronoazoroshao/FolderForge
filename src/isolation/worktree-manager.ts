@@ -1365,15 +1365,16 @@ export class WorktreeManager {
     }
     // A symlink alias can be inside the Git directory yet not be the owned
     // registry inode. Refuse it even when its JSON digest is valid.
-    if (!entry.isFile() || entry.isSymbolicLink()) {
-      throw new Error("ISOLATION_REGISTRY_UNSAFE: expected a regular registry file.");
+    if (!entry.isFile() || entry.isSymbolicLink() || entry.nlink !== 1) {
+      throw new Error("ISOLATION_REGISTRY_UNSAFE: expected a single-link regular registry file.");
     }
     // O_NOFOLLOW also rejects a final-component symlink swapped after lstat
     // on platforms which support it. This is not a parent-path/UID fence.
     const fd = openSync(this.statePath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
     try {
-      if (!fstatSync(fd).isFile()) {
-        throw new Error("ISOLATION_REGISTRY_UNSAFE: registry inode is not a file.");
+      const opened = fstatSync(fd);
+      if (!opened.isFile() || opened.nlink !== 1) {
+        throw new Error("ISOLATION_REGISTRY_UNSAFE: registry inode is not a single-link file.");
       }
       return readFileSync(fd);
     } finally {

@@ -3,6 +3,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   existsSync,
+  linkSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -65,6 +66,25 @@ describe("WorktreeManager", () => {
     expect(readFileSync(alias)).toEqual(original);
     expect(git(root, "show-ref")).toBe(refsBefore);
     expect(readFileSync(join(root, "tracked.txt"), "utf8")).toBe("original\n");
+  });
+
+  it("G01: refuses hardlink-backed registries with a second writable alias", () => {
+    const root = repository();
+    const manager = new WorktreeManager([root], root);
+    manager.create("registry-hardlink");
+    const statePath = join(root, ".git", "folderforge", "isolations.json");
+    const alias = join(root, ".git", "folderforge", "registry-hardlink-alias.json");
+    const before = readFileSync(statePath);
+    linkSync(statePath, alias);
+    const refsBefore = git(root, "show-ref");
+
+    // Both paths expose the same inode: regular-file and no-follow checks pass.
+    // A second alias must not silently become an alternate registry writer.
+    expect(() => new WorktreeManager([root], root)).toThrow(/ISOLATION_REGISTRY_UNSAFE/);
+    expect(() => manager.create("later-hardlink-task")).toThrow(/ISOLATION_REGISTRY_UNSAFE/);
+    expect(readFileSync(statePath)).toEqual(before);
+    expect(readFileSync(alias)).toEqual(before);
+    expect(git(root, "show-ref")).toBe(refsBefore);
   });
 
   it("G01: rejects a redirected managed Git directory before creating a branch", () => {
