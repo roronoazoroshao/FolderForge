@@ -372,6 +372,8 @@ export class WorktreeManager {
     const suffix = id.slice(-8);
     const branch = `folderforge/task/${taskId}-${suffix}`;
     const worktreeRoot = resolve(this.worktreesRoot, id);
+    // Reject a redirected managed directory before mkdir or Git side effects.
+    this.assertInside(this.worktreesRoot, dirname(dirname(this.worktreesRoot)));
     mkdirSync(dirname(worktreeRoot), { recursive: true, mode: 0o700 });
     this.assertInside(worktreeRoot, this.worktreesRoot);
     git(this.projectRoot, [
@@ -1387,10 +1389,16 @@ export class WorktreeManager {
       throw new Error("Isolation state integrity check failed.");
     }
     const seen = new Set<string>();
+    const activeTasks = new Set<string>();
     for (const value of parsed.isolations) {
       const isolation = this.validatePersistedIsolation(value);
       if (seen.has(isolation.id))
         throw new Error(`Duplicate isolation id: ${isolation.id}`);
+      if (isolation.state !== "discarded") {
+        if (activeTasks.has(isolation.taskId))
+          throw new Error(`Duplicate isolation taskId: ${isolation.taskId}`);
+        activeTasks.add(isolation.taskId);
+      }
       seen.add(isolation.id);
       this.isolations.set(isolation.id, isolation);
     }

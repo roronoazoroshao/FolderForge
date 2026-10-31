@@ -6,6 +6,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   realpathSync,
   renameSync,
@@ -44,6 +45,48 @@ afterEach(() => {
 });
 
 describe("WorktreeManager", () => {
+  it("G01: rejects a redirected managed Git directory before creating a branch", () => {
+    const root = repository();
+    const outside = mkdtempSync(join(tmpdir(), "folderforge-redirection-"));
+    roots.push(outside);
+    writeFileSync(join(outside, "precious.txt"), "foreign bytes\n");
+    const manager = new WorktreeManager([root], root);
+    symlinkSync(outside, join(root, ".git", "folderforge"),
+      process.platform === "win32" ? "junction" : "dir");
+    const refsBefore = git(root, "show-ref");
+
+    expect(() => manager.create("redirected-directory")).toThrow(/Isolation path (escapes|resolves outside) managed root/);
+    expect(git(root, "show-ref")).toBe(refsBefore);
+    expect(readdirSync(outside)).toEqual(["precious.txt"]);
+    expect(readFileSync(join(outside, "precious.txt"), "utf8")).toBe("foreign bytes\n");
+  });
+
+  it("G01: rejects duplicate task ownership even when registry digest and Git refs are valid", () => {
+    const root = repository();
+    const manager = new WorktreeManager([root], root);
+    const first = manager.create("task-owner");
+    const second = manager.create("other-owner");
+    const statePath = join(root, ".git", "folderforge", "isolations.json");
+    const state = JSON.parse(readFileSync(statePath, "utf8")) as {
+      isolations: Array<{ id: string; taskId: string; branch: string }>;
+      digest: string;
+    };
+    const duplicate = state.isolations.find((item) => item.id === second.id)!;
+    duplicate.taskId = first.taskId;
+    duplicate.branch = `folderforge/task/${first.taskId}-${second.id.slice(-8)}`;
+    git(second.worktreeRoot, "branch", "-m", duplicate.branch);
+    state.digest = `sha256:${createHash("sha256")
+      .update(JSON.stringify(state.isolations)).digest("hex")}`;
+    writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`);
+    const before = readFileSync(statePath);
+    const refsBefore = git(root, "show-ref");
+
+    expect(() => new WorktreeManager([root], root)).toThrow(/Duplicate isolation taskId/);
+    expect(readFileSync(statePath)).toEqual(before);
+    expect(git(root, "show-ref")).toBe(refsBefore);
+    expect(readFileSync(join(root, "tracked.txt"), "utf8")).toBe("original\n");
+  });
+
   it("G01: refuses duplicate checked-out branch identities in Git inventory", () => {
     const root = repository();
     const branch = "folderforge/task/ambiguous-1234abcd";
