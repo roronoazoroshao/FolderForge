@@ -5,6 +5,7 @@ import {
   copyFileSync,
   existsSync,
   fstatSync,
+  fsyncSync,
   lstatSync,
   mkdirSync,
   openSync,
@@ -200,6 +201,52 @@ function sha256(value: string | Buffer): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
+/**
+ * Persist one file before publishing its name. The directory fsync is
+ * available on POSIX; Windows cannot claim directory-entry durability here.
+ * This does NOT provide a writer fence, transaction authority or atomic CAS.
+ */
+function writeAtomicDurably(
+  path: string,
+  bytes: string,
+  beforeRename?: () => void,
+  afterRename?: () => void,
+): void {
+  const temp = `${path}.${process.pid}.${randomUUID()}.tmp`;
+  let renamed = false;
+  try {
+    const fd = openSync(temp, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
+    try {
+      writeFileSync(fd, bytes);
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
+    beforeRename?.();
+    renameSync(temp, path);
+    renamed = true;
+    afterRename?.();
+    if (process.platform !== "win32") {
+      const dirFd = openSync(dirname(path), constants.O_RDONLY);
+      try {
+        fsyncSync(dirFd);
+      } finally {
+        closeSync(dirFd);
+      }
+    }
+  } catch (error) {
+    if (!renamed) {
+      rmSync(temp, { force: true });
+    } else {
+      throw new Error(
+        "ISOLATION_DURABILITY_UNCERTAIN: rename completed but directory sync did not; refuse to certify durable state.",
+        { cause: error },
+      );
+    }
+    throw error;
+  }
+}
+
 function samePaths(left: string[], right: string[]): boolean {
   return [...left].sort().join("\0") === [...right].sort().join("\0");
 }
@@ -263,6 +310,8 @@ export class WorktreeManager {
   private readonly statePath: string;
   /** Optimistic snapshot; not a kernel writer fence. */
   private registryFileDigest: string | undefined;
+  /** If a rename succeeded without a confirmed directory fsync, stop reusing this writer. */
+  private durabilityUncertain = false;
   private readonly worktreesRoot: string;
   private readonly rollbacksRoot: string;
   private readonly projectRoot: string;
@@ -715,9 +764,15 @@ export class WorktreeManager {
 
     const patchPath = this.rollbackPatchPath(isolation.id);
     mkdirSync(dirname(patchPath), { recursive: true, mode: 0o700 });
-    const patchTemp = `${patchPath}.${process.pid}.${randomUUID()}.tmp`;
-    writeFileSync(patchTemp, patch, { mode: 0o600 });
-    renameSync(patchTemp, patchPath);
+    // The recovery patch must be synced before the applying intent is published.
+    try {
+      writeAtomicDurably(patchPath, patch);
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("ISOLATION_DURABILITY_UNCERTAIN")) {
+        this.durabilityUncertain = true;
+      }
+      throw error;
+    }
     isolation.state = "applying";
     isolation.appliedTracked = [...status.changed];
     isolation.appliedUntracked = untracked.map((entry) => ({
@@ -1388,6 +1443,9 @@ export class WorktreeManager {
   }
 
   private assertRegistryCurrent(): void {
+    if (this.durabilityUncertain) {
+      throw new Error("ISOLATION_DURABILITY_UNCERTAIN: directory sync failed; restart and inspect recovery state.");
+    }
     if (this.currentRegistryDigest() !== this.registryFileDigest) {
       throw new Error(
         "ISOLATION_REGISTRY_CHANGED: another writer updated the isolation registry; reload before mutating.",
@@ -1429,7 +1487,6 @@ export class WorktreeManager {
   private persist(): void {
     this.assertRegistryCurrent();
     mkdirSync(dirname(this.statePath), { recursive: true, mode: 0o700 });
-    const temp = `${this.statePath}.${process.pid}.${randomUUID()}.tmp`;
     const isolations = this.list();
     const state: PersistedState = {
       version: 1,
@@ -1437,15 +1494,16 @@ export class WorktreeManager {
       digest: isolationDigest(isolations),
     };
     const nextBytes = `${JSON.stringify(state, null, 2)}\n`;
-    writeFileSync(temp, nextBytes, { mode: 0o600 });
-    try {
-      // This narrows stale-process overwrites but is not atomic CAS.
-      this.assertRegistryCurrent();
-      renameSync(temp, this.statePath);
-      this.registryFileDigest = sha256(nextBytes);
-    } catch (error) {
-      rmSync(temp, { force: true });
-      throw error;
-    }
+    // Optimistic pre-rename check only: not a cross-process CAS.
+    writeAtomicDurably(
+      this.statePath,
+      nextBytes,
+      () => this.assertRegistryCurrent(),
+      () => {
+        this.registryFileDigest = sha256(nextBytes);
+        this.durabilityUncertain = true;
+      },
+    );
+    this.durabilityUncertain = false;
   }
 }
