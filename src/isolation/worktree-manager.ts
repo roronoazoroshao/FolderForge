@@ -1,10 +1,14 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
+  closeSync,
   constants,
   copyFileSync,
   existsSync,
+  fstatSync,
+  fsyncSync,
   lstatSync,
   mkdirSync,
+  openSync,
   readFileSync,
   realpathSync,
   renameSync,
@@ -52,6 +56,22 @@ export interface WorktreeIsolation {
   rollbackPatchSha256?: string;
   rolledBackAt?: string;
   discardedAt?: string;
+}
+
+/** Advisory-only evidence. Neither Git naming nor a path grants ownership. */
+export interface UnregisteredWorktreeObservation {
+  id: string;
+  worktreeRoot: string;
+  branch: string | null;
+  headCommit: string;
+  classification: "candidate_not_owned" | "ambiguous_not_owned";
+}
+
+/** A Git branch ref without a checked-out worktree; no isolation ID or ownership is inferred. */
+export interface UnregisteredBranchObservation {
+  branch: string;
+  headCommit: string;
+  classification: "branch_only_not_owned";
 }
 
 export interface WorkingTreeStatus {
@@ -181,6 +201,52 @@ function sha256(value: string | Buffer): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
+/**
+ * Persist one file before publishing its name. The directory fsync is
+ * available on POSIX; Windows cannot claim directory-entry durability here.
+ * This does NOT provide a writer fence, transaction authority or atomic CAS.
+ */
+function writeAtomicDurably(
+  path: string,
+  bytes: string,
+  beforeRename?: () => void,
+  afterRename?: () => void,
+): void {
+  const temp = `${path}.${process.pid}.${randomUUID()}.tmp`;
+  let renamed = false;
+  try {
+    const fd = openSync(temp, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
+    try {
+      writeFileSync(fd, bytes);
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
+    beforeRename?.();
+    renameSync(temp, path);
+    renamed = true;
+    afterRename?.();
+    if (process.platform !== "win32") {
+      const dirFd = openSync(dirname(path), constants.O_RDONLY);
+      try {
+        fsyncSync(dirFd);
+      } finally {
+        closeSync(dirFd);
+      }
+    }
+  } catch (error) {
+    if (!renamed) {
+      rmSync(temp, { force: true });
+    } else {
+      throw new Error(
+        "ISOLATION_DURABILITY_UNCERTAIN: rename completed but directory sync did not; refuse to certify durable state.",
+        { cause: error },
+      );
+    }
+    throw error;
+  }
+}
+
 function samePaths(left: string[], right: string[]): boolean {
   return [...left].sort().join("\0") === [...right].sort().join("\0");
 }
@@ -242,6 +308,12 @@ function assertRelativePath(value: string): string {
 export class WorktreeManager {
   private readonly isolations = new Map<string, WorktreeIsolation>();
   private readonly statePath: string;
+  /** Optimistic snapshot; not a kernel writer fence. */
+  private registryFileDigest: string | undefined;
+  /** Preserve unknown top-level metadata belonging to other registry consumers. */
+  private registryExtraFields: Record<string, unknown> = {};
+  /** If a rename succeeded without a confirmed directory fsync, stop reusing this writer. */
+  private durabilityUncertain = false;
   private readonly worktreesRoot: string;
   private readonly rollbacksRoot: string;
   private readonly projectRoot: string;
@@ -331,6 +403,7 @@ export class WorktreeManager {
 
   create(taskId: string, baseRef = "HEAD"): WorktreeIsolation {
     this.requireAvailable();
+    this.assertRegistryCurrent();
     if (!TASK_ID.test(taskId)) {
       throw new Error("taskId must match [A-Za-z0-9][A-Za-z0-9._-]{0,63}.");
     }
@@ -353,6 +426,8 @@ export class WorktreeManager {
     const suffix = id.slice(-8);
     const branch = `folderforge/task/${taskId}-${suffix}`;
     const worktreeRoot = resolve(this.worktreesRoot, id);
+    // Reject a redirected managed directory before mkdir or Git side effects.
+    this.assertInside(this.worktreesRoot, dirname(dirname(this.worktreesRoot)));
     mkdirSync(dirname(worktreeRoot), { recursive: true, mode: 0o700 });
     this.assertInside(worktreeRoot, this.worktreesRoot);
     git(this.projectRoot, [
@@ -387,6 +462,146 @@ export class WorktreeManager {
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
       .map(cloneIsolation);
   }
+
+  /**
+   * Read-only inventory for the git-worktree-add -> registry-persist crash gap.
+   * These are NEVER eligible for automatic registration, reset, or deletion:
+   * old writers and foreign actors can create paths with matching names.
+   */
+  /** Fail-closed parsing of a read-only Git inventory; no ownership inference. */
+  private gitWorktreeEntries(): Array<{
+    worktreeRoot: string;
+    headCommit: string;
+    branch: string | null;
+  }> {
+    const raw = git(this.projectRoot, [
+      "--no-optional-locks", "worktree", "list", "--porcelain",
+    ]);
+    if (!/\r?\n\r?\n$/.test(raw)) {
+      throw new Error("ISOLATION_INVENTORY_INCOMPLETE: incomplete Git worktree inventory.");
+    }
+    const seen = new Set<string>();
+    const seenBranches = new Set<string>();
+    return raw.split(/\r?\n\r?\n/).filter(Boolean).map((block) => {
+      const lines = block.split(/\r?\n/);
+      const paths = lines.filter((line) => line.startsWith("worktree "));
+      const heads = lines.filter((line) => /^HEAD [a-f0-9]{40,64}$/i.test(line));
+      const branches = lines.filter((line) => line.startsWith("branch refs/heads/") || line === "detached");
+      const [pathLine] = paths;
+      const [headLine] = heads;
+      const [branchLine] = branches;
+      if (paths.length !== 1 || heads.length !== 1 || branches.length !== 1 ||
+          !pathLine || !headLine || !branchLine) {
+        throw new Error("ISOLATION_INVENTORY_INCOMPLETE: malformed Git worktree entry.");
+      }
+      const physicalPath = pathLine.slice("worktree ".length);
+      const headCommit = headLine.slice("HEAD ".length);
+      if (!isAbsolute(physicalPath) || /^0+$/.test(headCommit)) {
+        throw new Error("ISOLATION_INVENTORY_INCOMPLETE: invalid Git worktree path or HEAD.");
+      }
+      const worktreeRoot = canonicalRoot(physicalPath);
+      if (seen.has(worktreeRoot)) {
+        throw new Error("ISOLATION_INVENTORY_INCOMPLETE: duplicate Git worktree path.");
+      }
+      seen.add(worktreeRoot);
+      const branch = branchLine === "detached" ? null : branchLine.slice("branch refs/heads/".length);
+      if (branch !== null) {
+        if (seenBranches.has(branch)) {
+          throw new Error("ISOLATION_INVENTORY_INCOMPLETE: duplicate checked-out Git branch.");
+        }
+        seenBranches.add(branch);
+      }
+      return { worktreeRoot, headCommit, branch };
+    });
+  }
+
+  discoverUnregisteredWorktrees(): UnregisteredWorktreeObservation[] {
+    this.requireAvailable();
+    this.assertRegistryCurrent();
+    const inventory = this.gitWorktreeEntries();
+    const registered = new Set(
+      [...this.isolations.values()].map((item) => canonicalRoot(item.worktreeRoot)),
+    );
+    const observed: UnregisteredWorktreeObservation[] = [];
+    for (const entry of inventory) {
+      const { worktreeRoot, branch, headCommit } = entry;
+      if (!isPathWithin(this.worktreesRoot, worktreeRoot) ||
+          samePath(this.worktreesRoot, worktreeRoot) ||
+          registered.has(worktreeRoot)) {
+        continue;
+      }
+      const id = relative(this.worktreesRoot, worktreeRoot);
+      // Git path/branch naming is only diagnostic evidence, never ownership.
+      if (!/^iso_[a-f0-9]{20}$/.test(id)) continue;
+      const expectedSuffix = id.slice(-8);
+      const taskPart = branch?.startsWith("folderforge/task/")
+        ? branch.slice("folderforge/task/".length, -expectedSuffix.length - 1)
+        : undefined;
+      const expectedBranch = taskPart && TASK_ID.test(taskPart)
+        ? `folderforge/task/${taskPart}-${expectedSuffix}` : undefined;
+      let directoryValid = false;
+      try {
+        const stat = lstatSync(worktreeRoot);
+        directoryValid = stat.isDirectory() && !stat.isSymbolicLink();
+      } catch {
+        // Disappearing/prunable entries must remain ambiguous, never owned.
+      }
+      observed.push({
+        id,
+        worktreeRoot,
+        branch,
+        headCommit,
+        classification: directoryValid && expectedBranch === branch
+          ? "candidate_not_owned" : "ambiguous_not_owned",
+      });
+    }
+    this.assertRegistryCurrent();
+    return observed.sort((a, b) => a.id.localeCompare(b.id));
+  }
+
+  /**
+   * Advisory scan of un-checked-out task refs (e.g. crash before git worktree
+   * add). Branch names never establish an isolation ID or ownership.
+   */
+  discoverUnregisteredBranches(): UnregisteredBranchObservation[] {
+    this.requireAvailable();
+    this.assertRegistryCurrent();
+    const checkoutBranches = new Set(
+      this.gitWorktreeEntries().map((entry) => entry.branch).filter((branch) => branch !== null),
+    );
+    const registeredBranches = new Set(
+      [...this.isolations.values()].map((entry) => entry.branch),
+    );
+    const refs = git(this.projectRoot, [
+      "--no-optional-locks", "for-each-ref",
+      "--format=%(refname)%00%(objectname)",
+      "refs/heads/folderforge/task/",
+    ]);
+    const seen = new Set<string>();
+    const observed: UnregisteredBranchObservation[] = [];
+    for (const line of refs.split(/\r?\n/).filter(Boolean)) {
+      const match = /^(refs\/heads\/folderforge\/task\/[^\0]+)\0([a-f0-9]{40,64})$/i.exec(line);
+      const refName = match?.[1];
+      const headCommit = match?.[2];
+      if (!refName || !headCommit || /^0+$/.test(headCommit)) {
+        throw new Error("ISOLATION_INVENTORY_INCOMPLETE: invalid Git task ref.");
+      }
+      const branch = refName.slice("refs/heads/".length);
+      if (seen.has(branch)) {
+        throw new Error("ISOLATION_INVENTORY_INCOMPLETE: duplicate Git task ref.");
+      }
+      seen.add(branch);
+      if (checkoutBranches.has(branch) || registeredBranches.has(branch)) continue;
+      observed.push({
+        branch,
+        headCommit,
+        classification: "branch_only_not_owned",
+      });
+    }
+    this.assertRegistryCurrent();
+    return observed.sort((a, b) => a.branch.localeCompare(b.branch));
+  }
+
 
   inspect(id: string): IsolationHealthObservation {
     const isolation = this.requireExisting(id);
@@ -486,6 +701,7 @@ export class WorktreeManager {
   }
 
   apply(id: string): WorktreeStatus {
+    this.assertRegistryCurrent();
     const isolation = this.requireState(id, "active");
     if (isolation.sourceDirty) {
       throw new Error(
@@ -550,9 +766,15 @@ export class WorktreeManager {
 
     const patchPath = this.rollbackPatchPath(isolation.id);
     mkdirSync(dirname(patchPath), { recursive: true, mode: 0o700 });
-    const patchTemp = `${patchPath}.${process.pid}.${randomUUID()}.tmp`;
-    writeFileSync(patchTemp, patch, { mode: 0o600 });
-    renameSync(patchTemp, patchPath);
+    // The recovery patch must be synced before the applying intent is published.
+    try {
+      writeAtomicDurably(patchPath, patch);
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("ISOLATION_DURABILITY_UNCERTAIN")) {
+        this.durabilityUncertain = true;
+      }
+      throw error;
+    }
     isolation.state = "applying";
     isolation.appliedTracked = [...status.changed];
     isolation.appliedUntracked = untracked.map((entry) => ({
@@ -649,6 +871,7 @@ export class WorktreeManager {
   }
 
   rollback(id: string): WorktreeStatus {
+    this.assertRegistryCurrent();
     const isolation = this.requireExisting(id);
     if (isolation.state !== "applied" && isolation.state !== "applying") {
       throw new Error(
@@ -825,6 +1048,7 @@ export class WorktreeManager {
   }
 
   discard(id: string): WorktreeIsolation {
+    this.assertRegistryCurrent();
     const isolation = this.isolations.get(id);
     if (!isolation) throw new Error(`Isolation not found: ${id}`);
     if (isolation.state === "discarded") return cloneIsolation(isolation);
@@ -1188,11 +1412,53 @@ export class WorktreeManager {
     return isolation;
   }
 
+  private readRegistryBytes(): Buffer | undefined {
+    let entry: ReturnType<typeof lstatSync>;
+    try {
+      entry = lstatSync(this.statePath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      throw error;
+    }
+    // A symlink alias can be inside the Git directory yet not be the owned
+    // registry inode. Refuse it even when its JSON digest is valid.
+    if (!entry.isFile() || entry.isSymbolicLink() || entry.nlink !== 1) {
+      throw new Error("ISOLATION_REGISTRY_UNSAFE: expected a single-link regular registry file.");
+    }
+    // O_NOFOLLOW also rejects a final-component symlink swapped after lstat
+    // on platforms which support it. This is not a parent-path/UID fence.
+    const fd = openSync(this.statePath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    try {
+      const opened = fstatSync(fd);
+      if (!opened.isFile() || opened.nlink !== 1) {
+        throw new Error("ISOLATION_REGISTRY_UNSAFE: registry inode is not a single-link file.");
+      }
+      return readFileSync(fd);
+    } finally {
+      closeSync(fd);
+    }
+  }
+
+  private currentRegistryDigest(): string | undefined {
+    const bytes = this.readRegistryBytes();
+    return bytes === undefined ? undefined : sha256(bytes);
+  }
+
+  private assertRegistryCurrent(): void {
+    if (this.durabilityUncertain) {
+      throw new Error("ISOLATION_DURABILITY_UNCERTAIN: directory sync failed; restart and inspect recovery state.");
+    }
+    if (this.currentRegistryDigest() !== this.registryFileDigest) {
+      throw new Error(
+        "ISOLATION_REGISTRY_CHANGED: another writer updated the isolation registry; reload before mutating.",
+      );
+    }
+  }
+
   private load(): void {
-    if (!existsSync(this.statePath)) return;
-    const parsed = JSON.parse(
-      readFileSync(this.statePath, "utf8"),
-    ) as PersistedState;
+    const bytes = this.readRegistryBytes();
+    if (bytes === undefined) return;
+    const parsed = JSON.parse(bytes.toString("utf8")) as PersistedState & Record<string, unknown>;
     if (
       parsed.version !== 1 ||
       !Array.isArray(parsed.isolations) ||
@@ -1204,25 +1470,47 @@ export class WorktreeManager {
       throw new Error("Isolation state integrity check failed.");
     }
     const seen = new Set<string>();
+    const activeTasks = new Set<string>();
     for (const value of parsed.isolations) {
       const isolation = this.validatePersistedIsolation(value);
       if (seen.has(isolation.id))
         throw new Error(`Duplicate isolation id: ${isolation.id}`);
+      if (isolation.state !== "discarded") {
+        if (activeTasks.has(isolation.taskId))
+          throw new Error(`Duplicate isolation taskId: ${isolation.taskId}`);
+        activeTasks.add(isolation.taskId);
+      }
       seen.add(isolation.id);
       this.isolations.set(isolation.id, isolation);
     }
+    this.registryExtraFields = Object.fromEntries(
+      Object.entries(parsed).filter(([key]) =>
+        key !== "version" && key !== "isolations" && key !== "digest"),
+    );
+    this.registryFileDigest = sha256(bytes);
   }
 
   private persist(): void {
+    this.assertRegistryCurrent();
     mkdirSync(dirname(this.statePath), { recursive: true, mode: 0o700 });
-    const temp = `${this.statePath}.${process.pid}.${randomUUID()}.tmp`;
     const isolations = this.list();
     const state: PersistedState = {
+      ...this.registryExtraFields,
       version: 1,
       isolations,
       digest: isolationDigest(isolations),
     };
-    writeFileSync(temp, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
-    renameSync(temp, this.statePath);
+    const nextBytes = `${JSON.stringify(state, null, 2)}\n`;
+    // Optimistic pre-rename check only: not a cross-process CAS.
+    writeAtomicDurably(
+      this.statePath,
+      nextBytes,
+      () => this.assertRegistryCurrent(),
+      () => {
+        this.registryFileDigest = sha256(nextBytes);
+        this.durabilityUncertain = true;
+      },
+    );
+    this.durabilityUncertain = false;
   }
 }

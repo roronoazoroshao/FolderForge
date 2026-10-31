@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   includesExpectedText,
+  pinnedInstallSpecs,
   resolveNpmLaunch,
 } from '../../scripts/child-mcp-third-party.mjs';
 
@@ -59,11 +60,53 @@ describe('third-party child MCP compatibility manifest', () => {
     expect(report.npmOverrides).toEqual([
       expect.objectContaining({
         package: 'glob',
-        version: '13.0.6',
-        integrity: expect.stringMatching(/^sha512-/),
-        reason: expect.stringMatching(/GHSA-mh99-v99m-4gvg/),
+        version: '14.0.3',
+        integrity: 'sha512-A1vjIwC3qpdCso45Iw127gnp7sPhqgY8lUQhDrArIs+GbmfaaVPFuoyy7WyLT9EPZCRZ7j7aLdwUhQmHWesEow==',
+        reason: expect.stringMatching(/GHSA-3g3m-2fjr-6pw4/),
+      }),
+      expect.objectContaining({
+        package: 'minimatch',
+        version: '11.0.3',
+        integrity: 'sha512-iny/40PEGkNJQ5/Pv6z3nm6FbRAby32GeZRjCUJk2WnNDbgPSTcdI+DDvLqsgBdD4cD5sMtMheqPPnehCCa8Nw==',
+        reason: expect.stringMatching(/GHSA-g3hv-75wg-m249/),
       }),
     ]);
+  });
+
+  it('installs verified transitive overrides as exact direct package specs across npm platforms', () => {
+    const manifest = JSON.parse(readFileSync(MANIFEST, 'utf8')) as {
+      profiles: Array<{ package: string; version: string }>;
+      npmOverrides: Array<{ package: string; version: string }>;
+    };
+    expect(pinnedInstallSpecs(manifest)).toEqual([
+      ...manifest.profiles.map((profile) => `${profile.package}@${profile.version}`),
+      'glob@14.0.3',
+      'minimatch@11.0.3',
+    ]);
+  });
+
+  it('commits an exact, audited transitive package-lock for cross-platform npm ci', () => {
+    const manifest = JSON.parse(readFileSync(MANIFEST, 'utf8')) as {
+      profiles: Array<{ package: string; version: string; integrity: string }>;
+      npmOverrides: Array<{ package: string; version: string; integrity: string }>;
+    };
+    const lock = JSON.parse(
+      readFileSync(resolve('compatibility/child-mcp-third-party.package-lock.json'), 'utf8'),
+    ) as {
+      lockfileVersion: number;
+      packages: Record<string, { version?: string; integrity?: string; dependencies?: Record<string, string> }>;
+    };
+    expect(lock.lockfileVersion).toBe(3);
+    const pins = [...manifest.profiles, ...manifest.npmOverrides];
+    expect(lock.packages['']?.dependencies).toEqual(
+      Object.fromEntries(pins.map(({ package: name, version }) => [name, version])),
+    );
+    for (const pin of pins) {
+      expect(lock.packages[`node_modules/${pin.package}`]).toMatchObject({
+        version: pin.version,
+        integrity: pin.integrity,
+      });
+    }
   });
 
   it('supports selecting one profile and writing machine-readable evidence', () => {

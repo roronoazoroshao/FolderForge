@@ -166,6 +166,7 @@
     "source-map-js": "1.2.2",
     "qs": "6.17.1",
     "body-parser": "2.4.0",
-    "ip-address": "10.7.5"
+    "ip-address": "10.7.5",
+    "minimatch": "11.0.3"
   }
 }
