@@ -85,6 +85,30 @@ describe('third-party child MCP compatibility manifest', () => {
     ]);
   });
 
+  it('commits an exact, audited transitive package-lock for cross-platform npm ci', () => {
+    const manifest = JSON.parse(readFileSync(MANIFEST, 'utf8')) as {
+      profiles: Array<{ package: string; version: string; integrity: string }>;
+      npmOverrides: Array<{ package: string; version: string; integrity: string }>;
+    };
+    const lock = JSON.parse(
+      readFileSync(resolve('compatibility/child-mcp-third-party.package-lock.json'), 'utf8'),
+    ) as {
+      lockfileVersion: number;
+      packages: Record<string, { version?: string; integrity?: string; dependencies?: Record<string, string> }>;
+    };
+    expect(lock.lockfileVersion).toBe(3);
+    const pins = [...manifest.profiles, ...manifest.npmOverrides];
+    expect(lock.packages['']?.dependencies).toEqual(
+      Object.fromEntries(pins.map(({ package: name, version }) => [name, version])),
+    );
+    for (const pin of pins) {
+      expect(lock.packages[`node_modules/${pin.package}`]).toMatchObject({
+        version: pin.version,
+        integrity: pin.integrity,
+      });
+    }
+  });
+
   it('supports selecting one profile and writing machine-readable evidence', () => {
     const output = join(root, 'validation.json');
     const executed = spawnSync(
