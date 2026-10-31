@@ -69,6 +69,32 @@ afterEach(() => {
 });
 
 describe("G01 registry durability protocol", () => {
+  it("preserves externally owned registry metadata across restart and subsequent writes", () => {
+    const root = repository();
+    const first = new WorktreeManager([root], root);
+    first.create("owned-first");
+    const registryPath = join(root, ".git", "folderforge", "isolations.json");
+    const state = JSON.parse(readFileSync(registryPath, "utf8")) as Record<string, unknown>;
+    const external = {
+      owner: "external-coordinator",
+      writerEpoch: 17,
+      unknownRecords: [{ id: "foreign-record", bytes: "preserve-exactly" }],
+    };
+    state.externalMetadata = external;
+    writeFileSync(registryPath, JSON.stringify(state, null, 2) + "\n");
+
+    const reloaded = new WorktreeManager([root], root);
+    expect(reloaded.list()).toHaveLength(1);
+    reloaded.create("owned-second");
+
+    const after = JSON.parse(readFileSync(registryPath, "utf8")) as Record<string, unknown>;
+    expect(after.externalMetadata).toEqual(external);
+    expect(after.isolations).toHaveLength(2);
+    const reloadedAgain = new WorktreeManager([root], root);
+    expect(reloadedAgain.list()).toHaveLength(2);
+    expect(JSON.parse(readFileSync(registryPath, "utf8")).externalMetadata).toEqual(external);
+  });
+
   it("fsyncs the new registry inode before rename and its parent directory after rename", () => {
     const root = repository();
     const manager = new WorktreeManager([root], root);

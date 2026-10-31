@@ -310,6 +310,8 @@ export class WorktreeManager {
   private readonly statePath: string;
   /** Optimistic snapshot; not a kernel writer fence. */
   private registryFileDigest: string | undefined;
+  /** Preserve unknown top-level metadata belonging to other registry consumers. */
+  private registryExtraFields: Record<string, unknown> = {};
   /** If a rename succeeded without a confirmed directory fsync, stop reusing this writer. */
   private durabilityUncertain = false;
   private readonly worktreesRoot: string;
@@ -1456,7 +1458,7 @@ export class WorktreeManager {
   private load(): void {
     const bytes = this.readRegistryBytes();
     if (bytes === undefined) return;
-    const parsed = JSON.parse(bytes.toString("utf8")) as PersistedState;
+    const parsed = JSON.parse(bytes.toString("utf8")) as PersistedState & Record<string, unknown>;
     if (
       parsed.version !== 1 ||
       !Array.isArray(parsed.isolations) ||
@@ -1481,6 +1483,10 @@ export class WorktreeManager {
       seen.add(isolation.id);
       this.isolations.set(isolation.id, isolation);
     }
+    this.registryExtraFields = Object.fromEntries(
+      Object.entries(parsed).filter(([key]) =>
+        key !== "version" && key !== "isolations" && key !== "digest"),
+    );
     this.registryFileDigest = sha256(bytes);
   }
 
@@ -1489,6 +1495,7 @@ export class WorktreeManager {
     mkdirSync(dirname(this.statePath), { recursive: true, mode: 0o700 });
     const isolations = this.list();
     const state: PersistedState = {
+      ...this.registryExtraFields,
       version: 1,
       isolations,
       digest: isolationDigest(isolations),
