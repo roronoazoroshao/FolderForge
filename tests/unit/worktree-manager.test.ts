@@ -60,7 +60,7 @@ describe("WorktreeManager", () => {
     expect(observed).toEqual([
       expect.objectContaining({
         id,
-        worktreeRoot: orphanRoot,
+        worktreeRoot: realpathSync.native(orphanRoot),
         branch,
         classification: "candidate_not_owned",
       }),
@@ -82,7 +82,7 @@ describe("WorktreeManager", () => {
     expect(observed).toEqual([
       expect.objectContaining({
         id,
-        worktreeRoot: path,
+        worktreeRoot: realpathSync.native(path),
         branch: "foreign-branch",
         classification: "ambiguous_not_owned",
       }),
