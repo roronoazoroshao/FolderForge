@@ -44,6 +44,25 @@ afterEach(() => {
 });
 
 describe("WorktreeManager", () => {
+  it("G01: refuses duplicate checked-out branch identities in Git inventory", () => {
+    const root = repository();
+    const branch = "folderforge/task/ambiguous-1234abcd";
+    const firstRoot = join(root, ".git", "folderforge", "worktrees", "iso_aaaaaaaaaaaaaaaaaaaa");
+    const secondRoot = join(root, ".git", "folderforge", "worktrees", "iso_bbbbbbbbbbbbbbbbbbbb");
+    git(root, "worktree", "add", "-b", branch, firstRoot, "HEAD");
+    // Git permits this with --force, so a branch name alone is not a unique worktree identity.
+    git(root, "worktree", "add", "--force", secondRoot, branch);
+    writeFileSync(join(firstRoot, "precious.txt"), "first worktree bytes\n");
+    writeFileSync(join(secondRoot, "precious.txt"), "second worktree bytes\n");
+    const refsBefore = git(root, "show-ref");
+    const manager = new WorktreeManager([root], root);
+    expect(() => manager.discoverUnregisteredWorktrees()).toThrow(/ISOLATION_INVENTORY_INCOMPLETE/);
+    expect(() => manager.discoverUnregisteredBranches()).toThrow(/ISOLATION_INVENTORY_INCOMPLETE/);
+    expect(git(root, "show-ref")).toBe(refsBefore);
+    expect(readFileSync(join(firstRoot, "precious.txt"), "utf8")).toBe("first worktree bytes\n");
+    expect(readFileSync(join(secondRoot, "precious.txt"), "utf8")).toBe("second worktree bytes\n");
+  });
+
   it("G01: reports branch-only crash orphans without claiming branch ownership", () => {
     const root = repository();
     const orphanBranch = "folderforge/task/pre-add-crash-aabbccdd";

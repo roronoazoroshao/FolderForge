@@ -425,6 +425,7 @@ export class WorktreeManager {
       throw new Error("ISOLATION_INVENTORY_INCOMPLETE: incomplete Git worktree inventory.");
     }
     const seen = new Set<string>();
+    const seenBranches = new Set<string>();
     return raw.split(/\r?\n\r?\n/).filter(Boolean).map((block) => {
       const lines = block.split(/\r?\n/);
       const paths = lines.filter((line) => line.startsWith("worktree "));
@@ -447,11 +448,14 @@ export class WorktreeManager {
         throw new Error("ISOLATION_INVENTORY_INCOMPLETE: duplicate Git worktree path.");
       }
       seen.add(worktreeRoot);
-      return {
-        worktreeRoot,
-        headCommit,
-        branch: branchLine === "detached" ? null : branchLine.slice("branch refs/heads/".length),
-      };
+      const branch = branchLine === "detached" ? null : branchLine.slice("branch refs/heads/".length);
+      if (branch !== null) {
+        if (seenBranches.has(branch)) {
+          throw new Error("ISOLATION_INVENTORY_INCOMPLETE: duplicate checked-out Git branch.");
+        }
+        seenBranches.add(branch);
+      }
+      return { worktreeRoot, headCommit, branch };
     });
   }
 
