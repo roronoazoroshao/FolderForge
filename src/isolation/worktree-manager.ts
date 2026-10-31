@@ -1,10 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
+  closeSync,
   constants,
   copyFileSync,
   existsSync,
+  fstatSync,
   lstatSync,
   mkdirSync,
+  openSync,
   readFileSync,
   realpathSync,
   renameSync,
@@ -1352,13 +1355,35 @@ export class WorktreeManager {
     return isolation;
   }
 
-  private currentRegistryDigest(): string | undefined {
+  private readRegistryBytes(): Buffer | undefined {
+    let entry: ReturnType<typeof lstatSync>;
     try {
-      return sha256(readFileSync(this.statePath));
+      entry = lstatSync(this.statePath);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
       throw error;
     }
+    // A symlink alias can be inside the Git directory yet not be the owned
+    // registry inode. Refuse it even when its JSON digest is valid.
+    if (!entry.isFile() || entry.isSymbolicLink()) {
+      throw new Error("ISOLATION_REGISTRY_UNSAFE: expected a regular registry file.");
+    }
+    // O_NOFOLLOW also rejects a final-component symlink swapped after lstat
+    // on platforms which support it. This is not a parent-path/UID fence.
+    const fd = openSync(this.statePath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    try {
+      if (!fstatSync(fd).isFile()) {
+        throw new Error("ISOLATION_REGISTRY_UNSAFE: registry inode is not a file.");
+      }
+      return readFileSync(fd);
+    } finally {
+      closeSync(fd);
+    }
+  }
+
+  private currentRegistryDigest(): string | undefined {
+    const bytes = this.readRegistryBytes();
+    return bytes === undefined ? undefined : sha256(bytes);
   }
 
   private assertRegistryCurrent(): void {
@@ -1370,13 +1395,8 @@ export class WorktreeManager {
   }
 
   private load(): void {
-    let bytes: Buffer;
-    try {
-      bytes = readFileSync(this.statePath);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
-      throw error;
-    }
+    const bytes = this.readRegistryBytes();
+    if (bytes === undefined) return;
     const parsed = JSON.parse(bytes.toString("utf8")) as PersistedState;
     if (
       parsed.version !== 1 ||

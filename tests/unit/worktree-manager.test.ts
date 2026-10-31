@@ -45,6 +45,28 @@ afterEach(() => {
 });
 
 describe("WorktreeManager", () => {
+  it("G01: refuses a symlink-backed registry even when its digest and Git refs are valid", () => {
+    const root = repository();
+    const manager = new WorktreeManager([root], root);
+    manager.create("registry-symlink");
+    const statePath = join(root, ".git", "folderforge", "isolations.json");
+    const original = readFileSync(statePath);
+    // The alias remains INSIDE the Git admin directory, so path containment
+    // alone cannot distinguish a regular registry from a mutable symlink.
+    const alias = join(root, ".git", "folderforge", "registry-alias.json");
+    writeFileSync(alias, original);
+    rmSync(statePath);
+    symlinkSync(alias, statePath, "file");
+    const refsBefore = git(root, "show-ref");
+
+    expect(() => new WorktreeManager([root], root)).toThrow(/ISOLATION_REGISTRY_UNSAFE/);
+    // An already-loaded writer must also refuse before touching Git refs.
+    expect(() => manager.create("second-task")).toThrow(/ISOLATION_REGISTRY_UNSAFE/);
+    expect(readFileSync(alias)).toEqual(original);
+    expect(git(root, "show-ref")).toBe(refsBefore);
+    expect(readFileSync(join(root, "tracked.txt"), "utf8")).toBe("original\n");
+  });
+
   it("G01: rejects a redirected managed Git directory before creating a branch", () => {
     const root = repository();
     const outside = mkdtempSync(join(tmpdir(), "folderforge-redirection-"));
