@@ -44,6 +44,54 @@ afterEach(() => {
 });
 
 describe("WorktreeManager", () => {
+  it("G01: discovers crash-window worktrees without claiming ownership or mutating Git/registry", () => {
+    const root = repository();
+    const manager = new WorktreeManager([root], root);
+    const persisted = manager.create("persisted");
+    const id = "iso_0123456789abcdef0123";
+    const branch = "folderforge/task/crash-window-" + id.slice(-8);
+    const orphanRoot = join(root, ".git", "folderforge", "worktrees", id);
+    git(root, "worktree", "add", "-b", branch, orphanRoot, "HEAD");
+    writeFileSync(join(orphanRoot, "crash-user.txt"), "must survive discovery\n");
+    const registry = join(root, ".git", "folderforge", "isolations.json");
+    const before = readFileSync(registry);
+    const branchList = git(root, "branch", "--list");
+    const observed = new WorktreeManager([root], root).discoverUnregisteredWorktrees();
+    expect(observed).toEqual([
+      expect.objectContaining({
+        id,
+        worktreeRoot: orphanRoot,
+        branch,
+        classification: "candidate_not_owned",
+      }),
+    ]);
+    expect(observed.every((entry) => entry.id !== persisted.id)).toBe(true);
+    expect(readFileSync(registry)).toEqual(before);
+    expect(git(root, "branch", "--list")).toBe(branchList);
+    expect(readFileSync(join(orphanRoot, "crash-user.txt"), "utf8")).toBe("must survive discovery\n");
+  });
+
+  it("G01: ambiguous branch identity remains visible, never auto-registered or deleted", () => {
+    const root = repository();
+    const id = "iso_abcdef0123456789abcd";
+    const path = join(root, ".git", "folderforge", "worktrees", id);
+    git(root, "worktree", "add", "-b", "foreign-branch", path, "HEAD");
+    writeFileSync(join(path, "precious.txt"), "foreign bytes\n");
+    const manager = new WorktreeManager([root], root);
+    const observed = manager.discoverUnregisteredWorktrees();
+    expect(observed).toEqual([
+      expect.objectContaining({
+        id,
+        worktreeRoot: path,
+        branch: "foreign-branch",
+        classification: "ambiguous_not_owned",
+      }),
+    ]);
+    expect(manager.list()).toHaveLength(0);
+    expect(readFileSync(join(path, "precious.txt"), "utf8")).toBe("foreign bytes\n");
+    expect(git(root, "show-ref", "--verify", "refs/heads/foreign-branch")).toMatch(/^[a-f0-9]{40}/);
+  });
+
   it("G01: a stale process must not erase another process's durable isolation entry", () => {
     const root = repository();
     // The first writer remains alive with a snapshot taken before the second writer commits.

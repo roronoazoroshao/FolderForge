@@ -54,6 +54,15 @@ export interface WorktreeIsolation {
   discardedAt?: string;
 }
 
+/** Advisory-only evidence. Neither Git naming nor a path grants ownership. */
+export interface UnregisteredWorktreeObservation {
+  id: string;
+  worktreeRoot: string;
+  branch: string | null;
+  headCommit: string;
+  classification: "candidate_not_owned" | "ambiguous_not_owned";
+}
+
 export interface WorkingTreeStatus {
   headCommit: string;
   clean: boolean;
@@ -389,6 +398,80 @@ export class WorktreeManager {
     return [...this.isolations.values()]
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
       .map(cloneIsolation);
+  }
+
+  /**
+   * Read-only inventory for the git-worktree-add -> registry-persist crash gap.
+   * These are NEVER eligible for automatic registration, reset, or deletion:
+   * old writers and foreign actors can create paths with matching names.
+   */
+  discoverUnregisteredWorktrees(): UnregisteredWorktreeObservation[] {
+    this.requireAvailable();
+    this.assertRegistryCurrent();
+    const raw = git(this.projectRoot, [
+      "--no-optional-locks", "worktree", "list", "--porcelain",
+    ]);
+    if (!/\r?\n\r?\n$/.test(raw)) {
+      throw new Error("ISOLATION_INVENTORY_INCOMPLETE: incomplete Git worktree inventory.");
+    }
+    const registered = new Set(
+      [...this.isolations.values()].map((item) => canonicalRoot(item.worktreeRoot)),
+    );
+    const observed: UnregisteredWorktreeObservation[] = [];
+    for (const block of raw.split(/\r?\n\r?\n/).filter(Boolean)) {
+      const lines = block.split(/\r?\n/);
+      const paths = lines.filter((line) => line.startsWith("worktree "));
+      const heads = lines.filter((line) => /^HEAD [a-f0-9]{40,64}$/i.test(line));
+      const branches = lines.filter((line) => line.startsWith("branch refs/heads/") || line === "detached");
+      const [pathLine] = paths;
+      const [headLine] = heads;
+      const [branchLine] = branches;
+      if (paths.length !== 1 || heads.length !== 1 || branches.length !== 1 ||
+          !pathLine || !headLine || !branchLine) {
+        throw new Error("ISOLATION_INVENTORY_INCOMPLETE: malformed Git worktree entry.");
+      }
+      const physicalPath = pathLine.slice("worktree ".length);
+      if (!isAbsolute(physicalPath)) {
+        throw new Error("ISOLATION_INVENTORY_INCOMPLETE: non-absolute Git worktree path.");
+      }
+      const worktreeRoot = canonicalRoot(physicalPath);
+      if (!isPathWithin(this.worktreesRoot, worktreeRoot) ||
+          samePath(this.worktreesRoot, worktreeRoot) ||
+          registered.has(worktreeRoot)) {
+        continue;
+      }
+      const id = relative(this.worktreesRoot, worktreeRoot);
+      // Do not inspect arbitrary nested paths, or silently treat a foreign
+      // path with a matching parent prefix as a managed isolation.
+      if (!/^iso_[a-f0-9]{20}$/.test(id)) continue;
+      const branch = branchLine === "detached"
+        ? null : branchLine.slice("branch refs/heads/".length);
+      const expectedSuffix = id.slice(-8);
+      const taskPart = branch?.startsWith("folderforge/task/")
+        ? branch.slice("folderforge/task/".length, -expectedSuffix.length - 1)
+        : undefined;
+      const expectedBranch = taskPart && TASK_ID.test(taskPart)
+        ? `folderforge/task/${taskPart}-${expectedSuffix}` : undefined;
+      let directoryValid = false;
+      try {
+        const stat = lstatSync(worktreeRoot);
+        directoryValid = stat.isDirectory() && !stat.isSymbolicLink();
+      } catch {
+        // Disappearing/prunable entries must remain ambiguous, never owned.
+      }
+      observed.push({
+        id,
+        worktreeRoot,
+        branch,
+        headCommit: headLine.slice("HEAD ".length),
+        classification: directoryValid && expectedBranch === branch
+          ? "candidate_not_owned" : "ambiguous_not_owned",
+      });
+    }
+    // Fail closed if another cooperative writer updated the registry during
+    // the inventory; this is a diagnostic, NOT an atomic ownership snapshot.
+    this.assertRegistryCurrent();
+    return observed.sort((a, b) => a.id.localeCompare(b.id));
   }
 
   inspect(id: string): IsolationHealthObservation {
