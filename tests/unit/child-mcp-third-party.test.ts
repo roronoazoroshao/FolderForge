@@ -59,11 +59,35 @@ describe('third-party child MCP compatibility manifest', () => {
     expect(report.npmOverrides).toEqual([
       expect.objectContaining({
         package: 'glob',
-        version: '13.0.6',
+        version: '14.0.2',
         integrity: expect.stringMatching(/^sha512-/),
-        reason: expect.stringMatching(/GHSA-mh99-v99m-4gvg/),
+        reason: expect.stringMatching(/GHSA-3g3m-2fjr-6pw4/),
+      }),
+      expect.objectContaining({
+        package: 'minimatch',
+        version: '11.0.1',
+        integrity: expect.stringMatching(/^sha512-/),
+        reason: expect.stringMatching(/GHSA-g3hv-75wg-m249/),
       }),
     ]);
+  });
+
+  it('pins patched glob and minimatch releases for the current third-party audit advisories', () => {
+    const manifest = JSON.parse(readFileSync(MANIFEST, 'utf8')) as {
+      npmOverrides: Array<{ package: string; version: string; integrity: string; reason: string }>;
+    };
+    const pins = new Map(manifest.npmOverrides.map((entry) => [entry.package, entry]));
+
+    expect(pins.get('glob')).toMatchObject({
+      version: '14.0.2',
+      integrity: 'sha512-vfMgTR2djMHPUchsJMLpZlYQvtjVL+mHpEr5wPpoCbQs2vr/FBNK+3Gnl9Ara1DSs4Aeg4eG9HiADb5/rkY/ZA==',
+      reason: expect.stringContaining('GHSA-3g3m-2fjr-6pw4'),
+    });
+    expect(pins.get('minimatch')).toMatchObject({
+      version: '11.0.1',
+      integrity: 'sha512-t+Vn6DX4wPCxS23y03C0uhF7S1jpi1GfqPrnlEipCJaA2ykiNbMkVlDutZtmvLfRcUN6R8AYVlzTsQrT4RZoLQ==',
+      reason: expect.stringContaining('GHSA-g3hv-75wg-m249'),
+    });
   });
 
   it('supports selecting one profile and writing machine-readable evidence', () => {
