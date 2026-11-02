@@ -106,6 +106,25 @@ execution remains an explicit local server configuration action followed by a
 restart. Dashboard tokens are required on non-loopback deployments; existing
 blocked-command, workspace, audit, and rate-limit controls are unchanged.
 
+## Configuration inventory (read-only D1)
+
+The Settings screen also shows a minimal allowlisted **Configuration inventory**.
+`GET /operator/config` reports a bounded set of live parent-process
+`shell_exec` rate-limit values (`dailyQuota`, `maxCalls`, `windowMs`) and
+whether rate limiting is enabled. The response uses the ordinary dashboard
+authentication boundary and includes a scope, source status, apply category,
+and an explicit editing blocker for each item. It never serializes raw YAML,
+workspace roots, tokens, authentication credentials, or host consent data.
+
+All inventory fields are **read-only** in this phase: `POST /operator/config`
+does not exist, and the Settings UI cannot change the daily quota. The
+source is displayed as **unknown** until configuration precedence can be
+proven; `desired` is unset rather than fabricated. Rate-limit counters are
+still **in-memory per process**, and restarts do not preserve their usage.
+The separate, revisioned quota editor in the
+[Configuration Hub implementation plan](superpowers/plans/2026-11-01-mission-control-config-hub.md)
+requires additional persistence, authorization, audit, and rollback tests.
+
 ## Operator endpoints
 
 | Endpoint | Behavior |
