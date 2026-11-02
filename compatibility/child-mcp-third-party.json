@@ -3,9 +3,15 @@
   "npmOverrides": [
     {
       "package": "glob",
-      "version": "13.0.6",
-      "integrity": "sha512-Wjlyrolmm8uDpm/ogGyXZXb1Z+Ca2B8NbJwqBVg0axK9GbBeoS7yGV6vjXnYdGm6X53iehEuxxbyiKp8QmN4Vw==",
-      "reason": "Replace the vulnerable glob 10.x transitive dependency in server-filesystem; the pinned override removes GHSA-mh99-v99m-4gvg while retaining the reviewed compatibility probes."
+      "version": "14.0.2",
+      "integrity": "sha512-vfMgTR2djMHPUchsJMLpZlYQvtjVL+mHpEr5wPpoCbQs2vr/FBNK+3Gnl9Ara1DSs4Aeg4eG9HiADb5/rkY/ZA==",
+      "reason": "Replace vulnerable transitive glob from server-filesystem; pinned 14.0.2 addresses GHSA-3g3m-2fjr-6pw4 and earlier GHSA-mh99-v99m-4gvg."
+    },
+    {
+      "package": "minimatch",
+      "version": "11.0.1",
+      "integrity": "sha512-t+Vn6DX4wPCxS23y03C0uhF7S1jpi1GfqPrnlEipCJaA2ykiNbMkVlDutZtmvLfRcUN6R8AYVlzTsQrT4RZoLQ==",
+      "reason": "Pin the transitive minimatch used by server-filesystem and glob to a version addressing GHSA-g3hv-75wg-m249."
     }
   ],
   "profiles": [
