@@ -148,6 +148,49 @@ describe('third-party child MCP compatibility manifest', () => {
   });
 });
 
+describe('third-party dependency resolution safety on every OS', () => {
+  const scriptExports = import('../../scripts/child-mcp-third-party.mjs');
+
+  it('predeclares pinned profiles and overrides before dependency resolution', async () => {
+    const mod = await scriptExports as Record<string, unknown>;
+    expect(mod.createPinnedInstallManifest).toBeTypeOf('function');
+    const createManifest = mod.createPinnedInstallManifest as (
+      manifest: { profiles: Array<{ package: string; version: string }>; npmOverrides: Array<{ package: string; version: string }> },
+    ) => { dependencies: Record<string, string>; overrides: Record<string, string> };
+    const manifest = JSON.parse(readFileSync(MANIFEST, 'utf8')) as Parameters<typeof createManifest>[0];
+    const result = createManifest(manifest);
+
+    expect(result.dependencies['@modelcontextprotocol/server-filesystem']).toBe('2026.7.10');
+    expect(result.dependencies['@playwright/mcp']).toBe('0.0.78');
+    expect(Object.keys(result.dependencies)).toHaveLength(5);
+    expect(result.overrides).toMatchObject({ glob: '14.0.2', minimatch: '11.0.1' });
+  });
+
+  it('rejects any nested vulnerable override resolution instead of silently accepting it', async () => {
+    const mod = await scriptExports as Record<string, unknown>;
+    expect(mod.assertPinnedOverridesInLock).toBeTypeOf('function');
+    const check = mod.assertPinnedOverridesInLock as (
+      lock: { packages: Record<string, { version: string; integrity: string }> },
+      overrides: Array<{ package: string; version: string; integrity: string }>,
+    ) => void;
+    const manifest = JSON.parse(readFileSync(MANIFEST, 'utf8')) as { npmOverrides: Parameters<typeof check>[1] };
+    const glob = manifest.npmOverrides.find((entry) => entry.package === 'glob')!;
+    const minimatch = manifest.npmOverrides.find((entry) => entry.package === 'minimatch')!;
+    const valid = { packages: {
+      'node_modules/glob': { version: glob.version, integrity: glob.integrity },
+      'node_modules/minimatch': { version: minimatch.version, integrity: minimatch.integrity },
+    } };
+    expect(() => check(valid, manifest.npmOverrides)).not.toThrow();
+    const macosRegression = { packages: {
+      ...valid.packages,
+      'node_modules/@modelcontextprotocol/server-filesystem/node_modules/glob': {
+        version: '10.5.0', integrity: 'sha512-old',
+      },
+    } };
+    expect(() => check(macosRegression, manifest.npmOverrides)).toThrow(/glob.*10\.5\.0.*14\.0\.2/);
+  });
+});
+
 describe('third-party expected-text matching', () => {
   it('treats only slash direction as equivalent for portable path evidence', () => {
     const expected = 'C:\\Users\\runner\\AppData\\Local/Temp/folderforge/filesystem-root';

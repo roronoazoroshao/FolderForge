@@ -374,6 +374,32 @@ function npmOverrideMap(manifest) {
   );
 }
 
+function createPinnedInstallManifest(manifest) {
+  return {
+    name: 'folderforge-third-party-compatibility',
+    version: '0.0.0',
+    private: true,
+    dependencies: Object.fromEntries(
+      manifest.profiles.map((profile) => [profile.package, profile.version]),
+    ),
+    overrides: npmOverrideMap(manifest),
+  };
+}
+
+function assertPinnedOverridesInLock(lock, overrides) {
+  for (const override of overrides ?? []) {
+    const suffix = `node_modules/${override.package}`;
+    for (const [path, entry] of Object.entries(lock.packages ?? {})) {
+      if (path.replaceAll('\\', '/').endsWith(suffix) &&
+          (entry.version !== override.version || entry.integrity !== override.integrity)) {
+        throw new Error(
+          `Pinned override ${override.package} resolved to ${entry.version} at ${path}; expected ${override.version} with pinned integrity.`,
+        );
+      }
+    }
+  }
+}
+
 function assertInside(parent, child, label) {
   const parentReal = realpathSync(parent);
   const childReal = realpathSync(child);
@@ -414,6 +440,7 @@ function inspectInstalledPackages(manifest, installRoot) {
   const lockPath = join(installRoot, 'package-lock.json');
   if (!existsSync(lockPath)) throw new Error(`Missing package lock at ${lockPath}`);
   const lock = readJson(lockPath);
+  assertPinnedOverridesInLock(lock, manifest.npmOverrides);
   const rootPackagePath = join(installRoot, 'package.json');
   if (!existsSync(rootPackagePath)) throw new Error(`Missing package manifest at ${rootPackagePath}`);
   const rootPackage = readJson(rootPackagePath);
@@ -515,7 +542,6 @@ function inspectInstalledPackages(manifest, installRoot) {
 function installPackages(manifest, installRoot, skipInstall) {
   mkdirSync(installRoot, { recursive: true });
   const rootPackagePath = join(installRoot, 'package.json');
-  const overrideMap = npmOverrideMap(manifest);
   let installEvidence;
   if (skipInstall) {
     installEvidence = {
@@ -527,33 +553,33 @@ function installPackages(manifest, installRoot, skipInstall) {
   } else {
     writeFileSync(
       rootPackagePath,
-      `${JSON.stringify(
-        {
-          name: 'folderforge-third-party-compatibility',
-          version: '0.0.0',
-          private: true,
-          overrides: overrideMap,
-        },
-        null,
-        2,
-      )}\n`,
+      `${JSON.stringify(createPinnedInstallManifest(manifest), null, 2)}\n`,
       { encoding: 'utf8', mode: 0o600 },
     );
-    const specs = manifest.profiles.map((profile) => `${profile.package}@${profile.version}`);
     const startedAt = performance.now();
-    const installed = runNpm(
+    // Resolve from the already complete root manifest, then install the exact lock.
+    // A one-shot "npm install <specs>" produced unoverridden nested packages on macOS.
+    const resolved = runNpm(
       [
         'install',
+        '--package-lock-only',
         '--ignore-scripts',
-        '--save-exact',
         '--no-audit',
         '--no-fund',
-        '--package-lock=true',
         '--loglevel=warn',
         '--prefix',
         installRoot,
-        ...specs,
       ],
+      { cwd: process.cwd(), timeoutMs: 300_000 },
+    );
+    if (!resolved.ok) {
+      throw new Error(
+        `Pinned third-party lock resolution failed: ${resolved.error ?? (resolved.stderr.trim() || `exit ${resolved.status}`)}`,
+      );
+    }
+    assertPinnedOverridesInLock(readJson(join(installRoot, 'package-lock.json')), manifest.npmOverrides);
+    const installed = runNpm(
+      ['ci', '--ignore-scripts', '--no-audit', '--no-fund', '--loglevel=warn', '--prefix', installRoot],
       { cwd: process.cwd(), timeoutMs: 300_000 },
     );
     if (!installed.ok) {
@@ -562,10 +588,11 @@ function installPackages(manifest, installRoot, skipInstall) {
       );
     }
     installEvidence = {
-      mode: 'installed',
+      mode: 'installed-from-pinned-lock',
       lifecycleScripts: 'disabled (--ignore-scripts)',
       elapsedMs: Number((performance.now() - startedAt).toFixed(2)),
-      warnings: installed.stderr
+      warnings: [resolved.stderr, installed.stderr]
+        .join('\n')
         .split(/\r?\n/)
         .map((line) => line.trim())
         .filter(Boolean)
@@ -888,4 +915,9 @@ if (invokedAsCli()) {
   });
 }
 
-export { includesExpectedText, resolveNpmLaunch };
+export {
+  assertPinnedOverridesInLock,
+  createPinnedInstallManifest,
+  includesExpectedText,
+  resolveNpmLaunch,
+};
