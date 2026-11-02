@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -150,6 +150,23 @@ describe('third-party child MCP compatibility manifest', () => {
 
 describe('third-party dependency resolution safety on every OS', () => {
   const scriptExports = import('../../scripts/child-mcp-third-party.mjs');
+
+  it('normalizes a symlink install root before npm writes any lockfile paths', async () => {
+    const mod = await scriptExports as Record<string, unknown>;
+    expect(mod.canonicalInstallRoot).toBeTypeOf('function');
+    const normalize = mod.canonicalInstallRoot as (path: string) => string;
+    const temp = mkdtempSync(join(tmpdir(), 'folderforge-npm-path-'));
+    try {
+      const actual = join(temp, 'canonical ünicode dir');
+      const alias = join(temp, 'symlink-install');
+      mkdirSync(actual);
+      symlinkSync(actual, alias, 'dir');
+      expect(normalize(alias)).toBe(realpathSync(actual));
+      expect(normalize(alias)).not.toBe(alias);
+    } finally {
+      rmSync(temp, { recursive: true, force: true });
+    }
+  });
 
   it('predeclares pinned profiles and overrides before dependency resolution', async () => {
     const mod = await scriptExports as Record<string, unknown>;

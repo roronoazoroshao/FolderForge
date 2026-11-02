@@ -374,6 +374,11 @@ function npmOverrideMap(manifest) {
   );
 }
 
+function canonicalInstallRoot(root) {
+  mkdirSync(root, { recursive: true });
+  return realpathSync(root);
+}
+
 function createPinnedInstallManifest(manifest) {
   return {
     name: 'folderforge-third-party-compatibility',
@@ -557,8 +562,8 @@ function installPackages(manifest, installRoot, skipInstall) {
       { encoding: 'utf8', mode: 0o600 },
     );
     const startedAt = performance.now();
-    // Resolve from the already complete root manifest, then install the exact lock.
-    // A one-shot "npm install <specs>" produced unoverridden nested packages on macOS.
+    // Run npm inside the canonical install root. macOS /var -> /private/var
+    // symlinks and --prefix can produce lock entries outside this root.
     const resolved = runNpm(
       [
         'install',
@@ -567,10 +572,8 @@ function installPackages(manifest, installRoot, skipInstall) {
         '--no-audit',
         '--no-fund',
         '--loglevel=warn',
-        '--prefix',
-        installRoot,
       ],
-      { cwd: process.cwd(), timeoutMs: 300_000 },
+      { cwd: installRoot, timeoutMs: 300_000 },
     );
     if (!resolved.ok) {
       throw new Error(
@@ -579,8 +582,8 @@ function installPackages(manifest, installRoot, skipInstall) {
     }
     assertPinnedOverridesInLock(readJson(join(installRoot, 'package-lock.json')), manifest.npmOverrides);
     const installed = runNpm(
-      ['ci', '--ignore-scripts', '--no-audit', '--no-fund', '--loglevel=warn', '--prefix', installRoot],
-      { cwd: process.cwd(), timeoutMs: 300_000 },
+      ['ci', '--ignore-scripts', '--no-audit', '--no-fund', '--loglevel=warn'],
+      { cwd: installRoot, timeoutMs: 300_000 },
     );
     if (!installed.ok) {
       throw new Error(
@@ -605,8 +608,8 @@ function installPackages(manifest, installRoot, skipInstall) {
 
 function auditInstall(installRoot) {
   const executed = runNpm(
-    ['audit', '--omit=dev', '--json', '--prefix', installRoot],
-    { cwd: process.cwd(), timeoutMs: 180_000 },
+    ['audit', '--omit=dev', '--json'],
+    { cwd: installRoot, timeoutMs: 180_000 },
   );
   let parsed;
   try {
@@ -821,7 +824,9 @@ async function main() {
   }
 
   const temporaryInstall = options.installRoot === null;
-  const installRoot = options.installRoot ?? mkdtempSync(join(tmpdir(), 'folderforge third-party ünicode-'));
+  const installRoot = canonicalInstallRoot(
+    options.installRoot ?? mkdtempSync(join(tmpdir(), 'folderforge third-party ünicode-')),
+  );
   const workRoot = mkdtempSync(join(tmpdir(), 'folderforge child work ünicode-'));
   const startedAt = performance.now();
   let install = null;
@@ -917,6 +922,7 @@ if (invokedAsCli()) {
 
 export {
   assertPinnedOverridesInLock,
+  canonicalInstallRoot,
   createPinnedInstallManifest,
   includesExpectedText,
   resolveNpmLaunch,
