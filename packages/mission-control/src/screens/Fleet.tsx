@@ -351,6 +351,24 @@ export function FleetScreen() {
   };
 
   const instances = fleet.data?.instances ?? [];
+
+  // Start on the server's already-allowed folder. New users should not need
+  // to know a Unix path or open Browse just to create their first AI Fleet.
+  // This never expands allowed roots or grants host-execution permission.
+  useEffect(() => {
+    let mounted = true;
+    void api<{ path?: string }>('/fs/browse', {
+      method: 'POST', sensitive: true, body: {},
+    }).then(result => {
+      if (mounted && typeof result.path === 'string' && result.path.trim()) {
+        setPath(current => current.trim() ? current : result.path!);
+      }
+    }).catch(() => {
+      // Keep manual path/Browse available if the optional default cannot load.
+    });
+    return () => { mounted = false; };
+  }, []);
+
   useEffect(() => {
     let active = true;
     const refreshOwnerSession = () => {
