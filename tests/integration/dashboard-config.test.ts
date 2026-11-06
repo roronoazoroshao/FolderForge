@@ -8,6 +8,8 @@ import { Container } from '../../src/runtime/container.js';
 import { defaultConfig } from '../../src/runtime/config.js';
 import { startDashboard } from '../../src/dashboard/server.js';
 import { buildRegistry } from '../../src/tools/index.js';
+import { RateLimiter } from '../../src/policy/rate-limiter.js';
+import { RateLimitSettings } from '../../src/operator/rate-limit-settings.js';
 
 describe('Dashboard read-only configuration inventory', () => {
   const items: Array<{ root: string; close: () => Promise<void> }> = [];
@@ -40,6 +42,31 @@ describe('Dashboard read-only configuration inventory', () => {
     expect(write.status).toBeGreaterThanOrEqual(400);
     expect(container.config.rateLimit.enabled).toBe(true);
   });
+  it('does not import parent Dashboard quota into a dashboardless MCP container sharing the same project', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'folderforge-quota-scope-'));
+    const controlConfig = defaultConfig(root);
+    const writer = new RateLimitSettings(root, controlConfig);
+    const controlLimiter = new RateLimiter(controlConfig.rateLimit);
+    writer.apply({
+      scope: 'parent', key: 'rateLimit.overrides.shell_exec', expectedRevision: 'initial',
+      value: { dailyQuota: 250, maxCalls: 5, windowMs: 5000 },
+    }, 'owner', controlLimiter);
+
+    const childConfig = defaultConfig(root);
+    const childContainer = new Container(childConfig);
+    expect(childContainer.rateLimiter.ruleFor('shell_exec').dailyQuota).toBe(1000);
+
+    const dashboardContainer = new Container(defaultConfig(root));
+    expect(dashboardContainer.rateLimiter.ruleFor('shell_exec').dailyQuota).toBe(1000);
+    const server = startDashboard(dashboardContainer, buildRegistry(dashboardContainer), {
+      host: '127.0.0.1', port: 0, token: 'quota-scope-test', requireAuth: true,
+    });
+    items.push({ root, close: () => new Promise<void>((resolve, reject) => server.close(err => err ? reject(err) : resolve())) });
+    if (!server.listening) await once(server, 'listening');
+    expect(dashboardContainer.rateLimiter.ruleFor('shell_exec').dailyQuota).toBe(250);
+    expect(childContainer.rateLimiter.ruleFor('shell_exec').dailyQuota).toBe(1000);
+  });
+
   it('edits shell_exec quota only from signed same-origin owner; keeps revisions and freeze', async () => {
     const root = mkdtempSync(join(tmpdir(), 'folderforge-quota-http-'));
     const config = defaultConfig(root);

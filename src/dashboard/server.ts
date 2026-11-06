@@ -222,6 +222,9 @@ export function startDashboard(
     throw new Error("Dashboard bound to a non-loopback host requires a token");
   }
 
+  // Load this Dashboard's persisted quota before serving any endpoint or
+  // tool call. Dashboardless Fleet children must not inherit parent quota.
+  void container.rateLimitSettings;
   const sshOperatorWebSessions = opts.sshOperatorBroker
     ? new SshOperatorWebSessions(opts.sshOperatorBroker) : null;
   const server = createServer((req, res) => {

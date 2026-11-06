@@ -155,6 +155,8 @@ The validated record is persisted at
 permissions, integrity checksum, exclusive writer lock and fsynced atomic
 replacement. Persisted settings reload at the next process start and are
 applied to the **existing** rate limiter without clearing accepted hits.
+Dashboardless MCP/Fleet processes that share the same folder do not load this
+operator-only record. They continue using their own startup limit.
 This is a *per-process counter*: existing hits do not survive restart, and
 a separate Fleet instance has independent limits. Two live control processes
 are **not** automatically hot-synchronized; a stale process is refused

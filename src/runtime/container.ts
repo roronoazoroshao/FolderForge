@@ -72,7 +72,7 @@ export class Container {
   readonly proofPacks: ProofPackManager;
   readonly missionControl: MissionControlState;
   readonly runtimeSettings: RuntimeSettings;
-  readonly rateLimitSettings: RateLimitSettings;
+  private dashboardRateLimitSettings?: RateLimitSettings;
   readonly verifications: VerificationManager;
   readonly agentLoops: AgentLoopManager;
   readonly agentLoopRunner: AgentLoopRunner;
@@ -85,7 +85,6 @@ export class Container {
   constructor(config: FolderForgeConfig) {
     this.config = config;
     this.runtimeSettings = new RuntimeSettings(config.workspace.defaultProject, config);
-    this.rateLimitSettings = new RateLimitSettings(config.workspace.defaultProject, config);
     this.policy = new PolicyEngine(config);
     this.missionControl = new MissionControlState(
       config.workspace.defaultProject,
@@ -202,6 +201,15 @@ export class Container {
         );
       }
     }
+  }
+
+  /** Activate persisted operator quota only for an actual Dashboard, never for
+   * dashboardless MCP/Fleet children that happen to share a project directory. */
+  get rateLimitSettings(): RateLimitSettings {
+    this.dashboardRateLimitSettings ??= new RateLimitSettings(
+      this.config.workspace.defaultProject, this.config,
+    );
+    return this.dashboardRateLimitSettings;
   }
 
   /** Lazy macOS/Linux on-host consent; agent workspaces cannot access grant state. */
