@@ -151,6 +151,12 @@ async function shoot(context: BrowserContext, url: string): Promise<Buffer> {
     });
     await page.waitForTimeout(300); // one beat past the first data paint
     expect(external).toEqual([]);
+    // The server's default folder is a machine-specific (and in this
+    // harness randomized) path. A separate behavioral test checks its
+    // actual value; it should not destabilize visual pixel baselines.
+    await page.locator('input[aria-label="Folder path to provision"]').evaluateAll(elements => {
+      for (const element of elements) (element as HTMLInputElement).value = '';
+    });
     return await page.screenshot({ fullPage: true });
   } finally {
     await page.close();
@@ -235,6 +241,23 @@ describe.skipIf(!CHROMIUM)('Mission Control SPA visual regression (proposal 018)
     }
   }
 
+  it('prefills the allowed project folder without Browse while keeping owner auth required', { timeout: 30_000 }, async () => {
+    const page = await desktop.newPage();
+    try {
+      await page.goto(`${harness.baseUrl}/app/fleet`, { waitUntil: 'networkidle' });
+      const folder = page.getByRole('textbox', { name: 'Folder path to provision' });
+      await folder.waitFor({ state: 'visible' });
+      expect(await folder.inputValue()).toBe(harness.root);
+      const action = page.getByRole('button', { name: 'Secure Dashboard access required' });
+      expect(await action.isEnabled()).toBe(true);
+      await action.click();
+      expect(await page.getByRole('dialog').count()).toBe(1);
+      expect(harness.container.fleet.list()).toHaveLength(0);
+    } finally {
+      await page.close();
+    }
+  });
+
   it.each(['overview', 'fleet'])('keeps %s inside the 390px mobile viewport', { timeout: 30_000 }, async name => {
     const path = name === 'overview' ? '/' : '/fleet';
     const page = await mobile.newPage();
@@ -301,6 +324,10 @@ describe.skipIf(!CHROMIUM)('Mission Control SPA visual regression (proposal 018)
       await page.getByRole('link', { name: 'Fleet' }).click();
       expect((await fleetResponse).status()).toBe(200);
       console.log('[signed-dashboard-test] Fleet API authorized after navigation');
+      const defaultFolder = page.getByRole('textbox', { name: 'Folder path to provision' });
+      await defaultFolder.waitFor({ state: 'visible' });
+      await expect.poll(() => defaultFolder.inputValue()).toBe(local.root);
+      expect(await page.getByRole('button', { name: 'Create & Start AI Fleet' }).isEnabled()).toBe(true);
       await page.reload({ waitUntil: 'domcontentloaded', timeout: 8_000 });
       await page.getByRole('link', { name: 'Fleet' }).waitFor({ state: 'visible', timeout: 5_000 });
       console.log('[signed-dashboard-test] reload restored SPA');
