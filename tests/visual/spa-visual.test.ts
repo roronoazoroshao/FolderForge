@@ -156,6 +156,9 @@ async function shoot(context: BrowserContext, url: string): Promise<Buffer> {
     // one was resolved are not visual layout regressions. Separate real-browser
     // tests assert both the actual selected path and signed-owner CTA readiness.
     if (new URL(url).pathname.endsWith('/fleet')) {
+      await page.locator('[data-visual-dynamic-path]').evaluateAll(elements => {
+        for (const element of elements) element.textContent = '/workspace';
+      });
       await page.locator('input[aria-label="Folder path to provision"]').evaluateAll(elements => {
         for (const element of elements) (element as HTMLInputElement).value = '';
       });
@@ -251,9 +254,16 @@ describe.skipIf(!CHROMIUM)('Mission Control SPA visual regression (proposal 018)
     const page = await desktop.newPage();
     try {
       await page.goto(`${harness.baseUrl}/app/fleet`, { waitUntil: 'networkidle' });
+      await page.getByText('AI workspace', { exact: true }).waitFor({ state: 'visible' });
+      await page.getByText(harness.root, { exact: true }).waitFor({ state: 'visible' });
       const folder = page.getByRole('textbox', { name: 'Folder path to provision' });
+      expect(await folder.count()).toBe(0);
+      expect(await page.getByRole('button', { name: 'Browse', exact: true }).count()).toBe(0);
+      await page.getByRole('button', { name: 'Change folder' }).click();
       await folder.waitFor({ state: 'visible' });
       expect(await folder.inputValue()).toBe(harness.root);
+      await page.getByRole('button', { name: 'Use selected folder' }).click();
+      expect(await folder.count()).toBe(0);
       const action = page.getByRole('button', { name: 'Secure Dashboard access required' });
       expect(await action.isEnabled()).toBe(true);
       await action.click();
@@ -344,9 +354,9 @@ describe.skipIf(!CHROMIUM)('Mission Control SPA visual regression (proposal 018)
       await page.getByRole('link', { name: 'Fleet' }).click();
       expect((await fleetResponse).status()).toBe(200);
       console.log('[signed-dashboard-test] Fleet API authorized after navigation');
-      const defaultFolder = page.getByRole('textbox', { name: 'Folder path to provision' });
-      await defaultFolder.waitFor({ state: 'visible' });
-      await expect.poll(() => defaultFolder.inputValue()).toBe(local.root);
+      await page.getByText('AI workspace', { exact: true }).waitFor({ state: 'visible' });
+      await page.getByText(local.root, { exact: true }).waitFor({ state: 'visible' });
+      expect(await page.getByRole('textbox', { name: 'Folder path to provision' }).count()).toBe(0);
       expect(await page.getByRole('button', { name: 'Create & Start AI Fleet' }).isEnabled()).toBe(true);
       await page.reload({ waitUntil: 'domcontentloaded', timeout: 8_000 });
       await page.getByRole('link', { name: 'Fleet' }).waitFor({ state: 'visible', timeout: 5_000 });
@@ -434,7 +444,9 @@ describe.skipIf(!CHROMIUM)('Mission Control SPA visual regression (proposal 018)
       });
       await page.goto(`${local.baseUrl}/app/fleet?token=local-preview-token`, { waitUntil: 'networkidle' });
       // Quickstart is prominent; manual sandbox settings stay collapsed.
+      await page.getByRole('button', { name: 'Change folder' }).click();
       await page.getByRole('textbox', { name: 'Folder path to provision' }).fill(project);
+      await page.getByRole('button', { name: 'Use selected folder' }).click();
       const quickStartCta = page.getByRole('button', {
         name: 'Secure Dashboard access required', exact: true,
       });
