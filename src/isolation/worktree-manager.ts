@@ -766,6 +766,30 @@ export class WorktreeManager {
         patch,
       );
 
+    // A successful reverse precheck proves patch applicability, not file
+    // ownership at the later Git mutation. Preserve identity of every
+    // affected tracked path, including paths currently absent after apply.
+    const trackedSourceIdentity = (path: string): string => {
+      const target = this.validatedInside(
+        resolve(isolation.sourceRoot, assertRelativePath(path)),
+        isolation.sourceRoot,
+      );
+      let observed: ReturnType<typeof lstatSync>;
+      try {
+        observed = lstatSync(target);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return "missing";
+        throw error;
+      }
+      if (!observed.isFile() || observed.isSymbolicLink()) {
+        throw new Error(`ROLLBACK_SOURCE_CHANGED: unsafe tracked source: ${path}`);
+      }
+      return `${observed.dev}:${observed.ino}:${observed.ctimeMs}:${observed.size}`;
+    };
+    const trackedBefore = new Map(
+      expectedTracked.map((path) => [path, trackedSourceIdentity(path)]),
+    );
+
     this.hooks.beforeRollbackMutation?.(cloneIsolation(isolation));
     this.assertWorktreePresent(isolation);
     const removed: AppliedUntrackedFile[] = [];
@@ -782,6 +806,14 @@ export class WorktreeManager {
       }
       if (patch) {
         this.assertWorktreePresent(isolation);
+        for (const [path, identity] of trackedBefore) {
+          if (trackedSourceIdentity(path) !== identity) {
+            throw new Error(`ROLLBACK_SOURCE_CHANGED: tracked source identity changed: ${path}`);
+          }
+        }
+        // A writer may have modified patch applicability after the first
+        // precheck, even if its file identity still matches.
+        git(isolation.sourceRoot, ["apply", "--reverse", "--check", "--binary", "-"], patch);
         git(
           isolation.sourceRoot,
           ["apply", "--reverse", "--binary", "-"],
