@@ -42,16 +42,6 @@ jobs:
         run: node node_modules/playwright-core/cli.js install --with-deps chromium
       - name: Run strict pixel diff and 390px viewport assertions
         run: npx vitest run tests/visual/spa-visual.test.ts --reporter=verbose
-      - name: Upload changed Fleet screenshots from pinned visual runner
-        if: failure()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: fleet-quickstart-visual-actual
-          path: |
-            /tmp/ff-visual-fleet.desktop.actual.png
-            /tmp/ff-visual-fleet.mobile.actual.png
-          if-no-files-found: ignore
-          retention-days: 3
 
   compatibility:
     name: ${{ matrix.os }} / Node ${{ matrix.node }}
