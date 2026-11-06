@@ -60,6 +60,7 @@ import { verifyOpenAiKey } from "../control/openai-verify.js";
 import { publicFleetInstance } from "../provisioner/fleet-manager.js";
 import { logger } from "../core/logger.js";
 import { MISSION_CONTROL_OPERATOR_ROLE } from "../operator/mission-control.js";
+import { describeConfig } from "../operator/config-descriptors.js";
 import { GROUP_PRESETS, resolveActiveTools } from "../tools/index.js";
 import { readFolderForgeVersion } from "../core/version.js";
 
@@ -156,6 +157,7 @@ function authenticatedLoopbackDashboardOwner(req: IncomingMessage, opts: Dashboa
  *   POST /approvals/:id/approve  -> approve (body: { scope?: 'once'|'session' })
  *   POST /approvals/:id/deny     -> deny
  *   POST /policy/mode             -> change persistent runtime policy mode (admin only)
+ *   GET  /operator/config      -> redacted read-only allowlisted configuration inventory
  *   GET/POST /runtime/settings    -> read/change persistent, bounded terminal limits (admin only)
  *   GET  /fleet                    -> provisioned per-folder MCP instances
  *   POST /fleet                    -> provision a folder (preset/policy + none|token|api-key|oauth auth)
@@ -2871,6 +2873,14 @@ async function handle(
       detail: { approvalId: id, approverId: principal.id },
     });
     return sendJson(res, 200, { approval: result });
+  }
+
+  if (method === "GET" && path === "/operator/config") {
+    return sendJson(res, 200, {
+      scope: "parent",
+      readOnly: true,
+      descriptors: describeConfig(container),
+    });
   }
 
   if (method === "GET" && path === "/runtime/settings") {

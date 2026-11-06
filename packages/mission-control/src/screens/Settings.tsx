@@ -6,6 +6,23 @@ import type { StatusSnapshot } from '../types';
 
 const POLICY_MODES = ['readonly', 'safe', 'dev', 'danger'];
 
+interface ConfigDescriptorView {
+  key: string;
+  label: string;
+  scope: 'parent';
+  category: 'LIVE_SAFE' | 'OWNER_ONLY';
+  effective: number | boolean | null;
+  source: 'unknown';
+  editable: boolean;
+  blockedReason: string;
+}
+
+interface ConfigInventoryView {
+  scope: 'parent';
+  readOnly: boolean;
+  descriptors: ConfigDescriptorView[];
+}
+
 interface RuntimeSettingsView {
   terminal: {
     defaultTimeoutMs: number;
@@ -20,6 +37,7 @@ export function SettingsScreen() {
   const toast = useToast();
   const status = useApi<StatusSnapshot>('/status');
   const runtime = useApi<RuntimeSettingsView>('/runtime/settings');
+  const inventory = useApi<ConfigInventoryView>('/operator/config', 15000);
   const action = useAction();
   const [token, setTokenValue] = useState(getToken());
   const [mode, setMode] = useState('dev');
@@ -112,6 +130,33 @@ export function SettingsScreen() {
           </Button>
         </div>
         <ErrorNote message={action.error} />
+      </Card>
+
+      <Card title="Configuration inventory" hint="read-only · parent runtime · no secrets">
+        {inventory.error ? <ErrorNote message={inventory.error} /> : null}
+        {inventory.data ? (
+          <div className="grid gap-3 text-sm">
+            <p className="text-xs text-muted">
+              Live values from this process; source precedence is unknown. No edits are enabled.
+              The rolling 24-hour quota is per process, not shared between running instances.
+            </p>
+            {inventory.data.descriptors.map((item) => (
+              <div key={item.key} className="rounded-lg border border-border bg-raised p-3">
+                <div className="flex flex-wrap justify-between gap-2">
+                  <p className="font-medium">{item.label}</p>
+                  <strong>{item.effective === null ? 'Not configured' : String(item.effective)}</strong>
+                </div>
+                <p className="mt-1 text-xs text-muted">
+                  Parent · {item.category === 'OWNER_ONLY' ? 'Owner-only' : 'Runtime value'}
+                  {' · '}Source: unknown · Read-only
+                </p>
+                <p className="mt-1 text-xs text-muted">{item.blockedReason}</p>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-muted">Loading redacted configuration…</p>
+        )}
       </Card>
 
       <Card title="Terminal execution" hint="effective runtime configuration">

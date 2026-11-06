@@ -264,8 +264,8 @@ describe.skipIf(!CHROMIUM)('Mission Control SPA visual regression (proposal 018)
     }
   });
 
-  it.each(['overview', 'fleet'])('keeps %s inside the 390px mobile viewport', { timeout: 30_000 }, async name => {
-    const path = name === 'overview' ? '/' : '/fleet';
+  it.each(['overview', 'fleet', 'settings'])('keeps %s inside the 390px mobile viewport', { timeout: 30_000 }, async name => {
+    const path = name === 'overview' ? '/' : `/${name}`;
     const page = await mobile.newPage();
     try {
       await page.goto(`${harness.baseUrl}/app${path}`, { waitUntil: 'networkidle' });
@@ -278,6 +278,20 @@ describe.skipIf(!CHROMIUM)('Mission Control SPA visual regression (proposal 018)
       expect(dimensions.viewport).toBe(MOBILE.width);
       expect(dimensions.documentWidth).toBeLessThanOrEqual(MOBILE.width);
       expect(dimensions.bodyWidth).toBeLessThanOrEqual(MOBILE.width);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('renders the read-only configuration inventory without enabling quota edits', { timeout: 30_000 }, async () => {
+    const page = await desktop.newPage();
+    try {
+      await page.goto(`${harness.baseUrl}/app/settings`, { waitUntil: 'networkidle' });
+      await page.getByText('Configuration inventory', { exact: true }).waitFor({ state: 'visible' });
+      await page.getByText('shell_exec daily calls (per process, rolling 24h)').waitFor();
+      await page.getByText('Rate limiting enabled').waitFor();
+      expect(await page.getByText('Source: unknown · Read-only').count()).toBe(4);
+      expect(await page.getByRole('button', { name: /save quota|apply quota|disable rate limiting/i }).count()).toBe(0);
     } finally {
       await page.close();
     }
