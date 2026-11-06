@@ -100,6 +100,7 @@ function ShellQuotaEditor(props: { onSaved: () => void }) {
     }
     setBusy(true);
     setError(null);
+    let applyAttempted = false;
     try {
       const body = {
         scope: 'parent', key: 'rateLimit.overrides.shell_exec',
@@ -107,12 +108,19 @@ function ShellQuotaEditor(props: { onSaved: () => void }) {
       };
       // Both operations require a signed local owner and same-origin browser.
       await api('/operator/config/validate', { method: 'POST', sensitive: true, body });
+      applyAttempted = true;
       await api('/operator/config/apply', { method: 'POST', sensitive: true, body });
       setDirty(false);
       quota.reload();
       props.onSaved();
       toast('success', 'Quota saved for this process');
     } catch (caught) {
+      // An interrupted write may have changed the saved revision even when
+      // the HTTP result is an error. Reload authoritative state after apply.
+      if (applyAttempted) {
+        setDirty(false);
+        quota.reload();
+      }
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
       setBusy(false);

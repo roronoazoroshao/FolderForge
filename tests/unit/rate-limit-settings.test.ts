@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { defaultConfig } from '../../src/runtime/config.js';
 import { RateLimiter } from '../../src/policy/rate-limiter.js';
-import { RateLimitSettings } from '../../src/operator/rate-limit-settings.js';
+import { RateLimitSettings, RateLimitSettingsError } from '../../src/operator/rate-limit-settings.js';
 
 const roots: string[] = [];
 function fixture() {
@@ -127,11 +127,44 @@ describe('owner-controlled shell_exec quota persistence', () => {
       .toThrow(/invalid|operator-owned/i);
   });
 
+  it.skipIf(process.platform === 'win32')('refuses dangling quota symlink inside a shared state directory at startup', () => {
+    const { root, config } = fixture();
+    const dir = join(root, '.folderforge');
+    mkdirSync(dir, { mode: 0o700 });
+    symlinkSync(join(root, 'missing-target'), join(dir, 'rate-limit-settings.json'));
+    chmodSync(dir, 0o777);
+    expect(() => new RateLimitSettings(root, config)).toThrow(/invalid|symlink|operator-owned/i);
+  });
+
   it('reports exact startup quota without fabricating an unset daily quota', () => {
     const { root, config, limiter } = fixture();
     delete config.rateLimit.overrides.shell_exec!.dailyQuota;
     const editor = new RateLimitSettings(root, config);
     expect(editor.describe(limiter).effective.dailyQuota).toBeUndefined();
+  });
+
+  it.skipIf(process.platform === 'win32')('reports uncertain directory-fsync durability after rename without splitting live and disk quotas', () => {
+    const { root, config, limiter } = fixture();
+    for (let i = 0; i < 3; i++) limiter.hit('shell_exec');
+    const editor = new RateLimitSettings(root, config, {
+      syncDirectory: () => { throw new Error('simulated directory fsync EIO'); },
+    });
+    try {
+      editor.apply(request('initial'), 'owner', limiter);
+      expect.unreachable('directory sync failure must not report successful durability');
+    } catch (error) {
+      expect(error).toBeInstanceOf(RateLimitSettingsError);
+      expect((error as RateLimitSettingsError).code).toBe('commit_uncertain');
+    }
+    const view = editor.describe(limiter);
+    expect(view.revision).not.toBe('initial');
+    expect(view.effective).toEqual({ dailyQuota: 500, maxCalls: 8, windowMs: 8000 });
+    expect(view.usage.dailyCount).toBe(3);
+    expect(limiter.ruleFor('shell_exec').dailyQuota).toBe(500);
+    const disk = new RateLimitSettings(root, defaultConfig(root)).describe();
+    expect(disk.revision).toBe(view.revision);
+    expect(disk.effective).toEqual(view.effective);
+    expect(() => editor.apply(request('initial'), 'owner', limiter)).toThrow(/stale/i);
   });
 
   it('preserves the rule when the persistent update is locked or cannot commit', () => {

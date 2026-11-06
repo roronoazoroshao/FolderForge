@@ -2936,20 +2936,26 @@ async function handle(
       // The required pre-commit intent and the 0600 revisioned record are
       // durable proof; this follow-up log is best-effort to avoid returning
       // a false failure after the on-disk quota has already been committed.
-      container.audit.record({
-        type: 'policy_change',
-        summary: 'shell_exec_quota_change_applied',
-        detail: {
-          actorId: principal.id, revision: applied.revision,
-          before: before.effective, after: applied.effective,
-        },
-      }, { required: false });
+      try {
+        container.audit.record({
+          type: 'policy_change',
+          summary: 'shell_exec_quota_change_applied',
+          detail: {
+            actorId: principal.id, revision: applied.revision,
+            before: before.effective, after: applied.effective,
+          },
+        }, { required: false });
+      } catch (auditError) {
+        logger.warn({ err: String(auditError), revision: applied.revision },
+          'Quota post-commit audit unavailable');
+      }
       res.setHeader('cache-control', 'no-store');
       return sendJson(res, 200, applied);
     } catch (error) {
       if (error instanceof RateLimitSettingsError) {
         const status = error.code === 'invalid_quota' ? 400
-          : error.code === 'quota_locked' ? 423 : 409;
+          : error.code === 'quota_locked' ? 423
+          : error.code === 'commit_uncertain' ? 503 : 409;
         return sendJson(res, status, { error: error.code, message: error.message });
       }
       // Filesystem/audit errors are never returned verbatim to the browser.

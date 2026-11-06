@@ -125,4 +125,74 @@ describe('Dashboard read-only configuration inventory', () => {
     expect(container.rateLimiter.ruleFor('shell_exec').dailyQuota).toBe(100);
   });
 
+  it('returns a truthful committed revision even if the post-commit audit append throws', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'folderforge-quota-audit-post-'));
+    const container = new Container(defaultConfig(root));
+    const server = startDashboard(container, buildRegistry(container), {
+      host: '127.0.0.1', port: 0, token: 'quota-post-audit-test', requireAuth: true,
+    });
+    items.push({ root, close: () => new Promise<void>((resolve, reject) => server.close(err => err ? reject(err) : resolve())) });
+    if (!server.listening) await once(server, 'listening');
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    const original = container.audit.record.bind(container.audit);
+    const audit = vi.spyOn(container.audit, 'record');
+    audit.mockImplementationOnce((event, options) => original(event, options));
+    audit.mockImplementationOnce(() => { throw new Error('simulated unexpected post-commit audit append failure'); });
+    const change = {
+      scope: 'parent', key: 'rateLimit.overrides.shell_exec', expectedRevision: 'initial',
+      value: { dailyQuota: 321, maxCalls: 9, windowMs: 9000 },
+    };
+    const response = await fetch(base + '/operator/config/apply', {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer quota-post-audit-test', origin: base,
+        'sec-fetch-site': 'same-origin', 'content-type': 'application/json',
+      },
+      body: JSON.stringify(change),
+    });
+    expect(response.status).toBe(200);
+    const data = await response.json() as { revision: string; effective: { dailyQuota: number } };
+    expect(data.revision).not.toBe('initial');
+    expect(data.effective.dailyQuota).toBe(321);
+    expect(container.rateLimiter.ruleFor('shell_exec').dailyQuota).toBe(321);
+    expect(audit.mock.calls[0]![1]).toEqual({ required: true });
+    const disk = new RateLimitSettings(root, defaultConfig(root)).describe();
+    expect(disk.revision).toBe(data.revision);
+  });
+
+  it.skipIf(process.platform === 'win32')('exposes an uncertain disk commit as 503 while GET reflects the current live quota', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'folderforge-quota-uncertain-http-'));
+    const container = new Container(defaultConfig(root));
+    const server = startDashboard(container, buildRegistry(container), {
+      host: '127.0.0.1', port: 0, token: 'quota-uncertain-test', requireAuth: true,
+    });
+    items.push({ root, close: () => new Promise<void>((resolve, reject) => server.close(err => err ? reject(err) : resolve())) });
+    if (!server.listening) await once(server, 'listening');
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    // Inject only the post-rename directory-sync failure. The real file is
+    // still atomically replaced; no test monkeypatching of HTTP or the limiter.
+    const settings = container.rateLimitSettings as unknown as {
+      storage: { syncDirectory?: (path: string) => void };
+    };
+    settings.storage.syncDirectory = () => { throw new Error('simulated EIO after rename'); };
+    const bearer = { authorization: 'Bearer quota-uncertain-test' };
+    const apply = await fetch(base + '/operator/config/apply', {
+      method: 'POST',
+      headers: { ...bearer, origin: base, 'sec-fetch-site': 'same-origin', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        scope: 'parent', key: 'rateLimit.overrides.shell_exec',
+        expectedRevision: 'initial', value: { dailyQuota: 212, maxCalls: 6, windowMs: 6000 },
+      }),
+    });
+    expect(apply.status).toBe(503);
+    expect(await apply.json()).toMatchObject({ error: 'commit_uncertain' });
+    const current = await fetch(base + '/operator/config/quota', { headers: bearer });
+    expect(current.status).toBe(200);
+    const view = await current.json() as { revision: string; effective: { dailyQuota: number } };
+    expect(view.revision).not.toBe('initial');
+    expect(view.effective.dailyQuota).toBe(212);
+    expect(container.rateLimiter.ruleFor('shell_exec').dailyQuota).toBe(212);
+    expect(new RateLimitSettings(root, defaultConfig(root)).describe().revision).toBe(view.revision);
+  });
+
 });

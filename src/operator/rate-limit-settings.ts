@@ -30,7 +30,7 @@ export interface RateLimitSettingsView {
 }
 
 export class RateLimitSettingsError extends Error {
-  constructor(public readonly code: 'invalid_quota' | 'stale_revision' | 'quota_locked' | 'corrupt_quota' | 'rate_limit_disabled', message: string) {
+  constructor(public readonly code: 'invalid_quota' | 'stale_revision' | 'quota_locked' | 'corrupt_quota' | 'rate_limit_disabled' | 'commit_uncertain', message: string) {
     super(message);
     this.name = 'RateLimitSettingsError';
   }
@@ -74,7 +74,11 @@ export class RateLimitSettings {
   private readonly lockPath: string;
   private stored: PersistedRule | undefined;
 
-  constructor(projectRoot: string, private readonly config: FolderForgeConfig) {
+  constructor(
+    projectRoot: string,
+    private readonly config: FolderForgeConfig,
+    private readonly storage: { syncDirectory?: (path: string) => void } = {},
+  ) {
     this.path = resolve(projectRoot, '.folderforge', 'rate-limit-settings.json');
     this.lockPath = this.path + '.lock';
     const trustedStorage = this.assertStorageDirectory();
@@ -92,7 +96,13 @@ export class RateLimitSettings {
     }
     // An empty legacy project directory is harmless on read-only startup.
     // Loading a saved quota or writing to an unsafe directory is not.
-    const hasRecord = existsSync(this.path);
+    // existsSync follows symlinks and incorrectly treats a dangling symlink
+    // as absent. lstat sees it so an unsafe state directory cannot be skipped.
+    let hasRecord = false;
+    try { lstatSync(this.path); hasRecord = true; }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
     if (!directory.isDirectory() || directory.isSymbolicLink()) {
       return failure('corrupt_quota', 'Invalid or symlinked operator-owned quota directory.');
     }
@@ -237,15 +247,28 @@ export class RateLimitSettings {
       }
       renameSync(temp, this.path);
       temp = undefined;
-      // POSIX: flush the new directory entry; Windows does not permit
-      // opening directories this way, so the file itself was fsynced above.
-      if (process.platform !== 'win32') {
-        const dirFd = openSync(dirname(this.path), constants.O_RDONLY);
-        try { fsyncSync(dirFd); } finally { closeSync(dirFd); }
-      }
+      // The atomic rename has now changed the visible on-disk record. Swap
+      // live limits immediately so fsync failure cannot leave disk and this
+      // process enforcing different quotas. Existing hit buckets stay intact.
       this.stored = next;
       this.config.rateLimit.overrides.shell_exec = { ...next.rule };
       result = this.describe(limiter);
+      // POSIX: flush the new directory entry. A failure here is NOT a
+      // rollback: power-loss durability is uncertain even though the new
+      // record is visible now. Distinguish it from pre-rename failure.
+      if (process.platform !== 'win32') {
+        try {
+          if (this.storage.syncDirectory) {
+            this.storage.syncDirectory(dirname(this.path));
+          } else {
+            const dirFd = openSync(dirname(this.path), constants.O_RDONLY);
+            try { fsyncSync(dirFd); } finally { closeSync(dirFd); }
+          }
+        } catch {
+          failure('commit_uncertain',
+            'Quota file was replaced and live limits updated, but disk durability is uncertain; reload before retrying.');
+        }
+      }
     } catch (error) {
       failureCause = error;
     } finally {

@@ -162,7 +162,14 @@ a separate Fleet instance has independent limits. Two live control processes
 are **not** automatically hot-synchronized; a stale process is refused
 concurrent persistence. For recovery, use the original startup configuration
 and fix an invalid operator settings file *offline*, after stopping the
-affected service. The record's checksum is accidental-corruption detection,
+affected service. If the file rename succeeds but the directory fsync fails, the live quota is
+updated to match the visible disk record, and the API reports a 503
+`commit_uncertain` rather than an ordinary failed write. Reload Settings
+to obtain the current authoritative revision before retrying. A power loss
+could still roll back that filesystem entry; this is not a durable-commit
+guarantee.
+
+The record's checksum is accidental-corruption detection,
 **not** a cryptographic defense against a malicious process with the same OS
 write privileges. Shell commands with unrestricted host access remain bound
 by the owner's OS permissions, not by this settings file.
