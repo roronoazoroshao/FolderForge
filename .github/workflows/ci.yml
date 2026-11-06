@@ -42,6 +42,14 @@ jobs:
         run: node node_modules/playwright-core/cli.js install --with-deps chromium
       - name: Run strict pixel diff and 390px viewport assertions
         run: npx vitest run tests/visual/spa-visual.test.ts --reporter=verbose
+      - name: Capture pinned settings screenshot on visual mismatch
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: d2-settings-visual-actual
+          path: /tmp/ff-visual-settings.desktop.actual.png
+          if-no-files-found: ignore
+          retention-days: 3
 
   compatibility:
     name: ${{ matrix.os }} / Node ${{ matrix.node }}
