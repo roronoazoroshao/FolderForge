@@ -151,12 +151,18 @@ async function shoot(context: BrowserContext, url: string): Promise<Buffer> {
     });
     await page.waitForTimeout(300); // one beat past the first data paint
     expect(external).toEqual([]);
-    // The server's default folder is a machine-specific (and in this
-    // harness randomized) path. A separate behavioral test checks its
-    // actual value; it should not destabilize visual pixel baselines.
-    await page.locator('input[aria-label="Folder path to provision"]').evaluateAll(elements => {
-      for (const element of elements) (element as HTMLInputElement).value = '';
-    });
+    // Normalize only the deliberately dynamic default folder and its CTA
+    // state in the anonymous snapshot fixture: random temp paths and whether
+    // one was resolved are not visual layout regressions. Separate real-browser
+    // tests assert both the actual selected path and signed-owner CTA readiness.
+    if (new URL(url).pathname.endsWith('/fleet')) {
+      await page.locator('input[aria-label="Folder path to provision"]').evaluateAll(elements => {
+        for (const element of elements) (element as HTMLInputElement).value = '';
+      });
+      await page.getByRole('button', { name: 'Secure Dashboard access required' }).evaluate(
+        element => { (element as HTMLButtonElement).disabled = true; },
+      );
+    }
     return await page.screenshot({ fullPage: true });
   } finally {
     await page.close();
