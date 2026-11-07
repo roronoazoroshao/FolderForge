@@ -42,6 +42,16 @@ jobs:
         run: node node_modules/playwright-core/cli.js install --with-deps chromium
       - name: Run strict pixel diff and 390px viewport assertions
         run: npx vitest run tests/visual/spa-visual.test.ts --reporter=verbose
+      - name: Capture Overview visual baseline changes for owner review
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: overview-onboarding-visual-actual
+          path: |
+            /tmp/ff-visual-overview.desktop.actual.png
+            /tmp/ff-visual-overview.mobile.actual.png
+          if-no-files-found: ignore
+          retention-days: 3
 
   compatibility:
     name: ${{ matrix.os }} / Node ${{ matrix.node }}

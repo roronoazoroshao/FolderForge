@@ -250,6 +250,32 @@ describe.skipIf(!CHROMIUM)('Mission Control SPA visual regression (proposal 018)
     }
   }
 
+  it('shows the first-run AI setup link only without Fleet and preserves owner verification', { timeout: 30_000 }, async () => {
+    const page = await desktop.newPage();
+    try {
+      await page.goto(`${harness.baseUrl}/app/`, { waitUntil: 'networkidle' });
+      const setup = page.getByRole('link', { name: 'Set up AI access' });
+      await setup.waitFor({ state: 'visible', timeout: 5_000 });
+      expect(harness.container.fleet.list()).toHaveLength(0);
+      await setup.click();
+      await page.getByText('AI workspace', { exact: true }).waitFor({ state: 'visible' });
+      await page.getByRole('button', { name: 'Secure Dashboard access required' })
+        .waitFor({ state: 'visible', timeout: 6_000 });
+      expect(harness.container.fleet.list()).toHaveLength(0);
+
+      // The Overview first-run prompt disappears once an instance exists.
+      await page.route('**/fleet', route => route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify({ instances: [{ id: 'existing', port: 10001, state: 'stopped' }] }),
+      }));
+      await page.goto(`${harness.baseUrl}/app/`, { waitUntil: 'networkidle' });
+      await page.getByText('folders provisioned', { exact: true }).waitFor();
+      expect(await page.getByRole('link', { name: 'Set up AI access' }).count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
   it('prefills the allowed project folder without Browse while keeping owner auth required', { timeout: 30_000 }, async () => {
     const page = await desktop.newPage();
     try {
