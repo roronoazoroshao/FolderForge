@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   existsSync,
+  linkSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   realpathSync,
   renameSync,
@@ -13,6 +15,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { tmpdir } from "node:os";
 import { WorktreeManager } from "../../src/isolation/worktree-manager.js";
 import { inspectWorktreeHealth } from "../../src/isolation/worktree-health.js";
@@ -43,6 +46,268 @@ afterEach(() => {
 });
 
 describe("WorktreeManager", () => {
+  it("G01: refuses a symlink-backed registry even when its digest and Git refs are valid", () => {
+    const root = repository();
+    const manager = new WorktreeManager([root], root);
+    manager.create("registry-symlink");
+    const statePath = join(root, ".git", "folderforge", "isolations.json");
+    const original = readFileSync(statePath);
+    // The alias remains INSIDE the Git admin directory, so path containment
+    // alone cannot distinguish a regular registry from a mutable symlink.
+    const alias = join(root, ".git", "folderforge", "registry-alias.json");
+    writeFileSync(alias, original);
+    rmSync(statePath);
+    symlinkSync(alias, statePath, "file");
+    const refsBefore = git(root, "show-ref");
+
+    expect(() => new WorktreeManager([root], root)).toThrow(/ISOLATION_REGISTRY_UNSAFE/);
+    // An already-loaded writer must also refuse before touching Git refs.
+    expect(() => manager.create("second-task")).toThrow(/ISOLATION_REGISTRY_UNSAFE/);
+    expect(readFileSync(alias)).toEqual(original);
+    expect(git(root, "show-ref")).toBe(refsBefore);
+    expect(readFileSync(join(root, "tracked.txt"), "utf8")).toBe("original\n");
+  });
+
+  it("G01: refuses hardlink-backed registries with a second writable alias", () => {
+    const root = repository();
+    const manager = new WorktreeManager([root], root);
+    manager.create("registry-hardlink");
+    const statePath = join(root, ".git", "folderforge", "isolations.json");
+    const alias = join(root, ".git", "folderforge", "registry-hardlink-alias.json");
+    const before = readFileSync(statePath);
+    linkSync(statePath, alias);
+    const refsBefore = git(root, "show-ref");
+
+    // Both paths expose the same inode: regular-file and no-follow checks pass.
+    // A second alias must not silently become an alternate registry writer.
+    expect(() => new WorktreeManager([root], root)).toThrow(/ISOLATION_REGISTRY_UNSAFE/);
+    expect(() => manager.create("later-hardlink-task")).toThrow(/ISOLATION_REGISTRY_UNSAFE/);
+    expect(readFileSync(statePath)).toEqual(before);
+    expect(readFileSync(alias)).toEqual(before);
+    expect(git(root, "show-ref")).toBe(refsBefore);
+  });
+
+  it("G01: rejects a redirected managed Git directory before creating a branch", () => {
+    const root = repository();
+    const outside = mkdtempSync(join(tmpdir(), "folderforge-redirection-"));
+    roots.push(outside);
+    writeFileSync(join(outside, "precious.txt"), "foreign bytes\n");
+    const manager = new WorktreeManager([root], root);
+    symlinkSync(outside, join(root, ".git", "folderforge"),
+      process.platform === "win32" ? "junction" : "dir");
+    const refsBefore = git(root, "show-ref");
+
+    expect(() => manager.create("redirected-directory")).toThrow(/Isolation path (escapes|resolves outside) managed root/);
+    expect(git(root, "show-ref")).toBe(refsBefore);
+    expect(readdirSync(outside)).toEqual(["precious.txt"]);
+    expect(readFileSync(join(outside, "precious.txt"), "utf8")).toBe("foreign bytes\n");
+  });
+
+  it("G01: rejects duplicate task ownership even when registry digest and Git refs are valid", () => {
+    const root = repository();
+    const manager = new WorktreeManager([root], root);
+    const first = manager.create("task-owner");
+    const second = manager.create("other-owner");
+    const statePath = join(root, ".git", "folderforge", "isolations.json");
+    const state = JSON.parse(readFileSync(statePath, "utf8")) as {
+      isolations: Array<{ id: string; taskId: string; branch: string }>;
+      digest: string;
+    };
+    const duplicate = state.isolations.find((item) => item.id === second.id)!;
+    duplicate.taskId = first.taskId;
+    duplicate.branch = `folderforge/task/${first.taskId}-${second.id.slice(-8)}`;
+    git(second.worktreeRoot, "branch", "-m", duplicate.branch);
+    state.digest = `sha256:${createHash("sha256")
+      .update(JSON.stringify(state.isolations)).digest("hex")}`;
+    writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`);
+    const before = readFileSync(statePath);
+    const refsBefore = git(root, "show-ref");
+
+    expect(() => new WorktreeManager([root], root)).toThrow(/Duplicate isolation taskId/);
+    expect(readFileSync(statePath)).toEqual(before);
+    expect(git(root, "show-ref")).toBe(refsBefore);
+    expect(readFileSync(join(root, "tracked.txt"), "utf8")).toBe("original\n");
+  });
+
+  it("G01: refuses duplicate checked-out branch identities in Git inventory", () => {
+    const root = repository();
+    const branch = "folderforge/task/ambiguous-1234abcd";
+    const firstRoot = join(root, ".git", "folderforge", "worktrees", "iso_aaaaaaaaaaaaaaaaaaaa");
+    const secondRoot = join(root, ".git", "folderforge", "worktrees", "iso_bbbbbbbbbbbbbbbbbbbb");
+    git(root, "worktree", "add", "-b", branch, firstRoot, "HEAD");
+    // Git permits this with --force, so a branch name alone is not a unique worktree identity.
+    git(root, "worktree", "add", "--force", secondRoot, branch);
+    writeFileSync(join(firstRoot, "precious.txt"), "first worktree bytes\n");
+    writeFileSync(join(secondRoot, "precious.txt"), "second worktree bytes\n");
+    const refsBefore = git(root, "show-ref");
+    const manager = new WorktreeManager([root], root);
+    expect(() => manager.discoverUnregisteredWorktrees()).toThrow(/ISOLATION_INVENTORY_INCOMPLETE/);
+    expect(() => manager.discoverUnregisteredBranches()).toThrow(/ISOLATION_INVENTORY_INCOMPLETE/);
+    expect(git(root, "show-ref")).toBe(refsBefore);
+    expect(readFileSync(join(firstRoot, "precious.txt"), "utf8")).toBe("first worktree bytes\n");
+    expect(readFileSync(join(secondRoot, "precious.txt"), "utf8")).toBe("second worktree bytes\n");
+  });
+
+  it("G01: reports branch-only crash orphans without claiming branch ownership", () => {
+    const root = repository();
+    const orphanBranch = "folderforge/task/pre-add-crash-aabbccdd";
+    const checkedOutBranch = "folderforge/task/checked-out-11223344";
+    git(root, "branch", orphanBranch, "HEAD");
+    git(root, "branch", "unrelated-foreign", "HEAD");
+    const checkedOutRoot = join(root, ".git", "folderforge", "worktrees", "iso_0123456789abcdef0123");
+    git(root, "worktree", "add", "-b", checkedOutBranch, checkedOutRoot, "HEAD");
+    const refsBefore = git(root, "show-ref");
+    const observed = new WorktreeManager([root], root).discoverUnregisteredBranches();
+    expect(observed).toEqual([{
+      branch: orphanBranch,
+      headCommit: git(root, "rev-parse", "HEAD").trim(),
+      classification: "branch_only_not_owned",
+    }]);
+    expect(git(root, "show-ref")).toBe(refsBefore);
+    expect(git(root, "branch", "--list", orphanBranch)).toContain(orphanBranch);
+  });
+
+  it("G01: rejects a corrupt zero-HEAD Git inventory instead of trusting an ambiguous identity", () => {
+    const root = repository();
+    const orphanRoot = join(root, ".git", "folderforge", "worktrees", "iso_abcdef0123456789abcd");
+    git(root, "worktree", "add", "-b", "folderforge/task/broken-6789abcd", orphanRoot, "HEAD");
+    writeFileSync(join(orphanRoot, "precious.txt"), "preserve corrupt-inventory bytes\\n");
+    const gitdirLine = readFileSync(join(orphanRoot, ".git"), "utf8").trim();
+    expect(gitdirLine.startsWith("gitdir: ")).toBe(true);
+    const adminDir = gitdirLine.slice("gitdir: ".length);
+    renameSync(join(adminDir, "HEAD"), join(adminDir, "HEAD.broken"));
+    expect(git(root, "worktree", "list", "--porcelain")).toMatch(/HEAD 0{40}/);
+    const manager = new WorktreeManager([root], root);
+    expect(() => manager.discoverUnregisteredWorktrees()).toThrow(/ISOLATION_INVENTORY_INCOMPLETE/);
+    expect(readFileSync(join(orphanRoot, "precious.txt"), "utf8")).toBe("preserve corrupt-inventory bytes\\n");
+  });
+
+  it("G01: stale discovery refuses to return a registry-inconsistent snapshot", () => {
+    const root = repository();
+    const stale = new WorktreeManager([root], root);
+    const updated = new WorktreeManager([root], root);
+    updated.create("concurrent-record");
+    expect(() => stale.discoverUnregisteredWorktrees()).toThrow(/ISOLATION_REGISTRY_CHANGED/);
+    const refreshed = new WorktreeManager([root], root);
+    expect(refreshed.list()).toHaveLength(1);
+  });
+
+  it("G01: discovers crash-window worktrees without claiming ownership or mutating Git/registry", () => {
+    const root = repository();
+    const manager = new WorktreeManager([root], root);
+    const persisted = manager.create("persisted");
+    const id = "iso_0123456789abcdef0123";
+    const branch = "folderforge/task/crash-window-" + id.slice(-8);
+    const orphanRoot = join(root, ".git", "folderforge", "worktrees", id);
+    git(root, "worktree", "add", "-b", branch, orphanRoot, "HEAD");
+    writeFileSync(join(orphanRoot, "crash-user.txt"), "must survive discovery\n");
+    const registry = join(root, ".git", "folderforge", "isolations.json");
+    const before = readFileSync(registry);
+    const branchList = git(root, "branch", "--list");
+    const observed = new WorktreeManager([root], root).discoverUnregisteredWorktrees();
+    expect(observed).toEqual([
+      expect.objectContaining({
+        id,
+        worktreeRoot: realpathSync.native(orphanRoot),
+        branch,
+        classification: "candidate_not_owned",
+      }),
+    ]);
+    expect(observed.every((entry) => entry.id !== persisted.id)).toBe(true);
+    expect(readFileSync(registry)).toEqual(before);
+    expect(git(root, "branch", "--list")).toBe(branchList);
+    expect(readFileSync(join(orphanRoot, "crash-user.txt"), "utf8")).toBe("must survive discovery\n");
+  });
+
+  it("G01: ambiguous branch identity remains visible, never auto-registered or deleted", () => {
+    const root = repository();
+    const id = "iso_abcdef0123456789abcd";
+    const path = join(root, ".git", "folderforge", "worktrees", id);
+    git(root, "worktree", "add", "-b", "foreign-branch", path, "HEAD");
+    writeFileSync(join(path, "precious.txt"), "foreign bytes\n");
+    const manager = new WorktreeManager([root], root);
+    const observed = manager.discoverUnregisteredWorktrees();
+    expect(observed).toEqual([
+      expect.objectContaining({
+        id,
+        worktreeRoot: realpathSync.native(path),
+        branch: "foreign-branch",
+        classification: "ambiguous_not_owned",
+      }),
+    ]);
+    expect(manager.list()).toHaveLength(0);
+    expect(readFileSync(join(path, "precious.txt"), "utf8")).toBe("foreign bytes\n");
+    expect(git(root, "show-ref", "--verify", "refs/heads/foreign-branch")).toMatch(/^[a-f0-9]{40}/);
+  });
+
+  it("G01: a stale process must not erase another process's durable isolation entry", () => {
+    const root = repository();
+    // The first writer remains alive with a snapshot taken before the second writer commits.
+    const stale = new WorktreeManager([root], root);
+    const sourceModule = pathToFileURL(
+      join(process.cwd(), "src/isolation/worktree-manager.ts"),
+    ).href;
+    const childScript = [
+      'import { WorktreeManager } from "' + sourceModule + '";',
+      "const root = process.argv[1];",
+      "const manager = new WorktreeManager([root], root);",
+      'const created = manager.create("cross-process-writer-b");',
+      "console.log(JSON.stringify({ id: created.id, branch: created.branch }));",
+    ].join("\n");
+    const child = spawnSync(
+      process.execPath,
+      ["--import", "tsx", "--input-type=module", "-e", childScript, root],
+      { cwd: process.cwd(), encoding: "utf8", timeout: 15000 },
+    );
+    expect(child.status, child.stderr).toBe(0);
+    const other = JSON.parse(child.stdout.trim()) as { id: string; branch: string };
+    const registryPath = join(root, ".git", "folderforge", "isolations.json");
+    const before = readFileSync(registryPath);
+    const branchesBefore = git(root, "branch", "--list");
+
+    // The stale writer must refuse BEFORE creating a task branch/worktree.
+    expect(() => stale.create("cross-process-writer-a")).toThrow(
+      /ISOLATION_REGISTRY_CHANGED/,
+    );
+    expect(readFileSync(registryPath)).toEqual(before);
+    expect(git(root, "branch", "--list")).toBe(branchesBefore);
+    const refreshed = new WorktreeManager([root], root);
+    expect(refreshed.get(other.id)?.branch).toBe(other.branch);
+  });
+
+  it("G01: stale apply refuses before source mutation and a fresh manager can recover", () => {
+    const root = repository();
+    const initial = new WorktreeManager([root], root);
+    const isolation = initial.create("cross-process-apply");
+    writeFileSync(join(isolation.worktreeRoot, "tracked.txt"), "task change\n");
+    const stale = new WorktreeManager([root], root);
+    const sourceModule = pathToFileURL(
+      join(process.cwd(), "src/isolation/worktree-manager.ts"),
+    ).href;
+    const script = [
+      'import { WorktreeManager } from "' + sourceModule + '";',
+      "const root = process.argv[1];",
+      "const manager = new WorktreeManager([root], root);",
+      'manager.create("cross-process-unrelated");',
+    ].join("\n");
+    const child = spawnSync(
+      process.execPath,
+      ["--import", "tsx", "--input-type=module", "-e", script, root],
+      { cwd: process.cwd(), encoding: "utf8", timeout: 15000 },
+    );
+    expect(child.status, child.stderr).toBe(0);
+    const statePath = join(root, ".git", "folderforge", "isolations.json");
+    const before = readFileSync(statePath);
+    expect(() => stale.apply(isolation.id)).toThrow(/ISOLATION_REGISTRY_CHANGED/);
+    expect(readFileSync(join(root, "tracked.txt"), "utf8")).toBe("original\n");
+    expect(readFileSync(statePath)).toEqual(before);
+
+    const recovered = new WorktreeManager([root], root);
+    recovered.apply(isolation.id);
+    expect(readFileSync(join(root, "tracked.txt"), "utf8")).toBe("task change\n");
+    expect(new WorktreeManager([root], root).list()).toHaveLength(2);
+  });
+
   it("G01: discard preserves a clean task branch with unique unmerged commits", () => {
     const root = repository();
     const manager = new WorktreeManager([root], root);

@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   includesExpectedText,
+  pinnedInstallSpecs,
   resolveNpmLaunch,
 } from '../../scripts/child-mcp-third-party.mjs';
 
@@ -59,17 +60,53 @@ describe('third-party child MCP compatibility manifest', () => {
     expect(report.npmOverrides).toEqual([
       expect.objectContaining({
         package: 'glob',
-        version: '14.0.2',
+        version: '14.0.3',
         integrity: expect.stringMatching(/^sha512-/),
         reason: expect.stringMatching(/GHSA-3g3m-2fjr-6pw4/),
       }),
       expect.objectContaining({
         package: 'minimatch',
-        version: '11.0.1',
+        version: '11.0.3',
         integrity: expect.stringMatching(/^sha512-/),
         reason: expect.stringMatching(/GHSA-g3hv-75wg-m249/),
       }),
     ]);
+  });
+
+  it('installs verified transitive overrides as exact direct package specs across npm platforms', () => {
+    const manifest = JSON.parse(readFileSync(MANIFEST, 'utf8')) as {
+      profiles: Array<{ package: string; version: string }>;
+      npmOverrides: Array<{ package: string; version: string }>;
+    };
+    expect(pinnedInstallSpecs(manifest)).toEqual([
+      ...manifest.profiles.map((profile) => `${profile.package}@${profile.version}`),
+      'glob@14.0.3',
+      'minimatch@11.0.3',
+    ]);
+  });
+
+  it('commits an exact, audited transitive package-lock for cross-platform npm ci', () => {
+    const manifest = JSON.parse(readFileSync(MANIFEST, 'utf8')) as {
+      profiles: Array<{ package: string; version: string; integrity: string }>;
+      npmOverrides: Array<{ package: string; version: string; integrity: string }>;
+    };
+    const lock = JSON.parse(
+      readFileSync(resolve('compatibility/child-mcp-third-party.package-lock.json'), 'utf8'),
+    ) as {
+      lockfileVersion: number;
+      packages: Record<string, { version?: string; integrity?: string; dependencies?: Record<string, string> }>;
+    };
+    expect(lock.lockfileVersion).toBe(3);
+    const pins = [...manifest.profiles, ...manifest.npmOverrides];
+    expect(lock.packages['']?.dependencies).toEqual(
+      Object.fromEntries(pins.map(({ package: name, version }) => [name, version])),
+    );
+    for (const pin of pins) {
+      expect(lock.packages[`node_modules/${pin.package}`]).toMatchObject({
+        version: pin.version,
+        integrity: pin.integrity,
+      });
+    }
   });
 
   it('pins patched glob and minimatch releases for the current third-party audit advisories', () => {
@@ -79,13 +116,13 @@ describe('third-party child MCP compatibility manifest', () => {
     const pins = new Map(manifest.npmOverrides.map((entry) => [entry.package, entry]));
 
     expect(pins.get('glob')).toMatchObject({
-      version: '14.0.2',
-      integrity: 'sha512-vfMgTR2djMHPUchsJMLpZlYQvtjVL+mHpEr5wPpoCbQs2vr/FBNK+3Gnl9Ara1DSs4Aeg4eG9HiADb5/rkY/ZA==',
+      version: '14.0.3',
+      integrity: 'sha512-A1vjIwC3qpdCso45Iw127gnp7sPhqgY8lUQhDrArIs+GbmfaaVPFuoyy7WyLT9EPZCRZ7j7aLdwUhQmHWesEow==',
       reason: expect.stringContaining('GHSA-3g3m-2fjr-6pw4'),
     });
     expect(pins.get('minimatch')).toMatchObject({
-      version: '11.0.1',
-      integrity: 'sha512-t+Vn6DX4wPCxS23y03C0uhF7S1jpi1GfqPrnlEipCJaA2ykiNbMkVlDutZtmvLfRcUN6R8AYVlzTsQrT4RZoLQ==',
+      version: '11.0.3',
+      integrity: 'sha512-iny/40PEGkNJQ5/Pv6z3nm6FbRAby32GeZRjCUJk2WnNDbgPSTcdI+DDvLqsgBdD4cD5sMtMheqPPnehCCa8Nw==',
       reason: expect.stringContaining('GHSA-g3hv-75wg-m249'),
     });
   });
@@ -180,7 +217,7 @@ describe('third-party dependency resolution safety on every OS', () => {
     expect(result.dependencies['@modelcontextprotocol/server-filesystem']).toBe('2026.7.10');
     expect(result.dependencies['@playwright/mcp']).toBe('0.0.78');
     expect(Object.keys(result.dependencies)).toHaveLength(5);
-    expect(result.overrides).toMatchObject({ glob: '14.0.2', minimatch: '11.0.1' });
+    expect(result.overrides).toMatchObject({ glob: '14.0.3', minimatch: '11.0.3' });
   });
 
   it('rejects any nested vulnerable override resolution instead of silently accepting it', async () => {
@@ -204,7 +241,7 @@ describe('third-party dependency resolution safety on every OS', () => {
         version: '10.5.0', integrity: 'sha512-old',
       },
     } };
-    expect(() => check(macosRegression, manifest.npmOverrides)).toThrow(/glob.*10\.5\.0.*14\.0\.2/);
+    expect(() => check(macosRegression, manifest.npmOverrides)).toThrow(/glob.*10\.5\.0.*14\.0\.3/);
   });
 });
 

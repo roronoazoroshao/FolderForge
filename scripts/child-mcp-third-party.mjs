@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -14,6 +15,7 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const DEFAULT_MANIFEST = resolve('compatibility/child-mcp-third-party.json');
+const PINNED_LOCK = resolve('compatibility/child-mcp-third-party.package-lock.json');
 const MAX_COMMAND_OUTPUT_BYTES = 2 * 1024 * 1024;
 const EXACT_VERSION_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 const PACKAGE_RE = /^(?:@[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*|[a-z0-9][a-z0-9._-]*)$/;
@@ -353,6 +355,7 @@ function gitMetadata() {
 function sourceInputs(manifestPath) {
   const paths = [
     manifestPath,
+    PINNED_LOCK,
     fileURLToPath(import.meta.url),
     resolve('dist/adapters/child-mcp/client.js'),
   ];
@@ -403,6 +406,13 @@ function assertPinnedOverridesInLock(lock, overrides) {
       }
     }
   }
+}
+
+function pinnedInstallSpecs(manifest) {
+  return [
+    ...manifest.profiles.map((profile) => `${profile.package}@${profile.version}`),
+    ...(manifest.npmOverrides ?? []).map((override) => `${override.package}@${override.version}`),
+  ];
 }
 
 function assertInside(parent, child, label) {
@@ -507,24 +517,10 @@ function inspectInstalledPackages(manifest, installRoot) {
       : packageRoot(installRoot, override.package);
     const packageJsonPath = join(root, 'package.json');
     const lockEntry = lockPackage?.entry;
-    if (!existsSync(packageJsonPath)) {
-      if (!lockEntry) {
-        overrides.push({ ...override, installed: false });
-        continue;
-      }
-      if (lockEntry.version !== override.version || lockEntry.integrity !== override.integrity) {
-        throw new Error(`${override.package} lock-only override does not match the pinned manifest.`);
-      }
-      overrides.push({ ...override, installed: false, resolvedInLock: true });
-      continue;
-    }
-    if (!lockEntry) {
-      const unrelatedPackage = readJson(packageJsonPath);
-      if (unrelatedPackage.version !== override.version) {
-        overrides.push({ ...override, installed: false });
-        continue;
-      }
-      throw new Error(`Override installation is incomplete for ${override.package}.`);
+    if (!lockEntry || !existsSync(packageJsonPath)) {
+      throw new Error(
+        `Pinned npm override ${override.package}@${override.version} is missing from the installed package tree or verified lockfile.`,
+      );
     }
     assertInside(installRoot, root, `${override.package} override`);
     const packageJson = readJson(packageJsonPath);
@@ -556,46 +552,56 @@ function installPackages(manifest, installRoot, skipInstall) {
       warnings: [],
     };
   } else {
+    const dependencies = Object.fromEntries(
+      pinnedInstallSpecs(manifest).map((spec) => [
+        spec.slice(0, spec.lastIndexOf('@')),
+        spec.slice(spec.lastIndexOf('@') + 1),
+      ]),
+    );
+    const frozen = readJson(PINNED_LOCK);
+    if (
+      frozen.lockfileVersion !== 3 ||
+      sha256Json(frozen.packages?.['']?.dependencies ?? {}) !== sha256Json(dependencies)
+    ) {
+      throw new Error('Pinned third-party lockfile does not match exact manifest dependencies.');
+    }
+    for (const pin of [...manifest.profiles, ...(manifest.npmOverrides ?? [])]) {
+      if (!findLockPackage(frozen, pin.package, pin.version, pin.integrity)) {
+        throw new Error(`Pinned third-party lockfile is missing ${pin.package}@${pin.version} integrity.`);
+      }
+    }
     writeFileSync(
       rootPackagePath,
-      `${JSON.stringify(createPinnedInstallManifest(manifest), null, 2)}\n`,
+      JSON.stringify({
+        name: 'folderforge-third-party-compatibility',
+        version: '0.0.0',
+        private: true,
+        overrides: npmOverrideMap(manifest),
+        dependencies,
+      }, null, 2) + '\n',
       { encoding: 'utf8', mode: 0o600 },
     );
+    copyFileSync(PINNED_LOCK, join(installRoot, 'package-lock.json'));
     const startedAt = performance.now();
     // Run npm inside the canonical install root. macOS /var -> /private/var
     // symlinks and --prefix can produce lock entries outside this root.
-    const resolved = runNpm(
-      [
-        'install',
-        '--package-lock-only',
-        '--ignore-scripts',
-        '--no-audit',
-        '--no-fund',
-        '--loglevel=warn',
-      ],
-      { cwd: installRoot, timeoutMs: 300_000 },
-    );
-    if (!resolved.ok) {
-      throw new Error(
-        `Pinned third-party lock resolution failed: ${resolved.error ?? (resolved.stderr.trim() || `exit ${resolved.status}`)}`,
-      );
-    }
-    assertPinnedOverridesInLock(readJson(join(installRoot, 'package-lock.json')), manifest.npmOverrides);
     const installed = runNpm(
       ['ci', '--ignore-scripts', '--no-audit', '--no-fund', '--loglevel=warn'],
       { cwd: installRoot, timeoutMs: 300_000 },
     );
     if (!installed.ok) {
-      throw new Error(
-        `Pinned third-party package installation failed: ${installed.error ?? (installed.stderr.trim() || `exit ${installed.status}`)}`,
-      );
+      throw new Error('Pinned third-party npm ci failed: ' +
+        (installed.error ?? installed.stderr.trim() ?? String(installed.status)));
     }
+    assertPinnedOverridesInLock(
+      readJson(join(installRoot, 'package-lock.json')),
+      manifest.npmOverrides,
+    );
     installEvidence = {
       mode: 'installed-from-pinned-lock',
       lifecycleScripts: 'disabled (--ignore-scripts)',
       elapsedMs: Number((performance.now() - startedAt).toFixed(2)),
-      warnings: [resolved.stderr, installed.stderr]
-        .join('\n')
+      warnings: installed.stderr
         .split(/\r?\n/)
         .map((line) => line.trim())
         .filter(Boolean)
@@ -603,6 +609,9 @@ function installPackages(manifest, installRoot, skipInstall) {
     };
   }
   const inspected = inspectInstalledPackages(manifest, installRoot);
+  if (!skipInstall && inspected.lockSha256 !== sha256(readFileSync(PINNED_LOCK))) {
+    throw new Error('Installed third-party package-lock diverged from the verified frozen lockfile.');
+  }
   return { ...installEvidence, ...inspected };
 }
 
@@ -834,7 +843,8 @@ async function main() {
   const profileResults = [];
   let fatalError = null;
   try {
-    install = installPackages({ ...manifest, profiles: selected }, installRoot, options.skipInstall);
+    // A single selected probe still uses the complete immutable compatibility lock.
+    install = installPackages(manifest, installRoot, options.skipInstall);
     audit = auditInstall(installRoot);
     for (const profile of selected) {
       const packageInfo = install.packages.get(profile.id);
@@ -925,5 +935,6 @@ export {
   canonicalInstallRoot,
   createPinnedInstallManifest,
   includesExpectedText,
+  pinnedInstallSpecs,
   resolveNpmLaunch,
 };
