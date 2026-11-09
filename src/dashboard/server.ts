@@ -61,6 +61,7 @@ import { publicFleetInstance } from "../provisioner/fleet-manager.js";
 import { logger } from "../core/logger.js";
 import { MISSION_CONTROL_OPERATOR_ROLE } from "../operator/mission-control.js";
 import { describeConfig } from "../operator/config-descriptors.js";
+import { RateLimitSettingsError } from "../operator/rate-limit-settings.js";
 import { GROUP_PRESETS, resolveActiveTools } from "../tools/index.js";
 import { readFolderForgeVersion } from "../core/version.js";
 
@@ -136,6 +137,21 @@ export function isLoopbackHost(host: string): boolean {
  * public binds and non-loopback peers are NEVER elevation authority.
  * This is an explicit privilege of the OS-owner-created 0600 admin token.
  */
+/** Strict browser origin check for signed-owner quota writes (no URL tokens). */
+function sameOriginOperatorMutation(req: IncomingMessage): boolean {
+  const origin = req.headers.origin;
+  const host = req.headers.host;
+  if (typeof origin !== 'string' || typeof host !== 'string') return false;
+  const site = req.headers['sec-fetch-site'];
+  if (site && site !== 'same-origin' && site !== 'none') return false;
+  try {
+    const url = new URL(origin);
+    return (url.protocol === 'http:' || url.protocol === 'https:') &&
+      url.host.toLowerCase() === host.toLowerCase() &&
+      url.pathname === '/' && url.search === '' && url.hash === '';
+  } catch { return false; }
+}
+
 function authenticatedLoopbackDashboardOwner(req: IncomingMessage, opts: DashboardOptions): boolean {
   if (opts.requireAuth !== true || !opts.token || !isLoopbackHost(opts.host) ||
       !isLoopbackHost(req.socket.remoteAddress ?? '')) return false;
@@ -158,6 +174,8 @@ function authenticatedLoopbackDashboardOwner(req: IncomingMessage, opts: Dashboa
  *   POST /approvals/:id/deny     -> deny
  *   POST /policy/mode             -> change persistent runtime policy mode (admin only)
  *   GET  /operator/config      -> redacted read-only allowlisted configuration inventory
+ *   GET  /operator/config/quota -> current parent shell_exec quota and usage
+ *   POST /operator/config/validate|apply -> bounded owner-only quota validation/persistence
  *   GET/POST /runtime/settings    -> read/change persistent, bounded terminal limits (admin only)
  *   GET  /fleet                    -> provisioned per-folder MCP instances
  *   POST /fleet                    -> provision a folder (preset/policy + none|token|api-key|oauth auth)
@@ -204,6 +222,9 @@ export function startDashboard(
     throw new Error("Dashboard bound to a non-loopback host requires a token");
   }
 
+  // Load this Dashboard's persisted quota before serving any endpoint or
+  // tool call. Dashboardless Fleet children must not inherit parent quota.
+  void container.rateLimitSettings;
   const sshOperatorWebSessions = opts.sshOperatorBroker
     ? new SshOperatorWebSessions(opts.sshOperatorBroker) : null;
   const server = createServer((req, res) => {
@@ -2873,6 +2894,74 @@ async function handle(
       detail: { approvalId: id, approverId: principal.id },
     });
     return sendJson(res, 200, { approval: result });
+  }
+
+  if (method === 'GET' && path === '/operator/config/quota') {
+    res.setHeader('cache-control', 'no-store');
+    return sendJson(res, 200, container.rateLimitSettings.describe(container.rateLimiter));
+  }
+
+  if (method === 'POST' &&
+      (path === '/operator/config/validate' || path === '/operator/config/apply')) {
+    if (!authenticatedLoopbackDashboardOwner(req, opts)) {
+      return sendJson(res, 403, { error: 'SIGNED_OWNER_REQUIRED' });
+    }
+    if (!sameOriginOperatorMutation(req)) {
+      return sendJson(res, 403, { error: 'CONFIG_ORIGIN_DENIED' });
+    }
+    if ((req.headers['content-type'] ?? '').toString().split(';')[0]?.trim().toLowerCase() !== 'application/json') {
+      return sendJson(res, 415, { error: 'INVALID_CONTENT_TYPE' });
+    }
+    if (container.missionControl.isWriteFreezeActive()) {
+      return sendJson(res, 409, { error: 'CONFIG_WRITE_FROZEN' });
+    }
+    const body = await readJsonBody(req);
+    try {
+      const preview = container.rateLimitSettings.validate(body);
+      if (path.endsWith('/validate')) {
+        return sendJson(res, 200, preview);
+      }
+      // Audit the exact allowlisted diff BEFORE a durable mutation. A failing
+      // audit store refuses the write rather than silently modifying policy.
+      const before = container.rateLimitSettings.describe(container.rateLimiter);
+      container.audit.record({
+        type: 'policy_change',
+        summary: 'shell_exec_quota_change_requested',
+        detail: {
+          actorId: principal.id, revision: before.revision,
+          before: before.effective, proposed: preview.effective,
+        },
+      }, { required: true });
+      const applied = container.rateLimitSettings.apply(body, principal.id, container.rateLimiter);
+      // The required pre-commit intent and the 0600 revisioned record are
+      // durable proof; this follow-up log is best-effort to avoid returning
+      // a false failure after the on-disk quota has already been committed.
+      try {
+        container.audit.record({
+          type: 'policy_change',
+          summary: 'shell_exec_quota_change_applied',
+          detail: {
+            actorId: principal.id, revision: applied.revision,
+            before: before.effective, after: applied.effective,
+          },
+        }, { required: false });
+      } catch (auditError) {
+        logger.warn({ err: String(auditError), revision: applied.revision },
+          'Quota post-commit audit unavailable');
+      }
+      res.setHeader('cache-control', 'no-store');
+      return sendJson(res, 200, applied);
+    } catch (error) {
+      if (error instanceof RateLimitSettingsError) {
+        const status = error.code === 'invalid_quota' ? 400
+          : error.code === 'quota_locked' ? 423
+          : error.code === 'commit_uncertain' ? 503 : 409;
+        return sendJson(res, status, { error: error.code, message: error.message });
+      }
+      // Filesystem/audit errors are never returned verbatim to the browser.
+      logger.error({ err: String(error) }, 'Quota edit failed; inspect host audit/storage state');
+      return sendJson(res, 503, { error: 'CONFIG_WRITE_UNAVAILABLE' });
+    }
   }
 
   if (method === "GET" && path === "/operator/config") {

@@ -333,6 +333,64 @@ describe.skipIf(!CHROMIUM)('Mission Control SPA visual regression (proposal 018)
     }
   });
 
+  it('edits a bounded shell_exec quota only from a signed Dashboard owner', { timeout: 30_000 }, async () => {
+    const local = await startHarness(false, { token: 'quota-test-signed-owner', requireAuth: true });
+    local.container.config.rateLimit.enabled = true;
+    const context = await browser.newContext({ viewport: DESKTOP });
+    const page = await context.newPage();
+    try {
+      const quotaRequests: Array<{ url: string; authorization: string | undefined }> = [];
+      page.on('request', request => {
+        if (new URL(request.url()).pathname === '/operator/config/quota') {
+          quotaRequests.push({
+            url: request.url(), authorization: request.headers()['authorization'],
+          });
+        }
+      });
+      await page.goto(`${local.baseUrl}/app/settings?token=quota-test-signed-owner`, { waitUntil: 'networkidle' });
+      expect(quotaRequests.length).toBeGreaterThan(0);
+      expect(quotaRequests.every(request =>
+        !new URL(request.url).searchParams.has('token') &&
+        request.authorization === 'Bearer quota-test-signed-owner',
+      )).toBe(true);
+      const quota = page.getByRole('button', { name: 'Save shell quota' });
+      await quota.waitFor({ state: 'visible' });
+      expect(await quota.isEnabled()).toBe(true);
+      await page.getByRole('spinbutton', { name: 'shell_exec daily quota' }).fill('250');
+      const next = page.waitForResponse(r =>
+        new URL(r.url()).pathname === '/operator/config/apply' && r.request().method() === 'POST');
+      await quota.click();
+      expect((await next).status()).toBe(200);
+      expect(local.container.rateLimiter.ruleFor('shell_exec').dailyQuota).toBe(250);
+      await page.getByText(/Quota saved for this process/i).waitFor();
+      await page.reload({ waitUntil: 'networkidle' });
+      expect(await page.getByRole('spinbutton', { name: 'shell_exec daily quota' }).inputValue()).toBe('250');
+    } finally {
+      await context.close();
+      local.server.closeAllConnections();
+      await new Promise<void>(resolve => local.server.close(() => resolve()));
+      rmSync(local.root, { recursive: true, force: true });
+    }
+  });
+
+  it('does not offer an anonymous forwarded tab a quota mutation', { timeout: 30_000 }, async () => {
+    const local = await startHarness();
+    local.container.config.rateLimit.enabled = true;
+    const page = await desktop.newPage();
+    try {
+      await page.goto(`${local.baseUrl}/app/settings`, { waitUntil: 'networkidle' });
+      const quota = page.getByRole('button', { name: 'Save shell quota' });
+      await quota.waitFor({ state: 'visible' });
+      expect(await quota.isEnabled()).toBe(false);
+      expect(local.container.rateLimiter.ruleFor('shell_exec').dailyQuota).toBe(1000);
+    } finally {
+      await page.close();
+      local.server.closeAllConnections();
+      await new Promise<void>(resolve => local.server.close(() => resolve()));
+      rmSync(local.root, { recursive: true, force: true });
+    }
+  });
+
   it('renders a signed token-authenticated Dashboard directly through a normal forwarded browser port', { timeout: 25_000 }, async () => {
     const token = 'test-authenticated-dashboard-' + 'a'.repeat(40);
     const local = await startHarness(false, { token, requireAuth: true });
