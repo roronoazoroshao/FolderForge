@@ -223,6 +223,33 @@ The tests cover restart persistence, prior-mode restoration, state tampering,
 exact containment allowlisting, agent denial, active-call value redaction,
 write-freeze mutation blocking, and a live dashboard stop-process flow.
 
+## First-run Overview
+
+When no Fleet is provisioned, **Overview** shows a single **Set up AI
+access** link to Fleet. This is navigation only: it never starts a process,
+grants host execution, selects additional filesystem roots, or creates
+credentials. Once Fleet reports at least one instance, the onboarding prompt
+disappears. If Fleet cannot load, Overview does not claim that no instance
+exists. The signed owner session remains mandatory before enabling AI host
+execution; a VS Code extension is not required.
+
+## First-run AI Fleet: one clear action
+
+Open the authenticated (signed) Dashboard link and go to **Fleet**.
+For first-time setup, the server selects its already-allowed project folder:
+the quick-start panel shows **AI workspace** and the selected folder rather
+than asking for a Unix path or a Browse dialog up front. Choose
+**Create & Start AI Fleet** to request an authenticated MCP Fleet with its
+scoped permissions. Use **Change folder** only when the suggested workspace
+is not the intended one; the normal folder input and Browse remain available
+then. If the server cannot determine a permitted default, the manual
+selector opens automatically. Selecting a path never expands allowed roots.
+
+The signed owner Dashboard link (or a genuinely verified SSH owner session)
+is still required for host-enabled Fleet creation. An anonymous localhost
+tab forwarded by VS Code does not gain owner authority, even if it can
+see the selected project folder. No VS Code extension is required.
+
 ## Fleet terminal execution profiles
 
 Fleet > Provision and Fleet > Configure now expose two terminal execution profiles:
