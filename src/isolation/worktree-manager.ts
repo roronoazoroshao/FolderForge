@@ -565,7 +565,13 @@ export class WorktreeManager {
     delete isolation.rolledBackAt;
     this.persist();
 
-    const copied: Array<{ target: string; sha256: string }> = [];
+    const copied: Array<{
+      target: string;
+      sha256: string;
+      dev: number;
+      ino: number;
+      ctimeMs: number;
+    }> = [];
     let patchApplied = false;
     try {
       // The journal was persisted after the earlier preflight. Recheck at
@@ -598,10 +604,21 @@ export class WorktreeManager {
         // The preflight existence check is not atomic with the copy. A user
         // may have created this file meanwhile; never truncate their bytes.
         copyFileSync(source, target, constants.COPYFILE_EXCL);
-        copied.push({ target, sha256: expectedSha });
+        const created = lstatSync(target);
+        copied.push({
+          target,
+          sha256: expectedSha,
+          dev: created.dev,
+          ino: created.ino,
+          ctimeMs: created.ctimeMs,
+        });
         this.hooks.afterUntrackedCopy?.(entry);
-        if (sha256(readFileSync(target)) !== expectedSha) {
-          throw new Error("Untracked task file changed during copy; refusing apply.");
+        const observed = lstatSync(target);
+        if (!observed.isFile() || observed.isSymbolicLink() ||
+            observed.dev !== created.dev || observed.ino !== created.ino ||
+            observed.ctimeMs !== created.ctimeMs ||
+            sha256(readFileSync(target)) !== expectedSha) {
+          throw new Error("Untracked task file changed or replaced during copy; refusing apply.");
         }
       }
       isolation.state = "applied";
@@ -616,9 +633,15 @@ export class WorktreeManager {
       try {
         for (const entry of copied.reverse()) {
           const target = this.validatedInside(entry.target, isolation.sourceRoot);
-          if (sha256(readFileSync(target)) !== entry.sha256) {
+          // A matching checksum is not ownership: an unrelated writer may
+          // replace the copied path with identical bytes before recovery.
+          const observed = lstatSync(target);
+          if (!observed.isFile() || observed.isSymbolicLink() ||
+              observed.dev !== entry.dev || observed.ino !== entry.ino ||
+              observed.ctimeMs !== entry.ctimeMs ||
+              sha256(readFileSync(target)) !== entry.sha256) {
             throw new Error(
-              "APPLY_RECOVERY_INCOMPLETE: copied file changed; refusing to delete uncertain source data.",
+              "APPLY_RECOVERY_INCOMPLETE: copied file changed or replaced; refusing to delete uncertain source data.",
             );
           }
           rmSync(target);
@@ -730,7 +753,13 @@ export class WorktreeManager {
     }
     // Preserve bounded verified source bytes before the first rollback deletion.
     // A task worktree might disappear while later files are being removed.
-    const sourceBackups = new Map<string, { bytes: Buffer; mode: number }>();
+    const sourceBackups = new Map<string, {
+      bytes: Buffer;
+      mode: number;
+      dev: number;
+      ino: number;
+      ctimeMs: number;
+    }>();
     let totalBackupBytes = 0;
     for (const entry of expectedUntracked) {
       const target = resolve(
@@ -757,7 +786,14 @@ export class WorktreeManager {
       if (totalBackupBytes > MAX_UNTRACKED_BYTES) {
         throw new Error("Rollback untracked file backup exceeds allowed limit.");
       }
-      sourceBackups.set(entry.path, { bytes, mode: lstatSync(target).mode & 0o777 });
+      const original = lstatSync(target);
+      sourceBackups.set(entry.path, {
+        bytes,
+        mode: original.mode & 0o777,
+        dev: original.dev,
+        ino: original.ino,
+        ctimeMs: original.ctimeMs,
+      });
     }
     if (patch)
       git(
@@ -801,6 +837,22 @@ export class WorktreeManager {
           resolve(isolation.sourceRoot, assertRelativePath(entry.path)),
           isolation.sourceRoot,
         );
+        // Preflight's byte checksum does not establish ownership at unlink:
+        // a concurrent writer may replace this path with an equal-byte inode.
+        const backup = sourceBackups.get(entry.path);
+        let observed: ReturnType<typeof lstatSync>;
+        try {
+          observed = lstatSync(target);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+          throw new Error(`ROLLBACK_SOURCE_CHANGED: missing source file: ${entry.path}`);
+        }
+        if (!backup || !observed.isFile() || observed.isSymbolicLink() ||
+            observed.dev !== backup.dev || observed.ino !== backup.ino ||
+            observed.ctimeMs !== backup.ctimeMs ||
+            sha256(readFileSync(target)) !== entry.sha256) {
+          throw new Error(`ROLLBACK_SOURCE_CHANGED: preserving concurrent source data: ${entry.path}`);
+        }
         rmSync(target);
         removed.push(entry);
       }

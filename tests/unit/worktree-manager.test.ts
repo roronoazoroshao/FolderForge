@@ -378,6 +378,55 @@ describe("WorktreeManager", () => {
     expect(manager.get(isolation.id)?.state).toBe("active");
   });
 
+  it("G01: apply refuses a byte-identical post-copy replacement and preserves recovery evidence", () => {
+    const root = repository();
+    const target = join(root, "new.txt");
+    const original = join(root, ".git", "original-copied.txt");
+    const manager = new WorktreeManager([root], root, {
+      afterUntrackedCopy: () => {
+        renameSync(target, original);
+        writeFileSync(target, "task bytes\n");
+      },
+    });
+    const isolation = manager.create("post-copy-identity");
+    writeFileSync(join(isolation.worktreeRoot, "new.txt"), "task bytes\n");
+    const registry = join(root, ".git", "folderforge", "isolations.json");
+
+    expect(() => manager.apply(isolation.id)).toThrow(/APPLY_RECOVERY_INCOMPLETE/);
+    expect(readFileSync(original, "utf8")).toBe("task bytes\n");
+    expect(readFileSync(target, "utf8")).toBe("task bytes\n");
+    expect(readFileSync(join(root, "tracked.txt"), "utf8")).toBe("original\n");
+    expect(manager.get(isolation.id)?.state).toBe("applying");
+    expect(JSON.parse(readFileSync(registry, "utf8")).isolations[0]?.state).toBe("applying");
+  });
+
+  it("G01: automatic recovery cannot delete a byte-identical replacement of an earlier copy", () => {
+    const root = repository();
+    const target = join(root, "a.txt");
+    const original = join(root, ".git", "first-copied.txt");
+    const manager = new WorktreeManager([root], root, {
+      beforeUntrackedCopy: ({ target: next }) => {
+        if (next.endsWith("z.txt")) {
+          renameSync(target, original);
+          writeFileSync(target, "same bytes\n");
+          throw new Error("injected failure after concurrent replacement");
+        }
+      },
+    });
+    const isolation = manager.create("recovery-copy-identity");
+    writeFileSync(join(isolation.worktreeRoot, "a.txt"), "same bytes\n");
+    writeFileSync(join(isolation.worktreeRoot, "z.txt"), "second output\n");
+    const registry = join(root, ".git", "folderforge", "isolations.json");
+
+    expect(() => manager.apply(isolation.id)).toThrow(/APPLY_RECOVERY_INCOMPLETE/);
+    expect(readFileSync(original, "utf8")).toBe("same bytes\n");
+    expect(readFileSync(target, "utf8")).toBe("same bytes\n");
+    expect(existsSync(join(root, "z.txt"))).toBe(false);
+    expect(readFileSync(join(root, "tracked.txt"), "utf8")).toBe("original\n");
+    expect(manager.get(isolation.id)?.state).toBe("applying");
+    expect(JSON.parse(readFileSync(registry, "utf8")).isolations[0]?.state).toBe("applying");
+  });
+
   it("preserves a concurrent edit after copy instead of deleting uncertain output", () => {
     const root = repository();
     const userBytes = "user edited the new file after copy\n";
@@ -460,6 +509,76 @@ describe("WorktreeManager", () => {
 
     expect(() => manager.rollback(isolation.id)).toThrow(/ROLLBACK_SOURCE_CHANGED/);
     expect(readFileSync(target, "utf8")).toBe("foreign bytes\n");
+    expect(readFileSync(registry)).toEqual(before);
+    expect(manager.get(isolation.id)?.state).toBe("applied");
+  });
+
+  it("G01: rollback preserves an untracked same-byte replacement made after preflight", () => {
+    const root = repository();
+    const target = join(root, "artifact.txt");
+    const original = join(root, ".git", "artifact-original.txt");
+    const manager = new WorktreeManager([root], root, {
+      beforeRollbackUntrackedRemove: () => {
+        renameSync(target, original);
+        writeFileSync(target, "task artifact\n");
+      },
+    });
+    const isolation = manager.create("rollback-untracked-identity");
+    writeFileSync(join(isolation.worktreeRoot, "artifact.txt"), "task artifact\n");
+    manager.apply(isolation.id);
+    const registry = join(root, ".git", "folderforge", "isolations.json");
+    const before = readFileSync(registry);
+
+    expect(() => manager.rollback(isolation.id)).toThrow(/ROLLBACK_SOURCE_CHANGED/);
+    expect(readFileSync(target, "utf8")).toBe("task artifact\n");
+    expect(readFileSync(original, "utf8")).toBe("task artifact\n");
+    expect(readFileSync(registry)).toEqual(before);
+    expect(manager.get(isolation.id)?.state).toBe("applied");
+  });
+
+  it("G01: rollback restores earlier files if a later target is replaced", () => {
+    const root = repository();
+    const target = join(root, "z.txt");
+    const original = join(root, ".git", "z-original.txt");
+    const manager = new WorktreeManager([root], root, {
+      beforeRollbackUntrackedRemove: (_entry, index) => {
+        if (index === 1) {
+          renameSync(target, original);
+          writeFileSync(target, "task z\n");
+        }
+      },
+    });
+    const isolation = manager.create("rollback-multiple-untracked");
+    writeFileSync(join(isolation.worktreeRoot, "a.txt"), "task a\n");
+    writeFileSync(join(isolation.worktreeRoot, "z.txt"), "task z\n");
+    manager.apply(isolation.id);
+    const registry = join(root, ".git", "folderforge", "isolations.json");
+    const before = readFileSync(registry);
+
+    expect(() => manager.rollback(isolation.id)).toThrow(/ROLLBACK_SOURCE_CHANGED/);
+    expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("task a\n");
+    expect(readFileSync(target, "utf8")).toBe("task z\n");
+    expect(readFileSync(original, "utf8")).toBe("task z\n");
+    expect(readFileSync(registry)).toEqual(before);
+    expect(manager.get(isolation.id)?.state).toBe("applied");
+  });
+
+  it("G01: rollback reports a source file removed after preflight without losing metadata", () => {
+    const root = repository();
+    const target = join(root, "artifact.txt");
+    const moved = join(root, ".git", "artifact-moved.txt");
+    const manager = new WorktreeManager([root], root, {
+      beforeRollbackUntrackedRemove: () => renameSync(target, moved),
+    });
+    const isolation = manager.create("rollback-disappeared-untracked");
+    writeFileSync(join(isolation.worktreeRoot, "artifact.txt"), "artifact bytes\n");
+    manager.apply(isolation.id);
+    const registry = join(root, ".git", "folderforge", "isolations.json");
+    const before = readFileSync(registry);
+
+    expect(() => manager.rollback(isolation.id)).toThrow(/ROLLBACK_SOURCE_CHANGED/);
+    expect(existsSync(target)).toBe(false);
+    expect(readFileSync(moved, "utf8")).toBe("artifact bytes\n");
     expect(readFileSync(registry)).toEqual(before);
     expect(manager.get(isolation.id)?.state).toBe("applied");
   });
