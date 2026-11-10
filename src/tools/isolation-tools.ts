@@ -150,6 +150,60 @@ export function isolationTools(): ToolDefinition[] {
       },
     }),
     defineTool({
+      name: 'isolation_reconcile_missing',
+      description: 'Explicit admin-only metadata reconciliation of a vanished isolation. Defaults to dry-run, requires raw registry SHA-256 lease, complete Git health checks and explicit risk acknowledgement. Never removes refs or files; creates an immutable recovery preimage.',
+      group: 'workspace',
+      audience: 'admin',
+      mutates: true,
+      risk: 'HIGH',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          expectedSha256: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+          dryRun: { type: 'boolean', default: true },
+          acknowledgeUnrecoverableWorktreeBytes: { type: 'boolean', default: false },
+        },
+        required: ['id', 'expectedSha256'],
+        additionalProperties: false,
+      },
+      handler: async (args, ctx) => ({
+        ok: true, data: ctx.container.isolation.reconcileMissing(
+          String(args.id), {
+            expectedSha256: String(args.expectedSha256),
+            dryRun: args.dryRun !== false,
+            acknowledgeUnrecoverableWorktreeBytes: args.acknowledgeUnrecoverableWorktreeBytes === true,
+          },
+        ),
+      }),
+    }),
+    defineTool({
+      name: 'isolation_restore_reconciled',
+      description: 'Restore the exact original registry backup of a metadata-only reconciliation. Requires matching current registry SHA-256 and verified immutable audit; never deletes or resets Git content.',
+      group: 'workspace',
+      audience: 'admin',
+      mutates: true,
+      risk: 'HIGH',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          expectedSha256: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+          backupPath: { type: 'string' },
+        },
+        required: ['id', 'expectedSha256', 'backupPath'],
+        additionalProperties: false,
+      },
+      handler: async (args, ctx) => ({
+        ok: true, data: ctx.container.isolation.restoreMissingReconciliation(
+          String(args.id), {
+            expectedSha256: String(args.expectedSha256),
+            backupPath: String(args.backupPath),
+          },
+        ),
+      }),
+    }),
+    defineTool({
       name: 'isolation_discard',
       description: 'Remove a managed task worktree and task branch after explicit operator action; applied changes must be rolled back first.',
       group: 'workspace',

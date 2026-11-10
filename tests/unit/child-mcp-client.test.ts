@@ -617,7 +617,10 @@ describe('StdioChildClient diagnostics and protocol handling', () => {
   });
 
   it('classifies tools/list timeout separately from initialize', async () => {
-    const child = client('tools-list-timeout', { timeout: 500 });
+    // The child must first initialize on busy macOS/Windows CI workers.
+    // Keep the intentional tools/list request timeout at 80 ms below.
+    // This is a test-only startup allowance, not a production default.
+    const child = client('tools-list-timeout', { timeout: 3000 });
     await child.start();
 
     const diagnostic = await failure(() => child.listTools(80));
