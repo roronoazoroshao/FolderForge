@@ -1,5 +1,8 @@
 # CURRENT FRONTIER
 
+**2026-11-10 CURRENTNESS NOTE:** The following G58/G59 milestones are historical; their “open PR” and test counts are NOT current. The audit baseline `main@8c00b15` has 1,580 local passing tests, 34 skipped and no open PRs at audit time. Follow [new prioritized roadmap](ROADMAP.md) and [security no-go list](audit/AUDIT_REPORT.md).
+
+
 _Last release/source verification: 2026-10-09. Release-source `7104f75f8784423ae2680a9ab80f8ac5a972eef4`, CI `37751407631` PASS 6/6 matrix jobs. New documentation commits need independent exact-head and post-merge CI._
 
 ## P0 — G59 dual-era MCP product candidate (review-only, 2026-10-10)

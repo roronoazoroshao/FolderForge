@@ -1,5 +1,8 @@
 # PROJECT STATUS
 
+**2026-11-10 CURRENTNESS NOTE:** This page is a 2026-10-09 historical release snapshot, **not current npm/git/issue status**. Current source baseline: `main@8c00b15` / `package.json` version 3.2.4. Refer to [the dated audit](audit/AUDIT_REPORT.md), [current configuration](CONFIGURATION.md), and [current roadmap](ROADMAP.md). npm registry latest is **[UNVERIFIED]** in this repo-only audit.
+
+
 _Last verified 2026-10-09. Authoritative source release commit: `7104f75f8784423ae2680a9ab80f8ac5a972eef4`. This document's PR requires its own independent exact-head CI; the source CI is not evidence for documentation edits._
 
 ## Publication state

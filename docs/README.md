@@ -3,17 +3,18 @@
 This index separates current user and operator guidance from contributor design
 material and historical records.
 
-## Current project truth
+## Dated handoffs (historical, not current source truth)
 
 | Document | Audience | Purpose |
 | --- | --- | --- |
-| [Project status](PROJECT_STATUS.md) | Maintainer / Agent | Verified current repository, CI, release, security, dependency, and maturity state. |
-| [Current frontier](CURRENT_FRONTIER.md) | Maintainer / Agent | Prioritized P0/P1/P2 execution frontier and exit conditions. |
-| [Handoff](HANDOFF.md) | Maintainer / Agent | Resume instructions, preserved working-tree scope, and the immediate next action. |
+| [Project status](PROJECT_STATUS.md) | Maintainer / Agent | 2026-10-09 release/source snapshot. Not current; see the 2026-11-10 audit below. |
+| [Current frontier](CURRENT_FRONTIER.md) | Maintainer / Agent | Historical G58/G59 frontier; current priorities are in ROADMAP.md. |
+| [Handoff](HANDOFF.md) | Maintainer / Agent | Historical 2026-10-09 handoff and preserved recovery evidence. |
 
-These documents are the entry point for current execution state. Historical
-roadmaps and implementation logs provide context but must not override current
-repository, CI, release, or verification evidence.
+These dated records preserve forensic and release evidence, not current operational
+instructions. For the current checked source baseline use the 2026-11-10 audit,
+configuration guide and roadmap linked below. Live host/release state is a
+separate operational verification gate.
 
 ## Getting started
 
@@ -117,3 +118,7 @@ tests take precedence.
 - [Managed task isolation](task-isolation.md)
 - [Durable task runtime and Proof Packs](task-runtime-and-proof-packs.md)
 - [ADR-0011: Capsules and worktrees](adr-0011-workspace-capsules-and-isolation.md)
+
+## Audit, configuration and proposed roadmap (2026-11-10)
+
+The current source-baseline review is [Audit report](audit/AUDIT_REPORT.md) and [Feature inventory](audit/FEATURE_INVENTORY.md). Reference [Architecture](ARCHITECTURE.md), [Configuration](CONFIGURATION.md), [Tools and APIs](TOOLS.md), [Operations](OPERATIONS.md), [Proposals and approval gate](audit/PROPOSALS.md), and [90-day Roadmap](ROADMAP.md). Old `PROJECT_STATUS`, `CURRENT_FRONTIER` and `HANDOFF` are preserved historical snapshots; no Phase 5 source changes are approved by these documents.
