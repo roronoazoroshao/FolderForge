@@ -62,6 +62,183 @@ async function call(url: string, path: string, headers: Record<string, string> =
 }
 
 describe("F14 approved independent-project gateway (test-first)", () => {
+  it("separates project request quotas at the authenticated HTTP gateway", async () => {
+    const p = projects();
+    const started: string[] = [];
+    const g = await createProjectGateway({
+      parentRoot: p.parent, host: "127.0.0.1", port: 0, token: secret,
+      projects: [{ id: "frontend", root: p.frontend }, { id: "backend", root: p.backend }],
+      scheduling: {
+        globalConcurrency: 2, perProjectConcurrency: 1,
+        maxRequestsPerProject: 1, maxRequestsGlobal: 10,
+      },
+    }, async ({ id }) => {
+      started.push(id);
+      return fakeWorker(id);
+    });
+    created.push(g.server);
+    const address = g.server.address();
+    if (!address || typeof address === "string") throw new Error("gateway listener");
+    const url = "http://127.0.0.1:" + address.port;
+    const results = await Promise.all([
+      call(url, "/mcp", { "x-folderforge-project": "frontend" }),
+      call(url, "/mcp", { "x-folderforge-project": "frontend" }),
+      call(url, "/mcp", { "x-folderforge-project": "backend" }),
+    ]);
+    expect(results.slice(0, 2).map((r) => r.status).sort()).toEqual([200, 429]);
+    expect(results[2]!.status).toBe(200);
+    expect(started.sort()).toEqual(["backend", "frontend"]);
+    expect(g.snapshot()).toMatchObject({ active: 0, queued: 0 });
+  });
+
+  it("does not starve child B behind child A when both have queued HTTP calls", async () => {
+    const p = projects();
+    const seen: string[] = [];
+    let allowA!: () => void;
+    let allowB!: () => void;
+    const holdA = new Promise<void>((resolve) => { allowA = resolve; });
+    const holdB = new Promise<void>((resolve) => { allowB = resolve; });
+    const g = await createProjectGateway({
+      parentRoot: p.parent, host: "127.0.0.1", port: 0, token: secret,
+      projects: [{ id: "frontend", root: p.frontend }, { id: "backend", root: p.backend }],
+      scheduling: { globalConcurrency: 1, perProjectConcurrency: 1, queueTimeoutMs: 3000 },
+    }, async ({ id }) => {
+      const server = createServer(async (_req, res) => {
+        seen.push(id);
+        if (id === "frontend" && seen.filter((item) => item === id).length === 1) await holdA;
+        if (id === "backend") await holdB;
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({ id }));
+      });
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+      created.push(server);
+      const addr = server.address();
+      if (!addr || typeof addr === "string") throw new Error("worker address");
+      return { port: addr.port, token: "internal-test-" + id, close: async () => undefined };
+    });
+    created.push(g.server);
+    const addr = g.server.address();
+    if (!addr || typeof addr === "string") throw new Error("gateway address");
+    const url = "http://127.0.0.1:" + addr.port;
+    async function until(condition: () => boolean): Promise<void> {
+      const deadline = Date.now() + 1500;
+      while (!condition() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 5));
+      expect(condition()).toBe(true);
+    }
+    try {
+      const a1 = call(url, "/mcp", { "x-folderforge-project": "frontend" });
+      await until(() => seen.length === 1);
+      const a2 = call(url, "/mcp", { "x-folderforge-project": "frontend" });
+      await until(() => g.snapshot().queued === 1);
+      const b1 = call(url, "/mcp", { "x-folderforge-project": "backend" });
+      await until(() => g.snapshot().queued === 2);
+      allowA();
+      expect((await a1).status).toBe(200);
+      await until(() => seen.length === 2);
+      expect(seen).toEqual(["frontend", "backend"]);
+      expect(g.snapshot().queued).toBe(1);
+      allowB();
+      expect((await b1).status).toBe(200);
+      expect((await a2).status).toBe(200);
+      expect(seen).toEqual(["frontend", "backend", "frontend"]);
+      expect(g.snapshot()).toMatchObject({ active: 0, queued: 0 });
+    } finally {
+      allowA();
+      allowB();
+    }
+  });
+
+  it("returns a bounded HTTP overload instead of starting a queued worker after deadline", async () => {
+    const p = projects();
+    let releaseA!: () => void;
+    const delayA = new Promise<void>((resolve) => { releaseA = resolve; });
+    let startedA = false;
+    const started: string[] = [];
+    const g = await createProjectGateway({
+      parentRoot: p.parent, host: "127.0.0.1", port: 0, token: secret,
+      projects: [{ id: "frontend", root: p.frontend }, { id: "backend", root: p.backend }],
+      scheduling: { globalConcurrency: 1, perProjectConcurrency: 1,
+        queueTimeoutMs: 40, maxQueuedPerProject: 4 },
+    }, async ({ id }) => {
+      started.push(id);
+      const server = createServer(async (_req, res) => {
+        if (id === "frontend") {
+          startedA = true;
+          await delayA;
+        }
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({ id }));
+      });
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+      created.push(server);
+      const addr = server.address();
+      if (!addr || typeof addr === "string") throw new Error("worker address");
+      return { port: addr.port, token: "internal-test-" + id, close: async () => undefined };
+    });
+    created.push(g.server);
+    const addr = g.server.address();
+    if (!addr || typeof addr === "string") throw new Error("gateway address");
+    const url = "http://127.0.0.1:" + addr.port;
+    try {
+      const a = call(url, "/mcp", { "x-folderforge-project": "frontend" });
+      const deadline = Date.now() + 1000;
+      while (!startedA && Date.now() < deadline) await new Promise((r) => setTimeout(r, 5));
+      expect(startedA).toBe(true);
+      const b = await fetch(url + "/mcp", {
+        method: "POST", headers: {
+          authorization: "Bearer " + secret,
+          "x-folderforge-project": "backend",
+          "content-type": "application/json",
+        }, body: JSON.stringify({ jsonrpc: "2.0", method: "initialize" }),
+      });
+      expect(b.status).toBe(503);
+      expect(b.headers.get("retry-after")).toBe("1");
+      expect((await b.json() as { error: string }).error).toBe("queue_timeout");
+      expect(started).toEqual(["frontend"]);
+      releaseA();
+      expect((await a).status).toBe(200);
+      expect(g.snapshot()).toMatchObject({ active: 0, queued: 0 });
+    } finally {
+      releaseA();
+    }
+  });
+
+  it("serializes twenty same-project HTTP calls without exceeding one active worker request", async () => {
+    const p = projects();
+    let active = 0;
+    let maxActive = 0;
+    const g = await createProjectGateway({
+      parentRoot: p.parent, host: "127.0.0.1", port: 0, token: secret,
+      projects: [{ id: "frontend", root: p.frontend }],
+      scheduling: { globalConcurrency: 4, perProjectConcurrency: 1,
+        maxQueuedPerProject: 32, maxRequestsPerProject: 40 },
+    }, async ({ id }) => {
+      const server = createServer((_req, res) => {
+        active++;
+        maxActive = Math.max(maxActive, active);
+        setTimeout(() => {
+          active--;
+          res.setHeader("content-type", "application/json");
+          res.end(JSON.stringify({ id }));
+        }, 4);
+      });
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+      created.push(server);
+      const addr = server.address();
+      if (!addr || typeof addr === "string") throw new Error("worker address");
+      return { port: addr.port, token: "internal-test-" + id, close: async () => undefined };
+    });
+    created.push(g.server);
+    const addr = g.server.address();
+    if (!addr || typeof addr === "string") throw new Error("gateway address");
+    const url = "http://127.0.0.1:" + addr.port;
+    const replies = await Promise.all(Array.from({ length: 20 },
+      () => call(url, "/mcp", { "x-folderforge-project": "frontend" })));
+    expect(replies.every((reply) => reply.status === 200)).toBe(true);
+    expect(maxActive).toBe(1);
+    expect(g.snapshot()).toMatchObject({ active: 0, queued: 0 });
+  });
+
   it("routes 500 interleaved requests to separate workers without cross-project context", async () => {
     const p = projects();
     const { url, starts } = await gateway(p);
