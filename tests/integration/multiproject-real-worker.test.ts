@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createProjectGateway, type ProjectGateway } from "../../src/multiproject/project-gateway.js";
@@ -13,7 +13,7 @@ afterEach(async () => {
   projectDirs.splice(0).forEach((d) => rmSync(d, { recursive: true, force: true }));
 });
 function fixture() {
-  const parent = mkdtempSync(join(tmpdir(), "ff-multiproject-real-"));
+  const parent = realpathSync(mkdtempSync(join(tmpdir(), "ff-multiproject-real-")));
   projectDirs.push(parent);
   for (const id of ["a", "b"]) {
     mkdirSync(join(parent, id));
