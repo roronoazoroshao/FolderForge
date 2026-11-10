@@ -286,6 +286,51 @@ describe("F14 approved independent-project gateway (test-first)", () => {
     expect(starts).toEqual([]);
   });
 
+  it("caps authenticated MCP session identities and reclaims expired sessions", async () => {
+    const p = projects();
+    let counter = 0;
+    const g = await createProjectGateway({
+      parentRoot: p.parent, host: "127.0.0.1", port: 0, token: secret,
+      projects: [{ id: "frontend", root: p.frontend }],
+      maxSessions: 2, sessionTtlMs: 1000,
+    }, async ({ id }) => {
+      const server = createServer((_req, res) => {
+        res.setHeader("content-type", "application/json");
+        res.setHeader("mcp-session-id", "session-" + id + "-" + (++counter));
+        res.end(JSON.stringify({ id }));
+      });
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+      created.push(server);
+      const addr = server.address();
+      if (!addr || typeof addr === "string") throw new Error("test listener");
+      return { port: addr.port, token: "internal-" + id, close: async () => undefined };
+    });
+    created.push(g.server);
+    const addr = g.server.address();
+    if (!addr || typeof addr === "string") throw new Error("gateway address");
+    const url = "http://127.0.0.1:" + addr.port;
+    const first = await call(url, "/mcp");
+    const second = await call(url, "/mcp");
+    expect(first.session).toBe("session-frontend-1");
+    expect(second.session).toBe("session-frontend-2");
+    expect((await call(url, "/mcp")).status).toBe(503);
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    const afterExpiration = await call(url, "/mcp");
+    expect(afterExpiration.status).toBe(200);
+    expect(afterExpiration.session).toBe("session-frontend-3");
+    expect((await call(url, "/mcp", { "mcp-session-id": first.session! })).status).toBe(404);
+  }, 10000);
+
+  it("refuses invalid session-capacity settings before gateway bind", async () => {
+    const p = projects();
+    for (const maxSessions of [0, -1, 100000, 1.5]) {
+      await expect(createProjectGateway({
+        parentRoot: p.parent, host: "127.0.0.1", port: 0, token: secret,
+        maxSessions, projects: [{ id: "frontend", root: p.frontend }],
+      }, fakeWorker)).rejects.toThrow(/session|capacity/i);
+    }
+  });
+
   it("rejects symlink-backed project roots and never starts workers during discovery", async () => {
     const p = projects();
     symlinkSync(p.frontend, join(p.parent, "alias"), "dir");

@@ -11,6 +11,7 @@ Create an owner-controlled absolute JSON file with mode 0600:
   "parentRoot": "/srv/approved-projects",
   "port": 7339,
   "maxWorkers": 4,
+  "maxSessions": 1024,
   "scheduling": {
     "globalConcurrency": 8,
     "perProjectConcurrency": 2,
@@ -73,7 +74,7 @@ Project/global quota violations return **429** (`project_rate_limited` / `global
 
 **Rollback:** stop only the opt-in multi-project gateway; if the operator separately changed the public tunnel target, explicitly restore it under a separate authorization. Do not delete project state or replay outcome-uncertain writes.
 
-A worker exit drops session affinity and frees capacity. Unknown/expired sessions require re-initialization; non-idempotent requests are **not automatically replayed**. Do not prune or delete a project folder as gateway rollback.
+The gateway bounds its session-affinity map to `maxSessions` (default **1,024**, hard cap **4,096**). Expired entries are reclaimed before capacity denial; excess new stateful initializations return **503** `session_capacity` rather than allocating unbounded session state. A worker exit drops its session affinity and frees capacity. Unknown/expired sessions require re-initialization; non-idempotent requests are **not automatically replayed**. Do not prune or delete a project folder as gateway rollback.
 
 Tests:
 
