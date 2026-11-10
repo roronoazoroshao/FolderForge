@@ -14,6 +14,13 @@ semantic versioning.
   canonical root identity checks, request-size limits and bounded worker count.
 - Real MCP worker integration, 500-request interleaving and fail-closed tests.
 
+### Added (F15 MVP)
+- Fair and bounded per-project request admission (independent quota and
+  concurrency, reserved queue-byte shares) with global abuse control,
+  cancellation/deadline failures, and HTTP overload retry hints.
+- Six-client, three-project, 1,200-request local regression; 20 same-project
+  operations serialized, no cross-project overquota coupling.
+
 ### Limitations
 - Static token gateway only; existing OpenAI/Cloudflare tunnel targets are unchanged.
   Worker processes under one UID are not OS-level filesystem isolation.
