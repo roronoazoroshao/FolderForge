@@ -1,6 +1,6 @@
 # One tunnel, many child workspaces — concurrency and isolation audit
 
-**Snapshot:** `main@8c00b15ff7d34dedfd8f50e46066ad0a3defc23c`, source audit 2026-11-10. No real public tunnel, production traffic, credentials, request payloads, or live process were inspected. This is a **design-level confirmed shared-state weakness** plus **[UNVERIFIED]** real-world impact/performance. The 11 existing targeted multi-project/MCP protocol tests passed; they are not a concurrent different-workspace guarantee.
+**Snapshot:** `main@8c00b15ff7d34dedfd8f50e46066ad0a3defc23c`, source audit 2026-11-10. **Later status:** owner approved F14/F15 MVP source work (2026-11-10); see [Draft PR #156](https://github.com/roronoazoroshao/FolderForge/pull/156) and [Draft PR #157](https://github.com/roronoazoroshao/FolderForge/pull/157). Neither is merged or deployed. No real public tunnel, production traffic, credentials, request payloads, or live process were inspected. This is a **design-level confirmed shared-state weakness** plus **[UNVERIFIED]** real-world impact/performance. The 11 existing targeted multi-project/MCP protocol tests passed; they are not a concurrent different-workspace guarantee.
 
 ## User scenario and boundary
 
@@ -16,7 +16,7 @@ Public tunnel / MCP endpoint
           RateLimiter tool bucket, defaultProject-backed workflow/task storage
 ```
 
-**Evidence:** `src/chatgpt/openai-tunnel.ts:1245-1304,1719-1739,1829-1837,1888-1895`; `src/runtime/container.ts:85-109,127-162`. Cloudflare's independently supervised named tunnel is also a **transport**, not automatic per-child request routing (`src/control/tunnel.ts:48-54,103-113`). This concern applies to either public tunnel provider when both forward to the same local MCP process.
+**Evidence:** `src/chatgpt/openai-tunnel.ts:1245-1304,1719-1739,1829-1837,1888-1895`; `src/runtime/container.ts:85-109,127-162`. Cloudflare's independently supervised named tunnel is also a **transport**, not automatic per-child request routing (`src/control/tunnel.ts:48-54,103-113`). This concern applies to either public tunnel provider when both forward to the same local MCP process. The optional new gateway is **not** automatically wired to existing production tunnels.
 
 **Confirmed product input (owner, 2026-11-10): these child folders are independent projects, not monorepo packages.** This does **not** prove each project has its own `.git` or `package.json`. Markers are non-authoritative hints (`src/workspace/project-detector.ts:49-83`). Only individually owner-approved canonical roots are valid; the router must not grant all scanned subfolders.
 

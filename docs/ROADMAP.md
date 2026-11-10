@@ -1,6 +1,6 @@
-# FolderForge — proposed 90-day roadmap (no implementation authorization)
+# FolderForge — 90-day roadmap (F14/F15 MVP source implementation approved; no production authorization)
 
-**Baseline:** `main@8c00b15`, 2026-11-10. **Owner-confirmed scope: child folders behind one tunnel are independent projects, not monorepo packages.** F14 accordingly proposes one authorized worker per project. This roadmap represents recommendations, **not approved delivery, an npm release, or a production rollout**. Scope/ROI assumes one developer and an independently available security reviewer; staffing, actual demand, monthly spend and SLAs remain **[UNVERIFIED]**. Proposals and decisions live in [PROPOSALS.md](audit/PROPOSALS.md).
+**Baseline:** `main@8c00b15`, 2026-11-10. **Owner-confirmed scope: child folders behind one tunnel are independent projects, not monorepo packages.** F14 accordingly proposes one authorized worker per project. F14/F15 **MVP source work approved by owner** and available only in [Draft PR #156](https://github.com/roronoazoroshao/FolderForge/pull/156) and [Draft PR #157](https://github.com/roronoazoroshao/FolderForge/pull/157), **not merged**. Other features remain unapproved, with no npm release or production rollout authorized. Scope/ROI assumes one developer and an independently available security reviewer; staffing, actual demand, monthly spend and SLAs remain **[UNVERIFIED]**. Proposals and decisions live in [PROPOSALS.md](audit/PROPOSALS.md).
 
 ## Phase 3: direction and positioning
 
@@ -18,7 +18,7 @@
 
 ## Phase 4: prioritized order, safety override and dependencies
 
-**Safety-prioritized order for review:** **F14 first (P0; multi-child request binding)** → F01 → F02 → F05 → F07 → **F15 (P1; fair resource scheduling)** → F03 → F04 → F06 → F09 → F08 → F11 → F12 → F13. F10 is a separate **critical independent P0 production release gate**, requiring external reviewer and kernel fencing before activation. Neither the ICE rank nor owner request to make one tunnel serve many projects permits bypassing either security gate. Nothing here is approved. See per-feature effort, impact, confidence, risk and ICE in [PROPOSALS.md](audit/PROPOSALS.md).
+**Safety-prioritized order for review:** **F14 first (P0; multi-child request binding)** → F01 → F02 → F05 → F07 → **F15 (P1; fair resource scheduling)** → F03 → F04 → F06 → F09 → F08 → F11 → F12 → F13. F10 is a separate **critical independent P0 production release gate**, requiring external reviewer and kernel fencing before activation. Neither the ICE rank nor owner request to make one tunnel serve many projects permits bypassing either security gate. Only F14/F15 **MVP source work** is approved; merge, production cutover and other features require separate gates. See per-feature effort, impact, confidence, risk and ICE in [PROPOSALS.md](audit/PROPOSALS.md).
 
 ```text
 F01 → F03, F04, F05, F11          (trust provenance first)
@@ -42,7 +42,7 @@ Independent qualified reviewer → F10 production activation
 | **NEXT (weeks 2–6)** | F14 STABLE namespace/catalog hardening (~7d); F05 initial adversarial corpus (~4d); F07 local health signal MVP (~4d); **F15 fair queue/quota MVP (~5d)** | 0 cross-session catalog leakage; no child starvation >30s under fixed bounded queue; failed auth/path swap returns denial; 60s child death detection | Global abuse cap retained, no automatic retries for uncertain writes |
 | **LATER (weeks 6–12)** | F03 Fleet consent UX MVP (~5d); F04 token budget MVP (~6d); F06 typed D3 settings MVP (~10d); F09 child trust manifest MVP (~9d). F08/F11/F12/F13 remain **DEFERRED beyond 90d** for single-engineer capacity; F10 production fence is separately staffed | ≥80% healthy Fleet onboarding in 20 consenting pilots; 100% simulated LLM calls budget-stopped; 0 anonymous settings edits; malicious child manifests quarantined | F10 host canary only after external independent reviewer and separate owner cutover approval |
 
-**Capacity reality:** the 15 full-feature estimates total **126 engineer-days** (original 103 + F14 15 + F15 8), before security review and host migration. One engineer has roughly 60–65 working days in 12 weeks; **delivering all 15 is infeasible**. The constrained roadmap allocates approximately NOW 12d + NEXT 20d + LATER 30d = **62 engineer-days**, using smaller MVP slices. Model-backed council, persistent memory, automation and coaching remain a **post-90-day backlog** unless staffing/priority changes. F10 is an independent security workstream that cannot borrow imagined capacity. No dates are delivery commitments and no feature is approved.
+**Capacity reality:** the 15 full-feature estimates total **126 engineer-days** (original 103 + F14 15 + F15 8), before security review and host migration. One engineer has roughly 60–65 working days in 12 weeks; **delivering all 15 is infeasible**. The constrained roadmap allocates approximately NOW 12d + NEXT 20d + LATER 30d = **62 engineer-days**, using smaller MVP slices. Model-backed council, persistent memory, automation and coaching remain a **post-90-day backlog** unless staffing/priority changes. F10 is an independent security workstream that cannot borrow imagined capacity. No dates are delivery commitments. F14/F15 MVP source work was approved and submitted as Draft PRs; all other features remain unapproved.
 
 ## Step-by-step development track (Phase 5, only on approval)
 
@@ -78,8 +78,8 @@ Independent qualified reviewer → F10 production activation
 | Review transparency | 0 false independent-review claims, verifier IDs present | **NO-GO** synthetic fallback uses “independent” text |
 | Budget / token | 100% cost-accounted LLM tasks, hard no-overspend | **NO-GO [UNVERIFIED]** |
 | Host safety | Old writer kernel denied, epoch survives restart, independent APPROVED reviewer | **NO-GO**, `docs/r14-kernel-registry-fence-migration.md:74-83` |
-| Multi-child project isolation | 0 wrong-root actions in 500 interleaved calls + 0 cross-session toolset change; fail closed on ambiguity | **NO-GO** for concurrent different-child writes: F14 absent (`src/workspace/workspace-manager.ts:30-33`) |
-| Multi-child fairness | Per-child tool budgets and no >30s starvation under bounded load | **NO-GO / [UNVERIFIED]** measured p95; F15 absent (`src/policy/rate-limiter.ts:22-39`) |
+| Multi-child project isolation | 0 wrong-root actions in 500 interleaved calls + 0 cross-session toolset change; fail closed on ambiguity | **NO-GO on main**: F14 is in unmerged Draft PR #156; safety review and staging proof missing (`src/workspace/workspace-manager.ts:30-33`) |
+| Multi-child fairness | Per-child tool budgets and no >30s starvation under bounded load | **NO-GO on main**: F15 is in unmerged Draft PR #157; local 3×2×200 tests passed, production/isolated p95 remains **[UNVERIFIED]** (`src/policy/rate-limiter.ts:22-39`) |
 | Operational SLO | ≥80% signed-owner onboarding healthy, dead Fleet detection ≤60s | **PILOT REQUIRED**, baseline unmeasured |
 | Publication | Manual approved release tag, attestation, current soak, rollback | **NO-GO [UNVERIFIED]** from this audit |
 

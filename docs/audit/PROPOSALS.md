@@ -13,8 +13,8 @@ Baseline `main@8c00b15ff7d34dedfd8f50e46066ad0a3defc23c` (2026-11-10). Not in th
 | F05 | Prompt-injection policy eval suite | H-02,M-11 | M/7d | 5 | 4 | 4 | **80** | F01 | DEFER |
 | F07 | Fleet SLO and incident alerts | M-08,H-06 | M/6d | 4 | 4 | 4 | **64** | F02 | DEFER |
 | F06 | D3 staged typed settings | H-03 | L/10d | 5 | 4 | 3 | **60** | F02,F03,F07 | DEFER |
-| F14 | Request-scoped workspace affinity behind one tunnel | H-16 | L/15d | 5 | 5 | 2 | **50** | authorized child-project mapping; P0 security | **DEFER / P0 proposed** |
-| F15 | Per-workspace fair queues and quotas | M-17 | M/8d | 4 | 4 | 3 | **48** | F14,F07 | **DEFER / P1 proposed** |
+| F14 | Request-scoped workspace affinity behind one tunnel | H-16 | L/15d | 5 | 5 | 2 | **50** | authorized child-project mapping; P0 security | **APPROVED MVP — [Draft PR #156](https://github.com/roronoazoroshao/FolderForge/pull/156), not merged** |
+| F15 | Per-workspace fair queues and quotas | M-17 | M/8d | 4 | 4 | 3 | **48** | F14; F07 for stable metrics | **APPROVED MVP — [Draft PR #157](https://github.com/roronoazoroshao/FolderForge/pull/157), not merged** |
 | F08 | Consent-bound project memory | M-12 | L/9d | 4 | 4 | 3 | **48** | F04,F05 | DEFER |
 | F13 | Review-only error learning coach | M-08,M-12 | M/8d | 4 | 4 | 3 | **48** | F04,F05,F07,F08 | DEFER |
 | F09 | Pinned child MCP trust manifest | M-07,M-11 | L/9d | 5 | 3 | 3 | **45** | F05,F07 | DEFER |
@@ -260,8 +260,8 @@ Baseline `main@8c00b15ff7d34dedfd8f50e46066ad0a3defc23c` (2026-11-10). Not in th
 | F05 | Prompt-injection policy eval suite | ☐ | ☐ | ☐ | ☑ | pending explicit choice; default MVP-only |
 | F07 | Fleet SLO and incident alerts | ☐ | ☐ | ☐ | ☑ | pending explicit choice; default MVP-only |
 | F06 | D3 staged typed settings | ☐ | ☐ | ☐ | ☑ | pending explicit choice; default MVP-only |
-| F14 | Request-scoped workspace routing | ☐ | ☐ | ☐ | ☑ | P0 proposed; child-mapping/safety MVP |
-| F15 | Fair queues and per-workspace quota | ☐ | ☐ | ☐ | ☑ | P1 proposed; F14 dependency |
+| F14 | Request-scoped workspace routing | ☑ | ☐ | ☐ | ☐ | **MVP only**, approved by owner 2026-11-10; PR #156 DRAFT; production cutover not authorized |
+| F15 | Fair queues and per-workspace quota | ☑ | ☐ | ☐ | ☐ | **MVP only**, approved by owner 2026-11-10; PR #157 DRAFT stacked on F14; no production cutover |
 | F08 | Consent-bound project memory | ☐ | ☐ | ☐ | ☑ | pending explicit choice; default MVP-only |
 | F13 | Review-only error learning coach | ☐ | ☐ | ☐ | ☑ | pending explicit choice; default MVP-only |
 | F09 | Pinned child MCP trust manifest | ☐ | ☐ | ☐ | ☑ | pending explicit choice; default MVP-only |
@@ -269,7 +269,7 @@ Baseline `main@8c00b15ff7d34dedfd8f50e46066ad0a3defc23c` (2026-11-10). Not in th
 | F11 | Real LLM evidence council | ☐ | ☐ | ☐ | ☑ | pending explicit choice; default MVP-only |
 | F10 | Kernel registry writer epoch | ☐ | ☐ | ☐ | ☑ | pending explicit choice; default MVP-only |
 
-**Do not treat DEFER as permission.** Reply e.g. `APPROVE F01 F02 (MVP); MODIFY F03: ...; DEFER F10` before any Phase 5 change.
+**Only F14 and F15 MVP have owner approval (2026-11-10).** Other DEFER entries remain unapproved. Reply e.g. `APPROVE F01 F02 (MVP); MODIFY F03: ...; DEFER F10` before any Phase 5 change.
 
 ## Owner decisions (safe defaults if you answer “ok”)
 
@@ -279,6 +279,6 @@ Baseline `main@8c00b15ff7d34dedfd8f50e46066ad0a3defc23c` (2026-11-10). Not in th
 4. Alerts: local UI only; external Telegram/email needs recipient authorization.
 5. Staffing: one engineer plus a separate qualified security reviewer; dates are not commitments.
 6. Root docs: remain unmodified until separately authorized in a later phase.
-7. **RESOLVED 2026-11-10 — owner confirms these folders are independent projects.** F14 adopts independently scoped MCP workers behind one tunnel. Actual Git repository topology is **[UNVERIFIED]**, not an automatic authorization signal. This clarification **does not approve Phase 5 implementation**.
+7. **RESOLVED 2026-11-10 — owner confirms these folders are independent projects.** F14 adopts independently scoped MCP workers behind one tunnel. Actual Git repository topology is **[UNVERIFIED]**, not an automatic authorization signal. This clarification and the subsequent explicit **F14/F15 MVP approval (2026-11-10)** authorize implementation in isolated branches **only**, not main merge, production tunnel/permission changes, credential access or release.
 
 >>> **APPROVAL GATE — STOP HERE.** No source implementation, `feat/*` branch, production deploy, merge, publish, credential or destructive action before owner approval.
