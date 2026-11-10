@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { createServer, type Server } from "node:http";
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createProjectGateway, type ProjectWorker, type ProjectGateway } from "../../src/multiproject/project-gateway.js";
@@ -18,7 +18,7 @@ afterEach(async () => {
 
 describe("F15 bounded fair multi-project HTTP load", () => {
   it("handles 3 projects x 2 clients x 200 calls with isolated project identities and no 429/503", async () => {
-    const root = mkdtempSync(join(tmpdir(), "ff-f15-load-"));
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "ff-f15-load-")));
     dirs.push(root);
     const ids = ["alpha", "bravo", "charlie"];
     const workerRequests = new Map<string, number>();
