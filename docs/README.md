@@ -117,3 +117,7 @@ tests take precedence.
 - [Managed task isolation](task-isolation.md)
 - [Durable task runtime and Proof Packs](task-runtime-and-proof-packs.md)
 - [ADR-0011: Capsules and worktrees](adr-0011-workspace-capsules-and-isolation.md)
+
+## Optional independent-project gateway (F14 MVP)
+
+[Multi-project MCP gateway](multi-project-gateway.md) documents the opt-in, loopback-only per-project-worker route. This is not an automatic change to existing public tunnels or owner authorization.
