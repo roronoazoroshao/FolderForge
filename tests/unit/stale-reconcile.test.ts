@@ -61,6 +61,35 @@ describe("metadata-only missing isolation reconciliation", () => {
     expect(readFileSync(join(f.root, "tracked.txt"), "utf8")).toBe("old\n");
   });
 
+  it("preserves foreign registry metadata through fenced reconciliation and restoration", () => {
+    const f = fixture();
+    const external = {
+      writerEpoch: 37,
+      supervisor: "other-coordinator",
+      foreignRecords: [{ ref: "preserve", opaque: [1, "two", null] }],
+    };
+    const registry = JSON.parse(readFileSync(f.statePath, "utf8")) as Record<string, unknown>;
+    registry.externalMetadata = external;
+    writeFileSync(f.statePath, JSON.stringify(registry, null, 2) + "\n");
+
+    const manager = new WorktreeManager([f.root], f.root, {
+      withLegacyWritersFenced: (_path, action) => action(),
+    });
+    const exactOriginal = readFileSync(f.statePath);
+    const changed = manager.reconcileMissing(f.record.id, {
+      expectedSha256: f.hash(), dryRun: false,
+      acknowledgeUnrecoverableWorktreeBytes: true,
+    });
+    expect(changed.status).toBe("RECONCILED");
+    expect((JSON.parse(readFileSync(f.statePath, "utf8")) as Record<string, unknown>).externalMetadata)
+      .toEqual(external);
+    expect(readFileSync(changed.backupPath!)).toEqual(exactOriginal);
+    manager.restoreMissingReconciliation(f.record.id, {
+      expectedSha256: f.hash(), backupPath: changed.backupPath!,
+    });
+    expect(readFileSync(f.statePath)).toEqual(exactOriginal);
+  });
+
   it("requires an explicit acknowledgement and exact SHA-256 lease", () => {
     const f = fixture();
     expect(() => f.manager.reconcileMissing(f.record.id, {

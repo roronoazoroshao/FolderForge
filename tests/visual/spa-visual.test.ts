@@ -151,6 +151,21 @@ async function shoot(context: BrowserContext, url: string): Promise<Buffer> {
     });
     await page.waitForTimeout(300); // one beat past the first data paint
     expect(external).toEqual([]);
+    // Normalize only the deliberately dynamic default folder and its CTA
+    // state in the anonymous snapshot fixture: random temp paths and whether
+    // one was resolved are not visual layout regressions. Separate real-browser
+    // tests assert both the actual selected path and signed-owner CTA readiness.
+    if (new URL(url).pathname.endsWith('/fleet')) {
+      await page.locator('[data-visual-dynamic-path]').evaluateAll(elements => {
+        for (const element of elements) element.textContent = '/workspace';
+      });
+      await page.locator('input[aria-label="Folder path to provision"]').evaluateAll(elements => {
+        for (const element of elements) (element as HTMLInputElement).value = '';
+      });
+      await page.getByRole('button', { name: 'Secure Dashboard access required' }).evaluate(
+        element => { (element as HTMLButtonElement).disabled = true; },
+      );
+    }
     return await page.screenshot({ fullPage: true });
   } finally {
     await page.close();
@@ -235,8 +250,58 @@ describe.skipIf(!CHROMIUM)('Mission Control SPA visual regression (proposal 018)
     }
   }
 
-  it.each(['overview', 'fleet'])('keeps %s inside the 390px mobile viewport', { timeout: 30_000 }, async name => {
-    const path = name === 'overview' ? '/' : '/fleet';
+  it('shows the first-run AI setup link only without Fleet and preserves owner verification', { timeout: 30_000 }, async () => {
+    const page = await desktop.newPage();
+    try {
+      await page.goto(`${harness.baseUrl}/app/`, { waitUntil: 'networkidle' });
+      const setup = page.getByRole('link', { name: 'Set up AI access' });
+      await setup.waitFor({ state: 'visible', timeout: 5_000 });
+      expect(harness.container.fleet.list()).toHaveLength(0);
+      await setup.click();
+      await page.getByText('AI workspace', { exact: true }).waitFor({ state: 'visible' });
+      await page.getByRole('button', { name: 'Secure Dashboard access required' })
+        .waitFor({ state: 'visible', timeout: 6_000 });
+      expect(harness.container.fleet.list()).toHaveLength(0);
+
+      // The Overview first-run prompt disappears once an instance exists.
+      await page.route('**/fleet', route => route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify({ instances: [{ id: 'existing', port: 10001, state: 'stopped' }] }),
+      }));
+      await page.goto(`${harness.baseUrl}/app/`, { waitUntil: 'networkidle' });
+      await page.getByText('folders provisioned', { exact: true }).waitFor();
+      expect(await page.getByRole('link', { name: 'Set up AI access' }).count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('prefills the allowed project folder without Browse while keeping owner auth required', { timeout: 30_000 }, async () => {
+    const page = await desktop.newPage();
+    try {
+      await page.goto(`${harness.baseUrl}/app/fleet`, { waitUntil: 'networkidle' });
+      await page.getByText('AI workspace', { exact: true }).waitFor({ state: 'visible' });
+      await page.getByText(harness.root, { exact: true }).waitFor({ state: 'visible' });
+      const folder = page.getByRole('textbox', { name: 'Folder path to provision' });
+      expect(await folder.count()).toBe(0);
+      expect(await page.getByRole('button', { name: 'Browse', exact: true }).count()).toBe(0);
+      await page.getByRole('button', { name: 'Change folder' }).click();
+      await folder.waitFor({ state: 'visible' });
+      expect(await folder.inputValue()).toBe(harness.root);
+      await page.getByRole('button', { name: 'Use selected folder' }).click();
+      expect(await folder.count()).toBe(0);
+      const action = page.getByRole('button', { name: 'Secure Dashboard access required' });
+      expect(await action.isEnabled()).toBe(true);
+      await action.click();
+      expect(await page.getByRole('dialog').count()).toBe(1);
+      expect(harness.container.fleet.list()).toHaveLength(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it.each(['overview', 'fleet', 'settings'])('keeps %s inside the 390px mobile viewport', { timeout: 30_000 }, async name => {
+    const path = name === 'overview' ? '/' : `/${name}`;
     const page = await mobile.newPage();
     try {
       await page.goto(`${harness.baseUrl}/app${path}`, { waitUntil: 'networkidle' });
@@ -251,6 +316,78 @@ describe.skipIf(!CHROMIUM)('Mission Control SPA visual regression (proposal 018)
       expect(dimensions.bodyWidth).toBeLessThanOrEqual(MOBILE.width);
     } finally {
       await page.close();
+    }
+  });
+
+  it('renders the read-only configuration inventory without enabling quota edits', { timeout: 30_000 }, async () => {
+    const page = await desktop.newPage();
+    try {
+      await page.goto(`${harness.baseUrl}/app/settings`, { waitUntil: 'networkidle' });
+      await page.getByText('Configuration inventory', { exact: true }).waitFor({ state: 'visible' });
+      await page.getByText('shell_exec daily calls (per process, rolling 24h)').waitFor();
+      await page.getByText('Rate limiting enabled').waitFor();
+      expect(await page.getByText('Source: unknown · Read-only').count()).toBe(4);
+      expect(await page.getByRole('button', { name: /save quota|apply quota|disable rate limiting/i }).count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('edits a bounded shell_exec quota only from a signed Dashboard owner', { timeout: 30_000 }, async () => {
+    const local = await startHarness(false, { token: 'quota-test-signed-owner', requireAuth: true });
+    local.container.config.rateLimit.enabled = true;
+    const context = await browser.newContext({ viewport: DESKTOP });
+    const page = await context.newPage();
+    try {
+      const quotaRequests: Array<{ url: string; authorization: string | undefined }> = [];
+      page.on('request', request => {
+        if (new URL(request.url()).pathname === '/operator/config/quota') {
+          quotaRequests.push({
+            url: request.url(), authorization: request.headers()['authorization'],
+          });
+        }
+      });
+      await page.goto(`${local.baseUrl}/app/settings?token=quota-test-signed-owner`, { waitUntil: 'networkidle' });
+      expect(quotaRequests.length).toBeGreaterThan(0);
+      expect(quotaRequests.every(request =>
+        !new URL(request.url).searchParams.has('token') &&
+        request.authorization === 'Bearer quota-test-signed-owner',
+      )).toBe(true);
+      const quota = page.getByRole('button', { name: 'Save shell quota' });
+      await quota.waitFor({ state: 'visible' });
+      expect(await quota.isEnabled()).toBe(true);
+      await page.getByRole('spinbutton', { name: 'shell_exec daily quota' }).fill('250');
+      const next = page.waitForResponse(r =>
+        new URL(r.url()).pathname === '/operator/config/apply' && r.request().method() === 'POST');
+      await quota.click();
+      expect((await next).status()).toBe(200);
+      expect(local.container.rateLimiter.ruleFor('shell_exec').dailyQuota).toBe(250);
+      await page.getByText(/Quota saved for this process/i).waitFor();
+      await page.reload({ waitUntil: 'networkidle' });
+      expect(await page.getByRole('spinbutton', { name: 'shell_exec daily quota' }).inputValue()).toBe('250');
+    } finally {
+      await context.close();
+      local.server.closeAllConnections();
+      await new Promise<void>(resolve => local.server.close(() => resolve()));
+      rmSync(local.root, { recursive: true, force: true });
+    }
+  });
+
+  it('does not offer an anonymous forwarded tab a quota mutation', { timeout: 30_000 }, async () => {
+    const local = await startHarness();
+    local.container.config.rateLimit.enabled = true;
+    const page = await desktop.newPage();
+    try {
+      await page.goto(`${local.baseUrl}/app/settings`, { waitUntil: 'networkidle' });
+      const quota = page.getByRole('button', { name: 'Save shell quota' });
+      await quota.waitFor({ state: 'visible' });
+      expect(await quota.isEnabled()).toBe(false);
+      expect(local.container.rateLimiter.ruleFor('shell_exec').dailyQuota).toBe(1000);
+    } finally {
+      await page.close();
+      local.server.closeAllConnections();
+      await new Promise<void>(resolve => local.server.close(() => resolve()));
+      rmSync(local.root, { recursive: true, force: true });
     }
   });
 
@@ -301,6 +438,10 @@ describe.skipIf(!CHROMIUM)('Mission Control SPA visual regression (proposal 018)
       await page.getByRole('link', { name: 'Fleet' }).click();
       expect((await fleetResponse).status()).toBe(200);
       console.log('[signed-dashboard-test] Fleet API authorized after navigation');
+      await page.getByText('AI workspace', { exact: true }).waitFor({ state: 'visible' });
+      await page.getByText(local.root, { exact: true }).waitFor({ state: 'visible' });
+      expect(await page.getByRole('textbox', { name: 'Folder path to provision' }).count()).toBe(0);
+      expect(await page.getByRole('button', { name: 'Create & Start AI Fleet' }).isEnabled()).toBe(true);
       await page.reload({ waitUntil: 'domcontentloaded', timeout: 8_000 });
       await page.getByRole('link', { name: 'Fleet' }).waitFor({ state: 'visible', timeout: 5_000 });
       console.log('[signed-dashboard-test] reload restored SPA');
@@ -387,7 +528,9 @@ describe.skipIf(!CHROMIUM)('Mission Control SPA visual regression (proposal 018)
       });
       await page.goto(`${local.baseUrl}/app/fleet?token=local-preview-token`, { waitUntil: 'networkidle' });
       // Quickstart is prominent; manual sandbox settings stay collapsed.
+      await page.getByRole('button', { name: 'Change folder' }).click();
       await page.getByRole('textbox', { name: 'Folder path to provision' }).fill(project);
+      await page.getByRole('button', { name: 'Use selected folder' }).click();
       const quickStartCta = page.getByRole('button', {
         name: 'Secure Dashboard access required', exact: true,
       });

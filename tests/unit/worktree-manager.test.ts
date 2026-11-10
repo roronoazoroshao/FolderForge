@@ -1,17 +1,21 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   existsSync,
+  linkSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   realpathSync,
+  renameSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { tmpdir } from "node:os";
 import { WorktreeManager } from "../../src/isolation/worktree-manager.js";
 import { inspectWorktreeHealth } from "../../src/isolation/worktree-health.js";
@@ -52,7 +56,7 @@ describe("WorktreeManager", () => {
     const refsBefore = git(root, "show-ref");
     const worktreesBefore = git(root, "worktree", "list", "--porcelain");
 
-    expect(() => stale.create("stale-owner")).toThrow(/stale|registry changed/i);
+    expect(() => stale.create("stale-owner")).toThrow(/stale|registry[_ ]changed/i);
     expect(readFileSync(statePath)).toEqual(registryBefore);
     expect(git(root, "show-ref")).toBe(refsBefore);
     expect(git(root, "worktree", "list", "--porcelain")).toBe(worktreesBefore);
@@ -70,7 +74,7 @@ describe("WorktreeManager", () => {
     const registryBefore = readFileSync(registryPath);
     const refsBefore = git(root, "show-ref");
     const worktreesBefore = git(root, "worktree", "list", "--porcelain");
-    expect(() => stale.discard(first.id)).toThrow(/stale|registry changed/i);
+    expect(() => stale.discard(first.id)).toThrow(/stale|registry[_ ]changed/i);
     expect(readFileSync(registryPath)).toEqual(registryBefore);
     expect(git(root, "show-ref")).toBe(refsBefore);
     expect(git(root, "worktree", "list", "--porcelain")).toBe(worktreesBefore);
@@ -103,6 +107,371 @@ describe("WorktreeManager", () => {
     expect(() => manager.create("lock-contention")).toThrow();
     expect(git(root, "worktree", "list", "--porcelain")).toBe(before);
     expect(git(root, "show-ref")).toBe(refs);
+  });
+
+  it("G01: refuses a symlink-backed registry even when its digest and Git refs are valid", () => {
+    const root = repository();
+    const manager = new WorktreeManager([root], root);
+    manager.create("registry-symlink");
+    const statePath = join(root, ".git", "folderforge", "isolations.json");
+    const original = readFileSync(statePath);
+    // The alias remains INSIDE the Git admin directory, so path containment
+    // alone cannot distinguish a regular registry from a mutable symlink.
+    const alias = join(root, ".git", "folderforge", "registry-alias.json");
+    writeFileSync(alias, original);
+    rmSync(statePath);
+    symlinkSync(alias, statePath, "file");
+    const refsBefore = git(root, "show-ref");
+
+    expect(() => new WorktreeManager([root], root)).toThrow(/ISOLATION_REGISTRY_UNSAFE/);
+    // An already-loaded writer must also refuse before touching Git refs.
+    expect(() => manager.create("second-task")).toThrow(/ISOLATION_REGISTRY_UNSAFE/);
+    expect(readFileSync(alias)).toEqual(original);
+    expect(git(root, "show-ref")).toBe(refsBefore);
+    expect(readFileSync(join(root, "tracked.txt"), "utf8")).toBe("original\n");
+  });
+
+  it("G01: refuses hardlink-backed registries with a second writable alias", () => {
+    const root = repository();
+    const manager = new WorktreeManager([root], root);
+    manager.create("registry-hardlink");
+    const statePath = join(root, ".git", "folderforge", "isolations.json");
+    const alias = join(root, ".git", "folderforge", "registry-hardlink-alias.json");
+    const before = readFileSync(statePath);
+    linkSync(statePath, alias);
+    const refsBefore = git(root, "show-ref");
+
+    // Both paths expose the same inode: regular-file and no-follow checks pass.
+    // A second alias must not silently become an alternate registry writer.
+    expect(() => new WorktreeManager([root], root)).toThrow(/ISOLATION_REGISTRY_UNSAFE/);
+    expect(() => manager.create("later-hardlink-task")).toThrow(/ISOLATION_REGISTRY_UNSAFE/);
+    expect(readFileSync(statePath)).toEqual(before);
+    expect(readFileSync(alias)).toEqual(before);
+    expect(git(root, "show-ref")).toBe(refsBefore);
+  });
+
+  it("G01: rejects a redirected managed Git directory before creating a branch", () => {
+    const root = repository();
+    const outside = mkdtempSync(join(tmpdir(), "folderforge-redirection-"));
+    roots.push(outside);
+    writeFileSync(join(outside, "precious.txt"), "foreign bytes\n");
+    const manager = new WorktreeManager([root], root);
+    symlinkSync(outside, join(root, ".git", "folderforge"),
+      process.platform === "win32" ? "junction" : "dir");
+    const refsBefore = git(root, "show-ref");
+
+    expect(() => manager.create("redirected-directory")).toThrow(/Isolation path (escapes|resolves outside) managed root/);
+    expect(git(root, "show-ref")).toBe(refsBefore);
+    expect(readdirSync(outside)).toEqual(["precious.txt"]);
+    expect(readFileSync(join(outside, "precious.txt"), "utf8")).toBe("foreign bytes\n");
+  });
+
+  it("G01: rejects duplicate task ownership even when registry digest and Git refs are valid", () => {
+    const root = repository();
+    const manager = new WorktreeManager([root], root);
+    const first = manager.create("task-owner");
+    const second = manager.create("other-owner");
+    const statePath = join(root, ".git", "folderforge", "isolations.json");
+    const state = JSON.parse(readFileSync(statePath, "utf8")) as {
+      isolations: Array<{ id: string; taskId: string; branch: string }>;
+      digest: string;
+    };
+    const duplicate = state.isolations.find((item) => item.id === second.id)!;
+    duplicate.taskId = first.taskId;
+    duplicate.branch = `folderforge/task/${first.taskId}-${second.id.slice(-8)}`;
+    git(second.worktreeRoot, "branch", "-m", duplicate.branch);
+    state.digest = `sha256:${createHash("sha256")
+      .update(JSON.stringify(state.isolations)).digest("hex")}`;
+    writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`);
+    const before = readFileSync(statePath);
+    const refsBefore = git(root, "show-ref");
+
+    expect(() => new WorktreeManager([root], root)).toThrow(/Duplicate isolation taskId/);
+    expect(readFileSync(statePath)).toEqual(before);
+    expect(git(root, "show-ref")).toBe(refsBefore);
+    expect(readFileSync(join(root, "tracked.txt"), "utf8")).toBe("original\n");
+  });
+
+  it("G01: refuses duplicate checked-out branch identities in Git inventory", () => {
+    const root = repository();
+    const branch = "folderforge/task/ambiguous-1234abcd";
+    const firstRoot = join(root, ".git", "folderforge", "worktrees", "iso_aaaaaaaaaaaaaaaaaaaa");
+    const secondRoot = join(root, ".git", "folderforge", "worktrees", "iso_bbbbbbbbbbbbbbbbbbbb");
+    git(root, "worktree", "add", "-b", branch, firstRoot, "HEAD");
+    // Git permits this with --force, so a branch name alone is not a unique worktree identity.
+    git(root, "worktree", "add", "--force", secondRoot, branch);
+    writeFileSync(join(firstRoot, "precious.txt"), "first worktree bytes\n");
+    writeFileSync(join(secondRoot, "precious.txt"), "second worktree bytes\n");
+    const refsBefore = git(root, "show-ref");
+    const manager = new WorktreeManager([root], root);
+    expect(() => manager.discoverUnregisteredWorktrees()).toThrow(/ISOLATION_INVENTORY_INCOMPLETE/);
+    expect(() => manager.discoverUnregisteredBranches()).toThrow(/ISOLATION_INVENTORY_INCOMPLETE/);
+    expect(git(root, "show-ref")).toBe(refsBefore);
+    expect(readFileSync(join(firstRoot, "precious.txt"), "utf8")).toBe("first worktree bytes\n");
+    expect(readFileSync(join(secondRoot, "precious.txt"), "utf8")).toBe("second worktree bytes\n");
+  });
+
+  it("G01: reports branch-only crash orphans without claiming branch ownership", () => {
+    const root = repository();
+    const orphanBranch = "folderforge/task/pre-add-crash-aabbccdd";
+    const checkedOutBranch = "folderforge/task/checked-out-11223344";
+    git(root, "branch", orphanBranch, "HEAD");
+    git(root, "branch", "unrelated-foreign", "HEAD");
+    const checkedOutRoot = join(root, ".git", "folderforge", "worktrees", "iso_0123456789abcdef0123");
+    git(root, "worktree", "add", "-b", checkedOutBranch, checkedOutRoot, "HEAD");
+    const refsBefore = git(root, "show-ref");
+    const observed = new WorktreeManager([root], root).discoverUnregisteredBranches();
+    expect(observed).toEqual([{
+      branch: orphanBranch,
+      headCommit: git(root, "rev-parse", "HEAD").trim(),
+      classification: "branch_only_not_owned",
+    }]);
+    expect(git(root, "show-ref")).toBe(refsBefore);
+    expect(git(root, "branch", "--list", orphanBranch)).toContain(orphanBranch);
+  });
+
+  it("G01: rejects a corrupt zero-HEAD Git inventory instead of trusting an ambiguous identity", () => {
+    const root = repository();
+    const orphanRoot = join(root, ".git", "folderforge", "worktrees", "iso_abcdef0123456789abcd");
+    git(root, "worktree", "add", "-b", "folderforge/task/broken-6789abcd", orphanRoot, "HEAD");
+    writeFileSync(join(orphanRoot, "precious.txt"), "preserve corrupt-inventory bytes\\n");
+    const gitdirLine = readFileSync(join(orphanRoot, ".git"), "utf8").trim();
+    expect(gitdirLine.startsWith("gitdir: ")).toBe(true);
+    const adminDir = gitdirLine.slice("gitdir: ".length);
+    renameSync(join(adminDir, "HEAD"), join(adminDir, "HEAD.broken"));
+    expect(git(root, "worktree", "list", "--porcelain")).toMatch(/HEAD 0{40}/);
+    const manager = new WorktreeManager([root], root);
+    expect(() => manager.discoverUnregisteredWorktrees()).toThrow(/ISOLATION_INVENTORY_INCOMPLETE/);
+    expect(readFileSync(join(orphanRoot, "precious.txt"), "utf8")).toBe("preserve corrupt-inventory bytes\\n");
+  });
+
+  it("G01: stale discovery refuses to return a registry-inconsistent snapshot", () => {
+    const root = repository();
+    const stale = new WorktreeManager([root], root);
+    const updated = new WorktreeManager([root], root);
+    updated.create("concurrent-record");
+    expect(() => stale.discoverUnregisteredWorktrees()).toThrow(/ISOLATION_REGISTRY_CHANGED/);
+    const refreshed = new WorktreeManager([root], root);
+    expect(refreshed.list()).toHaveLength(1);
+  });
+
+  it("G01: discovers crash-window worktrees without claiming ownership or mutating Git/registry", () => {
+    const root = repository();
+    const manager = new WorktreeManager([root], root);
+    const persisted = manager.create("persisted");
+    const id = "iso_0123456789abcdef0123";
+    const branch = "folderforge/task/crash-window-" + id.slice(-8);
+    const orphanRoot = join(root, ".git", "folderforge", "worktrees", id);
+    git(root, "worktree", "add", "-b", branch, orphanRoot, "HEAD");
+    writeFileSync(join(orphanRoot, "crash-user.txt"), "must survive discovery\n");
+    const registry = join(root, ".git", "folderforge", "isolations.json");
+    const before = readFileSync(registry);
+    const branchList = git(root, "branch", "--list");
+    const observed = new WorktreeManager([root], root).discoverUnregisteredWorktrees();
+    expect(observed).toEqual([
+      expect.objectContaining({
+        id,
+        worktreeRoot: realpathSync.native(orphanRoot),
+        branch,
+        classification: "candidate_not_owned",
+      }),
+    ]);
+    expect(observed.every((entry) => entry.id !== persisted.id)).toBe(true);
+    expect(readFileSync(registry)).toEqual(before);
+    expect(git(root, "branch", "--list")).toBe(branchList);
+    expect(readFileSync(join(orphanRoot, "crash-user.txt"), "utf8")).toBe("must survive discovery\n");
+  });
+
+  it("G01: ambiguous branch identity remains visible, never auto-registered or deleted", () => {
+    const root = repository();
+    const id = "iso_abcdef0123456789abcd";
+    const path = join(root, ".git", "folderforge", "worktrees", id);
+    git(root, "worktree", "add", "-b", "foreign-branch", path, "HEAD");
+    writeFileSync(join(path, "precious.txt"), "foreign bytes\n");
+    const manager = new WorktreeManager([root], root);
+    const observed = manager.discoverUnregisteredWorktrees();
+    expect(observed).toEqual([
+      expect.objectContaining({
+        id,
+        worktreeRoot: realpathSync.native(path),
+        branch: "foreign-branch",
+        classification: "ambiguous_not_owned",
+      }),
+    ]);
+    expect(manager.list()).toHaveLength(0);
+    expect(readFileSync(join(path, "precious.txt"), "utf8")).toBe("foreign bytes\n");
+    expect(git(root, "show-ref", "--verify", "refs/heads/foreign-branch")).toMatch(/^[a-f0-9]{40}/);
+  });
+
+  it("G01: a stale process must not erase another process's durable isolation entry", () => {
+    const root = repository();
+    // The first writer remains alive with a snapshot taken before the second writer commits.
+    const stale = new WorktreeManager([root], root);
+    const sourceModule = pathToFileURL(
+      join(process.cwd(), "src/isolation/worktree-manager.ts"),
+    ).href;
+    const childScript = [
+      'import { WorktreeManager } from "' + sourceModule + '";',
+      "const root = process.argv[1];",
+      "const manager = new WorktreeManager([root], root);",
+      'const created = manager.create("cross-process-writer-b");',
+      "console.log(JSON.stringify({ id: created.id, branch: created.branch }));",
+    ].join("\n");
+    const child = spawnSync(
+      process.execPath,
+      ["--import", "tsx", "--input-type=module", "-e", childScript, root],
+      { cwd: process.cwd(), encoding: "utf8", timeout: 15000 },
+    );
+    expect(child.status, child.stderr).toBe(0);
+    const other = JSON.parse(child.stdout.trim()) as { id: string; branch: string };
+    const registryPath = join(root, ".git", "folderforge", "isolations.json");
+    const before = readFileSync(registryPath);
+    const branchesBefore = git(root, "branch", "--list");
+
+    // The stale writer must refuse BEFORE creating a task branch/worktree.
+    expect(() => stale.create("cross-process-writer-a")).toThrow(
+      /ISOLATION_REGISTRY_CHANGED/,
+    );
+    expect(readFileSync(registryPath)).toEqual(before);
+    expect(git(root, "branch", "--list")).toBe(branchesBefore);
+    const refreshed = new WorktreeManager([root], root);
+    expect(refreshed.get(other.id)?.branch).toBe(other.branch);
+  });
+
+  it("G01: stale apply refuses before source mutation and a fresh manager can recover", () => {
+    const root = repository();
+    const initial = new WorktreeManager([root], root);
+    const isolation = initial.create("cross-process-apply");
+    writeFileSync(join(isolation.worktreeRoot, "tracked.txt"), "task change\n");
+    const stale = new WorktreeManager([root], root);
+    const sourceModule = pathToFileURL(
+      join(process.cwd(), "src/isolation/worktree-manager.ts"),
+    ).href;
+    const script = [
+      'import { WorktreeManager } from "' + sourceModule + '";',
+      "const root = process.argv[1];",
+      "const manager = new WorktreeManager([root], root);",
+      'manager.create("cross-process-unrelated");',
+    ].join("\n");
+    const child = spawnSync(
+      process.execPath,
+      ["--import", "tsx", "--input-type=module", "-e", script, root],
+      { cwd: process.cwd(), encoding: "utf8", timeout: 15000 },
+    );
+    expect(child.status, child.stderr).toBe(0);
+    const statePath = join(root, ".git", "folderforge", "isolations.json");
+    const before = readFileSync(statePath);
+    expect(() => stale.apply(isolation.id)).toThrow(/ISOLATION_REGISTRY_CHANGED/);
+    expect(readFileSync(join(root, "tracked.txt"), "utf8")).toBe("original\n");
+    expect(readFileSync(statePath)).toEqual(before);
+
+    const recovered = new WorktreeManager([root], root);
+    recovered.apply(isolation.id);
+    expect(readFileSync(join(root, "tracked.txt"), "utf8")).toBe("task change\n");
+    expect(new WorktreeManager([root], root).list()).toHaveLength(2);
+  });
+
+  it("G01: discard preserves a clean task branch with unique unmerged commits", () => {
+    const root = repository();
+    const manager = new WorktreeManager([root], root);
+    const isolation = manager.create("unmerged-discard");
+    writeFileSync(join(isolation.worktreeRoot, "tracked.txt"), "unique task commit\n");
+    git(isolation.worktreeRoot, "add", "tracked.txt");
+    git(isolation.worktreeRoot, "commit", "-m", "unique task commit");
+    const ref = "refs/heads/" + isolation.branch;
+    const taskHead = git(root, "rev-parse", ref).trim();
+    const registry = join(root, ".git", "folderforge", "isolations.json");
+    const stateBefore = readFileSync(registry);
+
+    expect(() => manager.discard(isolation.id)).toThrow(/ISOLATION_UNMERGED_COMMITS/);
+    expect(git(root, "rev-parse", ref).trim()).toBe(taskHead);
+    expect(existsSync(isolation.worktreeRoot)).toBe(true);
+    expect(readFileSync(registry)).toEqual(stateBefore);
+    expect(manager.get(isolation.id)?.state).toBe("active");
+  });
+
+  it("G01: discard preserves dirty and ignored worktree bytes", () => {
+    const root = repository();
+    writeFileSync(join(root, ".gitignore"), "private-cache.secret\n");
+    git(root, "add", ".gitignore");
+    git(root, "commit", "-m", "ignore disposable test cache");
+    const manager = new WorktreeManager([root], root);
+    const isolation = manager.create("dirty-discard");
+    const tracked = join(isolation.worktreeRoot, "tracked.txt");
+    const ignored = join(isolation.worktreeRoot, "private-cache.secret");
+    writeFileSync(tracked, "user uncommitted work\n");
+    writeFileSync(ignored, "private ignored bytes\n");
+    const registry = join(root, ".git", "folderforge", "isolations.json");
+    const stateBefore = readFileSync(registry);
+
+    expect(() => manager.discard(isolation.id)).toThrow(/ISOLATION_TASK_WORKTREE_DIRTY/);
+    expect(readFileSync(tracked, "utf8")).toBe("user uncommitted work\n");
+    expect(readFileSync(ignored, "utf8")).toBe("private ignored bytes\n");
+    expect(readFileSync(registry)).toEqual(stateBefore);
+    expect(manager.get(isolation.id)?.state).toBe("active");
+  });
+
+  it("G01: discard refuses ignored-only output even when Git status is clean", () => {
+    const root = repository();
+    writeFileSync(join(root, ".gitignore"), "private-cache.secret\n");
+    git(root, "add", ".gitignore");
+    git(root, "commit", "-m", "ignore test output");
+    const manager = new WorktreeManager([root], root);
+    const isolation = manager.create("ignored-only-discard");
+    const ignored = join(isolation.worktreeRoot, "private-cache.secret");
+    writeFileSync(ignored, "still needed\n");
+    const registry = join(root, ".git", "folderforge", "isolations.json");
+    const stateBefore = readFileSync(registry);
+    expect(git(isolation.worktreeRoot, "status", "--porcelain")).toBe("");
+
+    expect(() => manager.discard(isolation.id)).toThrow(/ISOLATION_TASK_WORKTREE_DIRTY/);
+    expect(readFileSync(ignored, "utf8")).toBe("still needed\n");
+    expect(readFileSync(registry)).toEqual(stateBefore);
+    expect(existsSync(isolation.worktreeRoot)).toBe(true);
+  });
+
+  it("G01: discard removes a clean task only after its commit is merged", () => {
+    const root = repository();
+    const manager = new WorktreeManager([root], root);
+    const isolation = manager.create("merged-discard");
+    writeFileSync(join(isolation.worktreeRoot, "tracked.txt"), "merged task commit\n");
+    git(isolation.worktreeRoot, "add", "tracked.txt");
+    git(isolation.worktreeRoot, "commit", "-m", "task merged");
+    const mergedHead = git(isolation.worktreeRoot, "rev-parse", "HEAD").trim();
+    git(root, "merge", "--ff-only", isolation.branch);
+    expect(git(root, "rev-parse", "HEAD").trim()).toBe(mergedHead);
+
+    const discarded = manager.discard(isolation.id);
+    expect(discarded.state).toBe("discarded");
+    expect(existsSync(isolation.worktreeRoot)).toBe(false);
+    expect(() => git(root, "show-ref", "--verify", "refs/heads/" + isolation.branch)).toThrow();
+    expect(readFileSync(join(root, "tracked.txt"), "utf8")).toBe("merged task commit\n");
+  });
+
+  it("G01: a post-preflight source HEAD rewind must preserve the task ref", () => {
+    const root = repository();
+    let movedSourceHead = false;
+    const manager = new WorktreeManager([root], root, {
+      beforeBranchDelete: (record) => {
+        movedSourceHead = true;
+        // Disposable fixture only: simulate a writer rewinding the source ref.
+        git(root, "update-ref", "refs/heads/main", record.baseCommit);
+      },
+    });
+    const isolation = manager.create("source-head-race");
+    writeFileSync(join(isolation.worktreeRoot, "tracked.txt"), "task-only history\n");
+    git(isolation.worktreeRoot, "add", "tracked.txt");
+    git(isolation.worktreeRoot, "commit", "-m", "history should remain referenced");
+    const head = git(isolation.worktreeRoot, "rev-parse", "HEAD").trim();
+    git(root, "merge", "--ff-only", isolation.branch);
+    const registry = join(root, ".git", "folderforge", "isolations.json");
+    const stateBefore = readFileSync(registry);
+
+    expect(() => manager.discard(isolation.id)).toThrow(/ISOLATION_SOURCE_HEAD_CHANGED/);
+    expect(movedSourceHead).toBe(true);
+    expect(git(root, "rev-parse", "refs/heads/" + isolation.branch).trim()).toBe(head);
+    expect(readFileSync(registry)).toEqual(stateBefore);
+    expect(manager.get(isolation.id)?.state).toBe("active");
   });
 
   it("discard retains missing worktree branch and metadata", () => {
@@ -179,6 +548,28 @@ describe("WorktreeManager", () => {
     expect(manager.list()[0]?.state).toBe("active");
   });
 
+  it("G01: apply refuses tracked source file replacement with byte-identical content", () => {
+    const root = repository();
+    const source = join(root, "tracked.txt");
+    const prior = join(root, ".git", "tracked-original.txt");
+    const manager = new WorktreeManager([root], root, {
+      beforeFinalMutationCheck: () => {
+        renameSync(source, prior);
+        writeFileSync(source, "original\n");
+      },
+    });
+    const isolation = manager.create("apply-tracked-identity");
+    writeFileSync(join(isolation.worktreeRoot, "tracked.txt"), "task change\n");
+    const registry = join(root, ".git", "folderforge", "isolations.json");
+    const before = readFileSync(registry);
+
+    expect(() => manager.apply(isolation.id)).toThrow(/APPLY_SOURCE_IDENTITY_CHANGED/);
+    expect(readFileSync(source, "utf8")).toBe("original\n");
+    expect(readFileSync(prior, "utf8")).toBe("original\n");
+    expect(readFileSync(registry)).toEqual(before);
+    expect(manager.get(isolation.id)?.state).toBe("active");
+  });
+
   it("rollback rechecks identity if worktree disappears after apply", () => {
     const root = repository();
     let armed = false;
@@ -242,19 +633,20 @@ describe("WorktreeManager", () => {
     const manager = new WorktreeManager([root], root, {
       beforeBranchDelete: (isolation) => {
         replaced = true;
-        git(root, "update-ref", `refs/heads/${isolation.branch}`, git(root, "rev-parse", "HEAD").trim());
+        git(root, "update-ref", `refs/heads/${isolation.branch}`, isolation.baseCommit);
       },
     });
     const isolation = manager.create("race-branch-ref");
     writeFileSync(join(isolation.worktreeRoot, "tracked.txt"), "committed independent task\n");
     git(isolation.worktreeRoot, "add", "tracked.txt");
     git(isolation.worktreeRoot, "commit", "-m", "task checkpoint");
+    git(root, "merge", "--ff-only", isolation.branch);
     const statePath = join(root, ".git", "folderforge", "isolations.json");
     const stateBefore = readFileSync(statePath);
     expect(() => manager.discard(isolation.id)).toThrow(/ISOLATION_IDENTITY_MISMATCH/);
     expect(replaced).toBe(true);
     expect(readFileSync(statePath)).toEqual(stateBefore);
-    expect(git(root, "rev-parse", `refs/heads/${isolation.branch}`).trim()).toBe(git(root, "rev-parse", "HEAD").trim());
+    expect(git(root, "rev-parse", `refs/heads/${isolation.branch}`).trim()).toBe(isolation.baseCommit);
   });
 
   it("apply catches worktree removal immediately before an untracked source copy", () => {
@@ -271,6 +663,252 @@ describe("WorktreeManager", () => {
     expect(() => manager.apply(isolation.id)).toThrow(/ISOLATION_WORKTREE_MISSING/);
     expect(readFileSync(join(root, "tracked.txt"))).toEqual(sourceBefore);
     expect(manager.list()[0]?.state).toBe("active");
+  });
+
+  it("refuses a concurrent untracked target without overwriting user bytes or leaking earlier copies", () => {
+    const root = repository();
+    const userBytes = "user wrote this after preflight\n";
+    let injected = false;
+    const manager = new WorktreeManager([root], root, {
+      beforeUntrackedCopy: ({ target }) => {
+        if (target === join(realpathSync.native(root), "z.txt")) {
+          injected = true;
+          writeFileSync(target, userBytes, { flag: "wx" });
+        }
+      },
+    });
+    const isolation = manager.create("concurrent-target");
+    writeFileSync(join(isolation.worktreeRoot, "a.txt"), "first output\n");
+    writeFileSync(join(isolation.worktreeRoot, "z.txt"), "task output\n");
+    const statePath = join(root, ".git", "folderforge", "isolations.json");
+    expect(() => manager.apply(isolation.id)).toThrow();
+    expect(injected).toBe(true);
+    expect(readFileSync(join(root, "z.txt"), "utf8")).toBe(userBytes);
+    expect(existsSync(join(root, "a.txt"))).toBe(false);
+    expect(readFileSync(join(root, "tracked.txt"), "utf8")).toBe("original\n");
+    expect(manager.get(isolation.id)?.state).toBe("active");
+    const persisted = JSON.parse(readFileSync(statePath, "utf8"));
+    expect(persisted.isolations[0]?.state).toBe("active");
+  });
+
+  it("refuses untracked task bytes changed after the recovery journal was recorded", () => {
+    const root = repository();
+    const manager = new WorktreeManager([root], root, {
+      beforeUntrackedCopy: ({ source }) => {
+        writeFileSync(source, "changed after journal\n");
+      },
+    });
+    const isolation = manager.create("changed-task-output");
+    writeFileSync(join(isolation.worktreeRoot, "new.txt"), "journaled output\n");
+    expect(() => manager.apply(isolation.id)).toThrow(/changed after journal/i);
+    expect(existsSync(join(root, "new.txt"))).toBe(false);
+    expect(readFileSync(join(root, "tracked.txt"), "utf8")).toBe("original\n");
+    expect(manager.get(isolation.id)?.state).toBe("active");
+  });
+
+  it("G01: apply refuses a byte-identical post-copy replacement and preserves recovery evidence", () => {
+    const root = repository();
+    const target = join(root, "new.txt");
+    const original = join(root, ".git", "original-copied.txt");
+    const manager = new WorktreeManager([root], root, {
+      afterUntrackedCopy: () => {
+        renameSync(target, original);
+        writeFileSync(target, "task bytes\n");
+      },
+    });
+    const isolation = manager.create("post-copy-identity");
+    writeFileSync(join(isolation.worktreeRoot, "new.txt"), "task bytes\n");
+    const registry = join(root, ".git", "folderforge", "isolations.json");
+
+    expect(() => manager.apply(isolation.id)).toThrow(/APPLY_RECOVERY_INCOMPLETE/);
+    expect(readFileSync(original, "utf8")).toBe("task bytes\n");
+    expect(readFileSync(target, "utf8")).toBe("task bytes\n");
+    expect(readFileSync(join(root, "tracked.txt"), "utf8")).toBe("original\n");
+    expect(manager.get(isolation.id)?.state).toBe("applying");
+    expect(JSON.parse(readFileSync(registry, "utf8")).isolations[0]?.state).toBe("applying");
+  });
+
+  it("G01: automatic recovery cannot delete a byte-identical replacement of an earlier copy", () => {
+    const root = repository();
+    const target = join(root, "a.txt");
+    const original = join(root, ".git", "first-copied.txt");
+    const manager = new WorktreeManager([root], root, {
+      beforeUntrackedCopy: ({ target: next }) => {
+        if (next.endsWith("z.txt")) {
+          renameSync(target, original);
+          writeFileSync(target, "same bytes\n");
+          throw new Error("injected failure after concurrent replacement");
+        }
+      },
+    });
+    const isolation = manager.create("recovery-copy-identity");
+    writeFileSync(join(isolation.worktreeRoot, "a.txt"), "same bytes\n");
+    writeFileSync(join(isolation.worktreeRoot, "z.txt"), "second output\n");
+    const registry = join(root, ".git", "folderforge", "isolations.json");
+
+    expect(() => manager.apply(isolation.id)).toThrow(/APPLY_RECOVERY_INCOMPLETE/);
+    expect(readFileSync(original, "utf8")).toBe("same bytes\n");
+    expect(readFileSync(target, "utf8")).toBe("same bytes\n");
+    expect(existsSync(join(root, "z.txt"))).toBe(false);
+    expect(readFileSync(join(root, "tracked.txt"), "utf8")).toBe("original\n");
+    expect(manager.get(isolation.id)?.state).toBe("applying");
+    expect(JSON.parse(readFileSync(registry, "utf8")).isolations[0]?.state).toBe("applying");
+  });
+
+  it("preserves a concurrent edit after copy instead of deleting uncertain output", () => {
+    const root = repository();
+    const userBytes = "user edited the new file after copy\n";
+    const manager = new WorktreeManager([root], root, {
+      afterUntrackedCopy: ({ target }) => {
+        writeFileSync(target, userBytes);
+      },
+    });
+    const isolation = manager.create("copy-output-drift");
+    writeFileSync(join(isolation.worktreeRoot, "new.txt"), "task version\n");
+    expect(() => manager.apply(isolation.id)).toThrow(/RECOVERY_INCOMPLETE/);
+    expect(readFileSync(join(root, "new.txt"), "utf8")).toBe(userBytes);
+    expect(manager.get(isolation.id)?.state).toBe("applying");
+    expect(() => manager.rollback(isolation.id)).toThrow(/changed after apply/);
+    expect(readFileSync(join(root, "new.txt"), "utf8")).toBe(userBytes);
+  });
+
+  it("G01: rollback preserves a byte-identical replacement of a tracked source after precheck", () => {
+    const root = repository();
+    const target = join(root, "tracked.txt");
+    const retained = join(root, ".git", "tracked-original-retained.txt");
+    const manager = new WorktreeManager([root], root, {
+      beforeRollbackMutation: () => {
+        renameSync(target, retained);
+        writeFileSync(target, "task change\n");
+      },
+    });
+    const isolation = manager.create("rollback-tracked-identity");
+    writeFileSync(join(isolation.worktreeRoot, "tracked.txt"), "task change\n");
+    manager.apply(isolation.id);
+    const registry = join(root, ".git", "folderforge", "isolations.json");
+    const before = readFileSync(registry);
+
+    expect(() => manager.rollback(isolation.id)).toThrow(/ROLLBACK_SOURCE_CHANGED/);
+    expect(readFileSync(target, "utf8")).toBe("task change\n");
+    expect(readFileSync(retained, "utf8")).toBe("task change\n");
+    expect(readFileSync(registry)).toEqual(before);
+    expect(manager.get(isolation.id)?.state).toBe("applied");
+  });
+
+  it("G01: rollback restores earlier untracked bytes when tracked identity changes", () => {
+    const root = repository();
+    const target = join(root, "tracked.txt");
+    const retained = join(root, ".git", "tracked-prior.txt");
+    const manager = new WorktreeManager([root], root, {
+      beforeRollbackMutation: () => {
+        renameSync(target, retained);
+        writeFileSync(target, "task change\n");
+      },
+    });
+    const isolation = manager.create("rollback-tracked-restore");
+    writeFileSync(join(isolation.worktreeRoot, "tracked.txt"), "task change\n");
+    writeFileSync(join(isolation.worktreeRoot, "artifact.txt"), "task artifact\n");
+    manager.apply(isolation.id);
+    const registry = join(root, ".git", "folderforge", "isolations.json");
+    const before = readFileSync(registry);
+
+    expect(() => manager.rollback(isolation.id)).toThrow(/ROLLBACK_SOURCE_CHANGED/);
+    expect(readFileSync(join(root, "artifact.txt"), "utf8")).toBe("task artifact\n");
+    expect(readFileSync(target, "utf8")).toBe("task change\n");
+    expect(readFileSync(retained, "utf8")).toBe("task change\n");
+    expect(readFileSync(registry)).toEqual(before);
+    expect(manager.get(isolation.id)?.state).toBe("applied");
+  });
+
+  it("G01: rollback refuses a tracked deletion target created after precheck", () => {
+    const root = repository();
+    const target = join(root, "tracked.txt");
+    const manager = new WorktreeManager([root], root, {
+      beforeRollbackMutation: () => {
+        writeFileSync(target, "foreign bytes\n");
+      },
+    });
+    const isolation = manager.create("rollback-deleted-tracked");
+    rmSync(join(isolation.worktreeRoot, "tracked.txt"));
+    manager.apply(isolation.id);
+    expect(existsSync(target)).toBe(false);
+    const registry = join(root, ".git", "folderforge", "isolations.json");
+    const before = readFileSync(registry);
+
+    expect(() => manager.rollback(isolation.id)).toThrow(/ROLLBACK_SOURCE_CHANGED/);
+    expect(readFileSync(target, "utf8")).toBe("foreign bytes\n");
+    expect(readFileSync(registry)).toEqual(before);
+    expect(manager.get(isolation.id)?.state).toBe("applied");
+  });
+
+  it("G01: rollback preserves an untracked same-byte replacement made after preflight", () => {
+    const root = repository();
+    const target = join(root, "artifact.txt");
+    const original = join(root, ".git", "artifact-original.txt");
+    const manager = new WorktreeManager([root], root, {
+      beforeRollbackUntrackedRemove: () => {
+        renameSync(target, original);
+        writeFileSync(target, "task artifact\n");
+      },
+    });
+    const isolation = manager.create("rollback-untracked-identity");
+    writeFileSync(join(isolation.worktreeRoot, "artifact.txt"), "task artifact\n");
+    manager.apply(isolation.id);
+    const registry = join(root, ".git", "folderforge", "isolations.json");
+    const before = readFileSync(registry);
+
+    expect(() => manager.rollback(isolation.id)).toThrow(/ROLLBACK_SOURCE_CHANGED/);
+    expect(readFileSync(target, "utf8")).toBe("task artifact\n");
+    expect(readFileSync(original, "utf8")).toBe("task artifact\n");
+    expect(readFileSync(registry)).toEqual(before);
+    expect(manager.get(isolation.id)?.state).toBe("applied");
+  });
+
+  it("G01: rollback restores earlier files if a later target is replaced", () => {
+    const root = repository();
+    const target = join(root, "z.txt");
+    const original = join(root, ".git", "z-original.txt");
+    const manager = new WorktreeManager([root], root, {
+      beforeRollbackUntrackedRemove: (_entry, index) => {
+        if (index === 1) {
+          renameSync(target, original);
+          writeFileSync(target, "task z\n");
+        }
+      },
+    });
+    const isolation = manager.create("rollback-multiple-untracked");
+    writeFileSync(join(isolation.worktreeRoot, "a.txt"), "task a\n");
+    writeFileSync(join(isolation.worktreeRoot, "z.txt"), "task z\n");
+    manager.apply(isolation.id);
+    const registry = join(root, ".git", "folderforge", "isolations.json");
+    const before = readFileSync(registry);
+
+    expect(() => manager.rollback(isolation.id)).toThrow(/ROLLBACK_SOURCE_CHANGED/);
+    expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("task a\n");
+    expect(readFileSync(target, "utf8")).toBe("task z\n");
+    expect(readFileSync(original, "utf8")).toBe("task z\n");
+    expect(readFileSync(registry)).toEqual(before);
+    expect(manager.get(isolation.id)?.state).toBe("applied");
+  });
+
+  it("G01: rollback reports a source file removed after preflight without losing metadata", () => {
+    const root = repository();
+    const target = join(root, "artifact.txt");
+    const moved = join(root, ".git", "artifact-moved.txt");
+    const manager = new WorktreeManager([root], root, {
+      beforeRollbackUntrackedRemove: () => renameSync(target, moved),
+    });
+    const isolation = manager.create("rollback-disappeared-untracked");
+    writeFileSync(join(isolation.worktreeRoot, "artifact.txt"), "artifact bytes\n");
+    manager.apply(isolation.id);
+    const registry = join(root, ".git", "folderforge", "isolations.json");
+    const before = readFileSync(registry);
+
+    expect(() => manager.rollback(isolation.id)).toThrow(/ROLLBACK_SOURCE_CHANGED/);
+    expect(existsSync(target)).toBe(false);
+    expect(readFileSync(moved, "utf8")).toBe("artifact bytes\n");
+    expect(readFileSync(registry)).toEqual(before);
+    expect(manager.get(isolation.id)?.state).toBe("applied");
   });
 
   it("rollback rejects a worktree lost after validating the journal but before mutation", () => {
@@ -567,6 +1205,10 @@ describe("WorktreeManager", () => {
     expect(readFileSync(join(root, "tracked.txt"), "utf8")).toBe("original\n");
     expect(existsSync(join(root, "new.txt"))).toBe(false);
 
+    // Rollback restores source, not the task's uncommitted files.
+    // Explicitly clean the disposable task fixture before discarding it.
+    git(isolation.worktreeRoot, "checkout", "--", "tracked.txt");
+    rmSync(join(isolation.worktreeRoot, "new.txt"));
     const discarded = manager.discard(isolation.id);
     expect(discarded.state).toBe("discarded");
     expect(existsSync(isolation.worktreeRoot)).toBe(false);
