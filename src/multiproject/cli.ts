@@ -7,6 +7,7 @@ interface Manifest {
   parentRoot: string;
   port: number;
   maxWorkers?: number;
+  maxSessions?: number;
   projects: Array<{ id: string; root: string }>;
 }
 
@@ -46,7 +47,7 @@ export function loadProjectGatewaySpec(
   if ("host" in manifest) {
     throw new Error("Project gateway must remain loopback-only; host override refused");
   }
-  const allowed = new Set(["parentRoot", "port", "maxWorkers", "projects"]);
+  const allowed = new Set(["parentRoot", "port", "maxWorkers", "maxSessions", "projects"]);
   for (const key of Object.keys(manifest)) {
     if (!allowed.has(key)) throw new Error("Unknown gateway configuration key: " + key);
   }
@@ -63,6 +64,7 @@ export function loadProjectGatewaySpec(
     port: manifest.port,
     token,
     ...(manifest.maxWorkers !== undefined ? { maxWorkers: manifest.maxWorkers } : {}),
+    ...(manifest.maxSessions !== undefined ? { maxSessions: manifest.maxSessions } : {}),
   };
 }
 

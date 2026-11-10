@@ -25,6 +25,7 @@ describe("F14 multi-project operator allowlist", () => {
     expect(resolved.projects).toEqual([{ id: "frontend", root: join(f.parent, "frontend") }]);
     expect(resolved.host).toBe("127.0.0.1");
     expect(resolved.port).toBe(7339);
+    expect(resolved.maxSessions).toBeUndefined();
     expect(resolved.token).toBe(token);
     expect(() => loadProjectGatewaySpec(f.configPath, {})).toThrow(/token/i);
     expect(() => loadProjectGatewaySpec(f.configPath, { FOLDERFORGE_MULTI_PROJECT_GATEWAY_TOKEN: "weak" })).toThrow(/token/i);

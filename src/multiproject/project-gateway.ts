@@ -24,6 +24,8 @@ export interface ProjectGatewayOptions {
   token: string;
   maxWorkers?: number;
   sessionTtlMs?: number;
+  /** Hard-bounded gateway session affinity table (default 1024, maximum 4096). */
+  maxSessions?: number;
   maxBodyBytes?: number;
 }
 export interface ProjectGateway {
@@ -121,6 +123,10 @@ export async function createProjectGateway(
   const maxWorkers = options.maxWorkers ?? 8;
   const maxBodyBytes = options.maxBodyBytes ?? 1024 * 1024;
   const sessionTtlMs = options.sessionTtlMs ?? 30 * 60_000;
+  const maxSessions = options.maxSessions ?? 1024;
+  if (!Number.isInteger(maxSessions) || maxSessions < 1 || maxSessions > 4096) {
+    throw new Error("Invalid MCP session capacity (1..4096)");
+  }
   if (!Number.isInteger(maxBodyBytes) || maxBodyBytes < 1 || maxBodyBytes > 8 * 1024 * 1024) {
     throw new Error("Invalid request body limit");
   }
@@ -129,6 +135,12 @@ export async function createProjectGateway(
   }
   const workers = new Map<string, Promise<ProjectWorker>>();
   const sessions = new Map<string, SessionAffinity>();
+  function pruneExpiredSessions(): void {
+    const currentTime = Date.now();
+    for (const [sessionId, session] of sessions) {
+      if (session.expiresAt <= currentTime) sessions.delete(sessionId);
+    }
+  }
   let shuttingDown = false;
 
   async function getWorker(project: ProjectSpec): Promise<ProjectWorker> {
@@ -214,6 +226,25 @@ export async function createProjectGateway(
         chunks.push(bytes);
       }
       if (shuttingDown) { json(res, 503, "gateway_shutting_down"); return; }
+      // A well-formed new stateful initialize must not create unlimited
+      // session-affinity entries, nor launch a worker when at capacity.
+      if (req.method === "POST" && !sessionId && sessions.size >= maxSessions) {
+        pruneExpiredSessions();
+        if (sessions.size >= maxSessions) {
+          let method: unknown;
+          try {
+            const incoming = JSON.parse(Buffer.concat(chunks).toString("utf8")) as
+              { method?: unknown } | null;
+            method = incoming?.method;
+          } catch {
+            // Forward malformed JSON to the MCP worker's regular validator.
+          }
+          if (method === "initialize") {
+            json(res, 503, "session_capacity");
+            return;
+          }
+        }
+      }
       let worker: ProjectWorker;
       try {
         worker = await getWorker(project);
@@ -244,6 +275,14 @@ export async function createProjectGateway(
             workerResponse.destroy();
             json(res, 502, "invalid_worker_session");
             return;
+          }
+          if (!sessions.has(workerSessionId) && sessions.size >= maxSessions) {
+            pruneExpiredSessions();
+            if (sessions.size >= maxSessions) {
+              workerResponse.destroy();
+              json(res, 503, "session_capacity");
+              return;
+            }
           }
           sessions.set(workerSessionId, { projectId, expiresAt: Date.now() + sessionTtlMs });
         }
