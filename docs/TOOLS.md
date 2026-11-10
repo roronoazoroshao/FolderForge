@@ -25,6 +25,10 @@ Audit baseline `main@8c00b15` (2026-11-10). This is a source snapshot, **not a p
 | Child integrations | Serena, Playwright, Desktop Commander, Godot | Adapter existence, child schema and bounded risk policy; no auto-trust | `src/runtime/config.ts:274-279`; `src/tools/adapter-tools.ts:38-50` |
 | Extension | VS Code Remote-SSH owner verification optional | Verified SSH broker and consent; not required for signed Dashboard owner flow | `src/operator/trusted-host-consent.ts:46-76`; `README.md:53-57` |
 
+## Workspaces behind a shared tunnel (current limitation)
+
+`workspace_switch` modifies the server-wide current workspace; `workspace_route` changes **global tool preset visibility**, not project-folder routing (`src/tools/workspace-tools.ts:40-60,149-195`; `src/tools/registry.ts:227-231`). HTTP MCP sessions are scoped to principal but not independently pinned to a child folder (`src/server/transports/http.ts:337-359`). Existing sequential multi-project tests pass; safe concurrent A/B child project isolation is **[UNVERIFIED]**. Until F14/F15 are approved/implemented, do not use one shared mutable workspace for concurrent child-project writes. Full evidence: [multi-child tunnel audit](audit/MULTI_WORKSPACE_TUNNEL.md).
+
 ## Tool execution invariants
 
 1. Tool metadata: `name`, `group`, `mutates`, `risk`, `audience`, `inputSchema` and optional `outputSchema` (`src/tools/registry.ts:64-101`). Read-only hints are metadata, **not** a permission grant (`src/tools/registry.ts:25-51`).

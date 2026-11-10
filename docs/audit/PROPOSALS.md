@@ -1,6 +1,6 @@
-# Proposals — 13 NEW features, no implementation authorization
+# Proposals — 15 NEW features, no implementation authorization
 
-Baseline `main@8c00b15ff7d34dedfd8f50e46066ad0a3defc23c` (2026-11-10). Not in the shipped scope of [feature inventory](FEATURE_INVENTORY.md). Problem IDs refer to [audit findings](AUDIT_REPORT.md). Estimates assume an engineer; staffing/pricing/paid API spend **[UNVERIFIED]**. ICE = Impact × Confidence × Ease (1–5 each); risk-critical F10 is mandatory for production release despite low score.
+Baseline `main@8c00b15ff7d34dedfd8f50e46066ad0a3defc23c` (2026-11-10). Not in the shipped scope of [feature inventory](FEATURE_INVENTORY.md). Problem IDs refer to [audit findings](AUDIT_REPORT.md). Estimates assume an engineer; staffing/pricing/paid API spend **[UNVERIFIED]**. ICE = Impact × Confidence × Ease (1–5 each); risk-critical F10 is mandatory for production release despite low score. **F14 is P0 for concurrent multi-child use regardless of ICE rank**; F15 is P1 after F14.
 
 ## Priority table
 
@@ -13,6 +13,8 @@ Baseline `main@8c00b15ff7d34dedfd8f50e46066ad0a3defc23c` (2026-11-10). Not in th
 | F05 | Prompt-injection policy eval suite | H-02,M-11 | M/7d | 5 | 4 | 4 | **80** | F01 | DEFER |
 | F07 | Fleet SLO and incident alerts | M-08,H-06 | M/6d | 4 | 4 | 4 | **64** | F02 | DEFER |
 | F06 | D3 staged typed settings | H-03 | L/10d | 5 | 4 | 3 | **60** | F02,F03,F07 | DEFER |
+| F14 | Request-scoped workspace affinity behind one tunnel | H-16 | L/15d | 5 | 5 | 2 | **50** | authorized child-project mapping; P0 security | **DEFER / P0 proposed** |
+| F15 | Per-workspace fair queues and quotas | M-17 | M/8d | 4 | 4 | 3 | **48** | F14,F07 | **DEFER / P1 proposed** |
 | F08 | Consent-bound project memory | M-12 | L/9d | 4 | 4 | 3 | **48** | F04,F05 | DEFER |
 | F13 | Review-only error learning coach | M-08,M-12 | M/8d | 4 | 4 | 3 | **48** | F04,F05,F07,F08 | DEFER |
 | F09 | Pinned child MCP trust manifest | M-07,M-11 | L/9d | 5 | 3 | 3 | **45** | F05,F07 | DEFER |
@@ -217,6 +219,36 @@ Baseline `main@8c00b15ff7d34dedfd8f50e46066ad0a3defc23c` (2026-11-10). Not in th
 | 🟢 MVP / 🟡 STABLE / 🔵 PRO | MVP fixture-only; STABLE operator canary; PRO multi-host epochs. |
 | Effort / dependencies | L/15d; Impact 5/5; confidence 2/5; ICE **10**; depends F05,F07,F09; independent reviewer. |
 
+### F14 — Immutable request-scoped child workspace routing (multi-project/MCP security)
+
+| Field | Specification |
+|---|---|
+| Value / audit problem | **P0 proposed.** One authenticated tunnel can serve many explicitly authorized child projects without cross-client target drift. H-16 in [the multi-child tunnel audit](MULTI_WORKSPACE_TUNNEL.md). |
+| LLM vs script | **Script-only, no LLM needed** for workspace selection, path canonicalization or authorization. Never infer a privileged child from model text. |
+| Inputs → outputs | Authenticated principal, MCP session ID, selected `workspaceId`, owner allowlist, immutable path identity, tool name and operationId → bound immutable request context, tool result + scoped audit; ambiguity denied. |
+| APIs/tools/credentials | Existing MCP HTTP auth/OAuth, allowed roots and Workspace APIs; optional owner-approved workspace manifest. No new credentials, no extra tunnel required. |
+| Affected existing/proposed modules | `src/workspace/workspace-manager.ts:30-33,64-102`; `src/tools/workspace-tools.ts:40-60,149-195`; `src/tools/registry.ts:481-485,623-633`; `src/server/transports/http.ts:337-359`; `src/main.ts:863-870`; `src/runtime/container.ts:85-109,127-162`; `src/tools/memory-tools.ts:4-52`; `src/core/principal.ts:47-60`; `tests/integration/multi-project.test.ts:29-77`. |
+| Human approval & risk | **HIGH**, potential wrong-folder writes/data disclosure. Owner explicitly approves child-project allowlist and authority. No silent host changes; all writes/publish/deletions/secret changes still pass current approval gates. |
+| Acceptance | 2 principals + 2 sessions + 3 children; **≥500 interleaved pathless operations and zero wrong-root or cross-project memory results**. Session A switch cannot change B. `workspace_route` tool preset is session-scoped. Unknown/removed/symlink-swapped child denied. Single-child legacy default preserved; missing child selection with multiple allowed children fails closed. |
+| Verification | TDD concurrent interleaving/replay, multi-session OAuth/owner negatives, symlink/rename and restart tests, full audit correlation `{sessionId, workspaceId, requestId}`; opt-in canary only. |
+| 🟢 MVP / 🟡 STABLE / 🔵 PRO | 🟢 Authenticated gateway pins each request/session to an owner-approved child-project identity, initially using separate bounded MCP workers to avoid global state; 🟡 robust worker lifecycle, distinct tool catalogs/task/memory namespaces and single-child backward compatibility; 🔵 optional lower-memory shared-process immutable-context optimization only after exhaustive security tests. |
+| Effort / dependencies | **L/15 engineer-days**, high uncertainty; Impact 5/5, Confidence 5/5 in importance, Ease 2/5; **ICE 50**. Requires explicit owner-approved child mapping; F05 eval fixtures recommended, but MVP must ship its own security-negative tests. |
+
+### F15 — Per-workspace fairness and backpressure (performance)
+
+| Field | Specification |
+|---|---|
+| Value / audit problem | **P1 proposed.** Prevent one noisy child monopolizing shared quota or suppressing another child's tool catalog. M-17 in [multi-child tunnel audit](MULTI_WORKSPACE_TUNNEL.md). |
+| LLM vs script | **Script-only**: fair admission queue, cancellation, timeout, immutable keys and latency metrics. No LLM scheduler. |
+| Inputs → outputs | Immutable F14 context, tool risk/mutation class, principal/workspace, deadline and queue depth → allowed/queued/rejected result, retry hint and redacted per-workspace p50/p95 metrics. |
+| APIs/tools/credentials | Current `RateLimiter`, registry, MCP task/session state and local audit; no external API or paid model. |
+| Affected existing/proposed modules | `src/policy/rate-limiter.ts:22-39,56-62`; `src/tools/registry.ts:598-633`; `src/tools/workspace-tools.ts:149-195`; `src/server/transports/http.ts:317-359`; `src/runtime/container.ts:103-105`; `src/server/mcp-task-manager.ts:82-103`; `tests/integration/multi-project.test.ts:29-77`. |
+| Human approval & risk | **MEDIUM–HIGH**, changes admission and possible order of mutations. Owner approves limits and any change affecting writes; no automatic retry of outcome-uncertain operations, no privilege widening. |
+| Acceptance | Child A saturates 20 tasks while B runs ≥200 safe reads: B has no quota coupling and **no starvation over 30s** within configured capacity; separate global abuse cap remains. On a controlled machine, p95 under noncontending load **≤1.5× measured isolated baseline**; queues/memory bounded. Same-project writes serialize under existing locking and preserve operationId/audit/replay. |
+| Verification | 3 children × 2 clients × ≥200 calls load benchmark and p50/p95/p99 metrics; clock, cancellation, timeout, overload 429/503, audit and uncertain-write fault tests. |
+| 🟢 MVP / 🟡 STABLE / 🔵 PRO | 🟢 Scoped quota key + bounded per-workspace admission; 🟡 fair scheduling/metrics/overload recovery; 🔵 distributed quotas and priority tiers only if explicitly approved. |
+| Effort / dependencies | **M/8 engineer-days**; Impact 4/5; Confidence 4/5; Ease 3/5; **ICE 48**. Depends **F14 first**, F07 metrics coordinated. |
+
 ## Owner approval decision table (one choice per row)
 
 | ID | Feature | APPROVE | MODIFY | REJECT | DEFER | Version / requested change |
@@ -228,6 +260,8 @@ Baseline `main@8c00b15ff7d34dedfd8f50e46066ad0a3defc23c` (2026-11-10). Not in th
 | F05 | Prompt-injection policy eval suite | ☐ | ☐ | ☐ | ☑ | pending explicit choice; default MVP-only |
 | F07 | Fleet SLO and incident alerts | ☐ | ☐ | ☐ | ☑ | pending explicit choice; default MVP-only |
 | F06 | D3 staged typed settings | ☐ | ☐ | ☐ | ☑ | pending explicit choice; default MVP-only |
+| F14 | Request-scoped workspace routing | ☐ | ☐ | ☐ | ☑ | P0 proposed; child-mapping/safety MVP |
+| F15 | Fair queues and per-workspace quota | ☐ | ☐ | ☐ | ☑ | P1 proposed; F14 dependency |
 | F08 | Consent-bound project memory | ☐ | ☐ | ☐ | ☑ | pending explicit choice; default MVP-only |
 | F13 | Review-only error learning coach | ☐ | ☐ | ☐ | ☑ | pending explicit choice; default MVP-only |
 | F09 | Pinned child MCP trust manifest | ☐ | ☐ | ☐ | ☑ | pending explicit choice; default MVP-only |
@@ -245,5 +279,6 @@ Baseline `main@8c00b15ff7d34dedfd8f50e46066ad0a3defc23c` (2026-11-10). Not in th
 4. Alerts: local UI only; external Telegram/email needs recipient authorization.
 5. Staffing: one engineer plus a separate qualified security reviewer; dates are not commitments.
 6. Root docs: remain unmodified until separately authorized in a later phase.
+7. Subfolders behind one tunnel: default **independent approved projects only when they have their own project roots**; treat monorepo packages as one workspace unless you explicitly authorize each child. Clarify whether folders are separate Git repositories or packages in one monorepo before Phase 5 design.
 
 >>> **APPROVAL GATE — STOP HERE.** No source implementation, `feat/*` branch, production deploy, merge, publish, credential or destructive action before owner approval.

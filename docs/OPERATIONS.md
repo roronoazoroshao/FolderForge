@@ -29,6 +29,14 @@ Evidence `README.md:23-61,64-93,119-149`; CLI dispatch `src/main.ts:98-155` and 
 4. Start Fleet only after explicit owner consent. Confirm separate child health/status, selected policy, supported tool list, revocation and audit (`src/operator/trusted-host-consent.ts:46-76`; `src/provisioner/fleet-manager.ts:402`).
 5. Do not assume authenticated owner UI means blanket OS root access.
 
+## Interim operating safety: one tunnel, several child projects
+
+**No current guarantee of per-client project affinity** when several clients change the global active workspace (`src/workspace/workspace-manager.ts:30-33,64-102`). The shared tool catalog and quota can also interact across clients (`src/tools/workspace-tools.ts:149-195`; `src/policy/rate-limiter.ts:22-39`). **Do not concurrently switch child folders on one server for writes.**
+
+Temporary choices without code changes: treat one selected root as one project and serialize cross-folder workflows **or** use distinct authenticated per-project MCP processes/Fleet children. A single public tunnel routing to multiple independent child processes needs a separately approved reverse proxy and is **not claimed as an existing automatic feature**. Explicit absolute paths help only tools that accept paths; git/memory/pathless tools still use current workspace. No automatic host restart, tunnel edit, credentials or permissions change performed.
+
+Before investigating real slowness collect **redacted** timestamp, tool name, status, duration, allowed child ID and whether concurrent requests were present. Avoid recording secrets, file contents or signed owner URLs. See [focused audit and proposed F14/F15](audit/MULTI_WORKSPACE_TUNNEL.md).
+
 ## Runtime monitoring
 
 | Signal / check | Why | Evidence |

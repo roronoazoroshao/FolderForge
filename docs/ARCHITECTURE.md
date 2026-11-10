@@ -29,6 +29,12 @@ CLI (main.ts) ──> Config (runtime/config.ts) ──> Container (runtime/cont
 4. **Isolation registry:** cooperative lock, durable hash and patch journal; metadata reconciliation requires unprovided host writer epoch (`src/isolation/worktree-manager.ts:103-112,1289-1307,1813-1825`).
 5. **External:** ChatGPT/OpenAI tunnel, Cloudflare, child MCP, package/marketplace and worker peers are separately authenticated and cannot be called “local-only” (`src/chatgpt/openai-tunnel.ts:1746`; `src/tools/adapter-tools.ts:38-50`).
 
+## Multi-child tunnel / workspace-context gap (new 2026-11-10 finding)
+
+An OpenAI secure tunnel launches a single MCP origin with `--project <root>` (`src/chatgpt/openai-tunnel.ts:1245-1304,1719-1739`), not a verified independent per-subfolder router. `WorkspaceManager.current` is **process-wide mutable state** (`src/workspace/workspace-manager.ts:30-33,64-102`); `workspace_switch` affects the same context used by subsequent pathless requests (`src/tools/workspace-tools.ts:40-60`). HTTP sessions bind principal ID, **not a project root per request** (`src/server/transports/http.ts:337-359`). In addition, `workspace_route` changes a shared tool **preset** rather than a child directory (`src/tools/workspace-tools.ts:149-195`), while quota is per-tool per-process (`src/policy/rate-limiter.ts:22-39,56-62`).
+
+**Preferred future direction — not implemented:** authenticated endpoint → owner-approved child workspace identity pinned to request/session → trusted gateway → separate bounded MCP worker per child (safer initial isolation) → immutable request context, per-project policy/quota/audit and fair queue. A shared-process alternative needs a later exhaustive cross-tool state refactor. Ambiguous project selection should fail closed, and changing one session must never alter another session's root or visible tool catalog. See [focused design and test matrix](audit/MULTI_WORKSPACE_TUNNEL.md) and proposed F14/F15.
+
 ## Agent loop: actual behavior versus planned
 
 **Current** driver is deterministic in its built-in fallback; providers may connect externally but this implementation itself does not invoke multiple independent LLMs (`src/agent-loops/agent-loop-runner.ts:31-39,156-216`).
@@ -85,6 +91,7 @@ Proposed model/usage ledger, true council, token limits and eval harness are **n
 | Agent loop | **Keep** durable state; **add** optional real provider interface | Honest AI capability, measured costs | External credentials/latency, privacy (`src/agent-loops/agent-loop-manager.ts:67-107`) |
 | Isolation metadata | **Keep fail-closed**; add dedicated host writer service only after evidence | Prevent stale-writer overwrite | Operational UID/ACL migration, cannot bypass reviewer (`docs/r14-kernel-registry-fence-migration.md:40-72`) |
 | Settings | **Extend typed allowlist**, desired vs effective, restart plan | Real Web Control UX without universal host write | More config validation/tests (`src/operator/config-descriptors.ts:4-60`) |
+| Multi-child tunnel/session | **Replace shared mutable workspace selection** with request-bound authorized project identity (F14), then add per-project admission/fairness (F15) | Prevent wrong-folder operations and noisy-neighbor limits | Requires RPC context migration, negative tests and backward-compatible single-project default (`src/workspace/workspace-manager.ts:30-33`; `src/policy/rate-limiter.ts:22-39`) |
 | Child MCP | **Keep** facade/presets; add trust health and cost ceilings | Limited context and blast radius | Extra discovery metadata / quarantine (`src/tools/index.ts:164-209`) |
 
 ## Target folder structure (proposal only)

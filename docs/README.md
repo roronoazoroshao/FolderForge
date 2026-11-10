@@ -121,4 +121,4 @@ tests take precedence.
 
 ## Audit, configuration and proposed roadmap (2026-11-10)
 
-The current source-baseline review is [Audit report](audit/AUDIT_REPORT.md) and [Feature inventory](audit/FEATURE_INVENTORY.md). Reference [Architecture](ARCHITECTURE.md), [Configuration](CONFIGURATION.md), [Tools and APIs](TOOLS.md), [Operations](OPERATIONS.md), [Proposals and approval gate](audit/PROPOSALS.md), and [90-day Roadmap](ROADMAP.md). Old `PROJECT_STATUS`, `CURRENT_FRONTIER` and `HANDOFF` are preserved historical snapshots; no Phase 5 source changes are approved by these documents.
+The current source-baseline review is [Audit report](audit/AUDIT_REPORT.md) and [Feature inventory](audit/FEATURE_INVENTORY.md). Reference [One tunnel / many child workspace limitations](audit/MULTI_WORKSPACE_TUNNEL.md), [Architecture](ARCHITECTURE.md), [Configuration](CONFIGURATION.md), [Tools and APIs](TOOLS.md), [Operations](OPERATIONS.md), [Proposals and approval gate](audit/PROPOSALS.md), and [90-day Roadmap](ROADMAP.md). Old `PROJECT_STATUS`, `CURRENT_FRONTIER` and `HANDOFF` are preserved historical snapshots; no Phase 5 source changes are approved by these documents.

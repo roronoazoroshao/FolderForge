@@ -14,11 +14,11 @@
 |---|---|---|---|
 | G1 — Usable owner onboarding | ≥80% of 20 **consenting pilot** sessions reach a **healthy** scoped Fleet in ≤10 min; ≤3 required decisions; 0 unsigned host grants | Baseline conversion **[UNVERIFIED]**; source `packages/mission-control/src/screens/Overview.tsx`, `src/operator/trusted-host-consent.ts:46-76`; instrument opted-in first-run events (F03/F07) | Do not log signed tokens; UI verification cannot be forged |
 | G2 — Verified, affordable agent outcomes | ≥95% success on a fixed 100-case safe-task eval set; 100% model invocations budget-accounted; 0 unauthorised destructive actions in tested runs; ≤1% double-charge discrepancy | Baseline model success/spend **[UNVERIFIED]**; deterministic council current (`src/agent-loops/agent-loop-runner.ts:156-216`); planned F04/F05/F11 | Never claim independent review from synthetic votes; stop when budget/approval expires |
-| G3 — Operable security/reliability | Detect dead Fleet ≤60s in injected tests; alert dedupe ≤1/5min; 100% exercised critical mutation paths fail closed when writer epoch unavailable; host migration **NO-GO until independent APPROVED** | Existing kernel-fence gap `docs/r14-kernel-registry-fence-migration.md:24-38,74-83`; no production MTTR/uptime baseline **[UNVERIFIED]** | 0 actual registry writes on the live host until explicit operator/reviewer cutover |
+| G3 — Safe multi-workspace operation and reliability | **0 cross-root actions in ≥500 interleaved requests** across 3 child projects/2 clients; p95 noncontended latency ≤1.5× isolated baseline on controlled load; dead Fleet detected ≤60s; critical registry mutation still fail-closed without writer epoch | Existing kernel-fence gap `docs/r14-kernel-registry-fence-migration.md:24-38,74-83`; no production MTTR/uptime baseline **[UNVERIFIED]** | 0 actual registry writes on the live host until explicit operator/reviewer cutover |
 
 ## Phase 4: prioritized order, safety override and dependencies
 
-**Order for review:** F01 → F02 → F05 → F03 → F04 → F07 → F06 → F08 → F09 → F10 → F11 → F12 → F13. F10 is **critical independent P0 production gate** and must be designed/reviewed early even though deployment follows review and has low ICE. No feature implementation is implied by its position. See per-feature effort, impact, confidence, risk and ICE in [PROPOSALS.md](audit/PROPOSALS.md).
+**Safety-prioritized order for review:** **F14 first (P0; multi-child request binding)** → F01 → F02 → F05 → F07 → **F15 (P1; fair resource scheduling)** → F03 → F04 → F06 → F09 → F08 → F11 → F12 → F13. F10 is a separate **critical independent P0 production release gate**, requiring external reviewer and kernel fencing before activation. Neither the ICE rank nor owner request to make one tunnel serve many projects permits bypassing either security gate. Nothing here is approved. See per-feature effort, impact, confidence, risk and ICE in [PROPOSALS.md](audit/PROPOSALS.md).
 
 ```text
 F01 → F03, F04, F05, F11          (trust provenance first)
@@ -29,6 +29,8 @@ F05 → F08, F09, F10, F11, F13    (adversarial policy evaluation)
 F07 → F06, F09, F10, F12, F13    (reliability and incident telemetry)
 F08 → F13                        (consented memory before learning coach)
 F09 → F10, F11, F12              (child tool trust before advanced flows)
+F14 → F15, F03                    (immutable project identity before fairness/UI)
+F07 → F15                         (incident metrics before queue tuning)
 Independent qualified reviewer → F10 production activation
 ```
 
@@ -36,11 +38,11 @@ Independent qualified reviewer → F10 production activation
 
 | Horizon | Deliverables (only if approved) | Measured exit criteria | Risk condition |
 |---|---|---|---|
-| **NOW (weeks 0–2)** | F01 honest heuristic provenance MVP, F02 docs drift guard MVP, F05 security eval corpus MVP, F03 first-run owner readiness MVP; F10 external reviewer/host threat model **design only** | Baseline instrumented; zero fake reviewer labels; ≥50 adversarial fixtures; owner negative/390px tests pass; root docs changes remain explicitly approved | No rollout of reconcile or host permission change |
-| **NEXT (weeks 2–6)** | Capacity-limited MVPs: F04 ledger, F07 local incident view, F06 3 typed settings, F09 prototype schema quarantine; F10 independent reviewer planning only | Usage recorded for 100% synthetic model runs, hard budget stop; 60s Fleet fault detection; 0 anonymous quota/settings changes; malicious child schema quarantine | F10 never activated without kernel DAC proof and reviewer |
-| **LATER (weeks 6–12)** | Candidate backlog **select 1–2 only** from F08 memory MVP, F11 optional council MVP, F12 signed event MVP, F13 error coach MVP; F10 controlled **operator-approved canary** only as a separate staffed security track | ≥100 safe-task evals, ≥95% target pass; 20 signed-owner pilots with ≥80% healthy onboarding; no unapproved mutation, cost and rollback evidence attached | External API/credential/payment and host/production approvals separate from implementation |
+| **NOW (weeks 0–2)** | **F14 MVP first**: request/session-scoped root, owner-approved child mapping, fail-closed ambiguity and interleaved tests (~8d); F01 provenance MVP (~2d); F02 critical metadata/docs MVP (~2d); F10 security review plan only | ≥500 concurrent/interleaved child operations on test fixtures with **0 wrong-folder results**; 1-child legacy mode works; no fabricated reviewer claims | No production tunnel migration, host permission change or reconcile activation |
+| **NEXT (weeks 2–6)** | F14 STABLE namespace/catalog hardening (~7d); F05 initial adversarial corpus (~4d); F07 local health signal MVP (~4d); **F15 fair queue/quota MVP (~5d)** | 0 cross-session catalog leakage; no child starvation >30s under fixed bounded queue; failed auth/path swap returns denial; 60s child death detection | Global abuse cap retained, no automatic retries for uncertain writes |
+| **LATER (weeks 6–12)** | F03 Fleet consent UX MVP (~5d); F04 token budget MVP (~6d); F06 typed D3 settings MVP (~10d); F09 child trust manifest MVP (~9d). F08/F11/F12/F13 remain **DEFERRED beyond 90d** for single-engineer capacity; F10 production fence is separately staffed | ≥80% healthy Fleet onboarding in 20 consenting pilots; 100% simulated LLM calls budget-stopped; 0 anonymous settings edits; malicious child manifests quarantined | F10 host canary only after external independent reviewer and separate owner cutover approval |
 
-**Capacity reality:** the 13 full-scope estimates sum to **103 engineer-days**, before reviews and operational qualification. One engineer has only roughly 60–65 working days in 12 weeks, so **all 13 cannot be delivered in 90 days**. NOW proposes at most 10 engineer-days of reduced MVP slices (F01 2d, F02 3d, F05 starter 2d, F03 preflight starter 3d); NEXT at most 20 (F04 MVP 5d, F07 MVP 4d, F06 MVP 7d, F09 design/quarantine prototype 4d). LATER has only about 30–35 remaining: choose **one or two** advanced MVPs (F08/F11/F12/F13) after dependency checks, rather than promising all four. F10 real-host qualification is a **separate external security/release workstream**; it cannot be squeezed into normal feature velocity without dropping other scope. Full scopes/STABLE/PRO are deferred to later cycles unless the owner funds more staffed parallel tracks. Nothing is approved by these indicative allocations.
+**Capacity reality:** the 15 full-feature estimates total **126 engineer-days** (original 103 + F14 15 + F15 8), before security review and host migration. One engineer has roughly 60–65 working days in 12 weeks; **delivering all 15 is infeasible**. The constrained roadmap allocates approximately NOW 12d + NEXT 20d + LATER 30d = **62 engineer-days**, using smaller MVP slices. Model-backed council, persistent memory, automation and coaching remain a **post-90-day backlog** unless staffing/priority changes. F10 is an independent security workstream that cannot borrow imagined capacity. No dates are delivery commitments and no feature is approved.
 
 ## Step-by-step development track (Phase 5, only on approval)
 
@@ -76,7 +78,9 @@ Independent qualified reviewer → F10 production activation
 | Review transparency | 0 false independent-review claims, verifier IDs present | **NO-GO** synthetic fallback uses “independent” text |
 | Budget / token | 100% cost-accounted LLM tasks, hard no-overspend | **NO-GO [UNVERIFIED]** |
 | Host safety | Old writer kernel denied, epoch survives restart, independent APPROVED reviewer | **NO-GO**, `docs/r14-kernel-registry-fence-migration.md:74-83` |
+| Multi-child project isolation | 0 wrong-root actions in 500 interleaved calls + 0 cross-session toolset change; fail closed on ambiguity | **NO-GO** for concurrent different-child writes: F14 absent (`src/workspace/workspace-manager.ts:30-33`) |
+| Multi-child fairness | Per-child tool budgets and no >30s starvation under bounded load | **NO-GO / [UNVERIFIED]** measured p95; F15 absent (`src/policy/rate-limiter.ts:22-39`) |
 | Operational SLO | ≥80% signed-owner onboarding healthy, dead Fleet detection ≤60s | **PILOT REQUIRED**, baseline unmeasured |
 | Publication | Manual approved release tag, attestation, current soak, rollback | **NO-GO [UNVERIFIED]** from this audit |
 
-**Approval gate:** accept/reject/modify features in [PROPOSALS.md](audit/PROPOSALS.md), with intended MVP/STABLE/PRO scope. No source code, production change, git merge, publishing, payments, credentials or destructive action is authorized by this roadmap.
+**New multi-child evidence:** [one tunnel / many workspaces](audit/MULTI_WORKSPACE_TUNNEL.md). **Approval gate:** accept/reject/modify features in [PROPOSALS.md](audit/PROPOSALS.md), with intended MVP/STABLE/PRO scope. No source code, production change, git merge, publishing, payments, credentials or destructive action is authorized by this roadmap.
