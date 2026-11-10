@@ -41,6 +41,7 @@ import { executeControlCli } from "./control/cli.js";
 import { defaultOriginDeps, executeOriginCli } from "./control/origin.js";
 import { defaultTunnelDeps, executeTunnelCli } from "./control/tunnel.js";
 import { executeShareCli } from "./share/cli.js";
+import { executeMultiProjectCli } from "./multiproject/cli.js";
 import { executeHostOperatorCli, defaultHostConsentRoot } from "./operator/trusted-host-cli.js";
 import { executeSshDashboardCli } from "./operator/ssh-dashboard-launcher.js";
 import { openLocalOwnerBrowser } from "./operator/local-owner-launcher.js";
@@ -329,6 +330,7 @@ function printHelp(): void {
       "  connect <client>       Configure cursor|vscode|claude|generic stdio clients",
       "  connect chatgpt        Connect through OpenAI Tunnel or public OAuth",
       "  chatgpt <command>      status|doctor|repair|start|stop|disconnect",
+      "  multi-project serve --config <file>  Opt-in loopback gateway for approved independent projects",
       "  distributed serve      Start the authenticated remote-worker coordinator API",
       "  worker init|run        Create a worker identity or run an allowlisted remote worker",
       "  plugin <command>       init|validate|test|pack|keygen|sign plugin SDK workflow",
@@ -388,6 +390,10 @@ async function main(): Promise<void> {
   }
   if (argv[0] === "dashboard" && argv[1] === "ssh") {
     await executeSshDashboardCli(argv.slice(2));
+    return;
+  }
+  if (argv[0] === "multi-project") {
+    await executeMultiProjectCli(argv.slice(1));
     return;
   }
   if (argv[0] === "distributed" || argv[0] === "worker") {
