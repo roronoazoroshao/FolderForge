@@ -18,7 +18,7 @@ Public tunnel / MCP endpoint
 
 **Evidence:** `src/chatgpt/openai-tunnel.ts:1245-1304,1719-1739,1829-1837,1888-1895`; `src/runtime/container.ts:85-109,127-162`. Cloudflare's independently supervised named tunnel is also a **transport**, not automatic per-child request routing (`src/control/tunnel.ts:48-54,103-113`). This concern applies to either public tunnel provider when both forward to the same local MCP process.
 
-A folder may be a **real independent project** (own `package.json`/`pyproject.toml`/`.git`) or merely a package inside one monorepo. Current `detectProject` tests only the selected root's marker files (`src/workspace/project-detector.ts:49-83`). **Decision required** on which child roots should be isolated; the router must never grant all discovered folders implicitly.
+**Confirmed product input (owner, 2026-11-10): these child folders are independent projects, not monorepo packages.** This does **not** prove each project has its own `.git` or `package.json`. Markers are non-authoritative hints (`src/workspace/project-detector.ts:49-83`). Only individually owner-approved canonical roots are valid; the router must not grant all scanned subfolders.
 
 ## Confirmed source mechanisms
 
@@ -63,7 +63,7 @@ Tunnel (unchanged URL / credential contract)
 **Failure semantics:** Missing workspace ID with multiple eligible children -> **ambiguous target / fail closed**; an authenticated client may deliberately select/pin a workspace in a governed session, but another client must not change that binding. Validate canonical realpath/allowed roots and symlink/ancestor identity, owner scope, read/write OAuth grants, restart/session expiry, unauthorized/removed child and session replay.
 
 Design choices and trade-offs:
-- **Preferred initial safety boundary:** one public authenticated tunnel → new trusted workspace/session router → **one MCP worker per owner-authorized project**, launched lazily with an explicit worker cap. This reuses current one-project server behavior and separates in-memory runtime state, but increases memory/ports/health/restart supervision. **No claim existing tunnel commands automatically provide this multiplexing.**
+- **Preferred initial safety boundary for independent projects:** one authenticated public tunnel → trusted workspace/session router → **one bounded MCP worker lazily started per explicitly owner-approved project**. The common parent is for discovery/configuration, **not** execution. Each child worker has a fixed `--project`, task/workflow/memory storage, tool catalog and rate counters. Costs: RAM, private ports/sockets, worker health/restart logic. **Same-UID processes separate in-memory state but do not constitute OS-level filesystem isolation**; path-policy, scopes and optionally distinct UIDs/sandbox still matter. Current tunnel command does not provide this dispatcher.
 - **Optional lower-memory optimization:** one shared MCP process with immutable per-request `workspaceId` and per-project state namespaces. Requires refactoring every pathless tool, memory/task service and global tool catalog before it is security-equivalent; do not ship a quick `current` toggle as a replacement.
 - **Temporary operating policy:** avoid concurrent clients using `workspace_switch` or `workspace_route` against the **same** server; dedicate MCP processes to distinct child projects for writes. Explicit absolute file paths reduce ambiguity only for certain tools and **do not** fix pathless git/memory calls or global quotas. Do not restart a live tunnel/host without owner approval.
 
@@ -85,7 +85,7 @@ Design choices and trade-offs:
 | Root symlink or child rename between authorization/execution | Fail closed on identity mismatch, no wrong-folder write |
 | A floods `shell_exec` and B performs allowed safe reads | Per-principal/child quota and fairness; B not starved; global abuse limit retained |
 | Same-project concurrent write, HTTP disconnect, replay | No duplicate mutation; locking, audit and outcome-uncertain semantics preserved |
-| Children discovered by scan but not owner-authorized | No automatic exposure, no automatic `.folderforge` directory creation and no ability to switch |
+| Independent child roots discovered but not individually owner-authorized | No automatic exposure, no automatic `.folderforge` directory creation and no ability to switch |
 | HTTP session IDs for two principals, restart, TTL expiry | Workspace binding/auth revalidated; no stale session cross-project handoff |
 | Child count 1, existing clients use legacy pathless tooling | Explicit documented backward-compatible default without broadening permissions |
 | Child count >1, pathless target unspecified | Clear ambiguous target error; not silent fallback to last globally selected folder |

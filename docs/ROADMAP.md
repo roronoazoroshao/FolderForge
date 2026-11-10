@@ -1,6 +1,6 @@
 # FolderForge — proposed 90-day roadmap (no implementation authorization)
 
-**Baseline:** `main@8c00b15`, 2026-11-10. This roadmap represents recommendations, **not approved delivery, an npm release, or a production rollout**. Scope/ROI assumes 1 developer and an independently available security reviewer; staffing, actual demand, monthly spend and SLAs remain **[UNVERIFIED]**. Proposals and decisions live in [PROPOSALS.md](audit/PROPOSALS.md).
+**Baseline:** `main@8c00b15`, 2026-11-10. **Owner-confirmed scope: child folders behind one tunnel are independent projects, not monorepo packages.** F14 accordingly proposes one authorized worker per project. This roadmap represents recommendations, **not approved delivery, an npm release, or a production rollout**. Scope/ROI assumes one developer and an independently available security reviewer; staffing, actual demand, monthly spend and SLAs remain **[UNVERIFIED]**. Proposals and decisions live in [PROPOSALS.md](audit/PROPOSALS.md).
 
 ## Phase 3: direction and positioning
 
