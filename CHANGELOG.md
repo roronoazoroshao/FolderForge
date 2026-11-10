@@ -11,7 +11,8 @@ semantic versioning.
 ### Added
 - Opt-in authenticated loopback MCP gateway multiplexing individually approved
   child project roots to lazy separate MCP worker processes, with session affinity,
-  canonical root identity checks, request-size limits and bounded worker count.
+  canonical root identity checks, request-size limits, bounded worker count,
+  and capped session-affinity map with expiry reclamation.
 - Real MCP worker integration, 500-request interleaving and fail-closed tests.
 
 ### Limitations

@@ -11,6 +11,7 @@ Create an owner-controlled absolute JSON file with mode 0600:
   "parentRoot": "/srv/approved-projects",
   "port": 7339,
   "maxWorkers": 4,
+  "maxSessions": 1024,
   "projects": [
     {"id": "frontend", "root": "/srv/approved-projects/frontend"},
     {"id": "backend", "root": "/srv/approved-projects/backend"}
@@ -40,7 +41,7 @@ The gateway binds loopback 127.0.0.1 at the configured port; requires a bearer t
 
 This MVP terminates **static bearer auth**, not OAuth federation. Existing public tunnel auth/OAuth and URL migration must be reviewed separately. Using separate processes under the **same OS UID does not provide kernel filesystem isolation**: current path/risk approval gates remain mandatory. The worker starts with safe built-in defaults, ignoring project YAML that might weaken allowed directories or approvals. Per-session tool preset isolation *within one project*, per-client role separation, token rotation, worker queue fairness, continuous metrics and production migration are future/other feature gates (including F15). Project workers are not automatically restarted after uncertain writes.
 
-A worker exit drops session affinity and frees capacity. Unknown/expired sessions require re-initialization; non-idempotent requests are **not automatically replayed**. Do not prune or delete a project folder as gateway rollback.
+The gateway bounds its session-affinity map to `maxSessions` (default **1,024**, hard cap **4,096**). Expired entries are reclaimed before capacity denial; excess new stateful initializations return **503** `session_capacity` rather than allocating unbounded session state. A worker exit drops its session affinity and frees capacity. Unknown/expired sessions require re-initialization; non-idempotent requests are **not automatically replayed**. Do not prune or delete a project folder as gateway rollback.
 
 Tests:
 
