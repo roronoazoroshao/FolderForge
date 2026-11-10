@@ -1,10 +1,11 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   includesExpectedText,
+  pinnedInstallSpecs,
   resolveNpmLaunch,
 } from '../../scripts/child-mcp-third-party.mjs';
 
@@ -59,11 +60,71 @@ describe('third-party child MCP compatibility manifest', () => {
     expect(report.npmOverrides).toEqual([
       expect.objectContaining({
         package: 'glob',
-        version: '13.0.6',
+        version: '14.0.3',
         integrity: expect.stringMatching(/^sha512-/),
-        reason: expect.stringMatching(/GHSA-mh99-v99m-4gvg/),
+        reason: expect.stringMatching(/GHSA-3g3m-2fjr-6pw4/),
+      }),
+      expect.objectContaining({
+        package: 'minimatch',
+        version: '11.0.3',
+        integrity: expect.stringMatching(/^sha512-/),
+        reason: expect.stringMatching(/GHSA-g3hv-75wg-m249/),
       }),
     ]);
+  });
+
+  it('installs verified transitive overrides as exact direct package specs across npm platforms', () => {
+    const manifest = JSON.parse(readFileSync(MANIFEST, 'utf8')) as {
+      profiles: Array<{ package: string; version: string }>;
+      npmOverrides: Array<{ package: string; version: string }>;
+    };
+    expect(pinnedInstallSpecs(manifest)).toEqual([
+      ...manifest.profiles.map((profile) => `${profile.package}@${profile.version}`),
+      'glob@14.0.3',
+      'minimatch@11.0.3',
+    ]);
+  });
+
+  it('commits an exact, audited transitive package-lock for cross-platform npm ci', () => {
+    const manifest = JSON.parse(readFileSync(MANIFEST, 'utf8')) as {
+      profiles: Array<{ package: string; version: string; integrity: string }>;
+      npmOverrides: Array<{ package: string; version: string; integrity: string }>;
+    };
+    const lock = JSON.parse(
+      readFileSync(resolve('compatibility/child-mcp-third-party.package-lock.json'), 'utf8'),
+    ) as {
+      lockfileVersion: number;
+      packages: Record<string, { version?: string; integrity?: string; dependencies?: Record<string, string> }>;
+    };
+    expect(lock.lockfileVersion).toBe(3);
+    const pins = [...manifest.profiles, ...manifest.npmOverrides];
+    expect(lock.packages['']?.dependencies).toEqual(
+      Object.fromEntries(pins.map(({ package: name, version }) => [name, version])),
+    );
+    for (const pin of pins) {
+      expect(lock.packages[`node_modules/${pin.package}`]).toMatchObject({
+        version: pin.version,
+        integrity: pin.integrity,
+      });
+    }
+  });
+
+  it('pins patched glob and minimatch releases for the current third-party audit advisories', () => {
+    const manifest = JSON.parse(readFileSync(MANIFEST, 'utf8')) as {
+      npmOverrides: Array<{ package: string; version: string; integrity: string; reason: string }>;
+    };
+    const pins = new Map(manifest.npmOverrides.map((entry) => [entry.package, entry]));
+
+    expect(pins.get('glob')).toMatchObject({
+      version: '14.0.3',
+      integrity: 'sha512-A1vjIwC3qpdCso45Iw127gnp7sPhqgY8lUQhDrArIs+GbmfaaVPFuoyy7WyLT9EPZCRZ7j7aLdwUhQmHWesEow==',
+      reason: expect.stringContaining('GHSA-3g3m-2fjr-6pw4'),
+    });
+    expect(pins.get('minimatch')).toMatchObject({
+      version: '11.0.3',
+      integrity: 'sha512-iny/40PEGkNJQ5/Pv6z3nm6FbRAby32GeZRjCUJk2WnNDbgPSTcdI+DDvLqsgBdD4cD5sMtMheqPPnehCCa8Nw==',
+      reason: expect.stringContaining('GHSA-g3hv-75wg-m249'),
+    });
   });
 
   it('supports selecting one profile and writing machine-readable evidence', () => {
@@ -121,6 +182,66 @@ describe('third-party child MCP compatibility manifest', () => {
 
     expect(executed.status).not.toBe(0);
     expect(executed.stderr).toMatch(/npmOverrides\[0\]\.version.*exact pinned version/i);
+  });
+});
+
+describe('third-party dependency resolution safety on every OS', () => {
+  const scriptExports = import('../../scripts/child-mcp-third-party.mjs');
+
+  it('normalizes a symlink install root before npm writes any lockfile paths', async () => {
+    const mod = await scriptExports as Record<string, unknown>;
+    expect(mod.canonicalInstallRoot).toBeTypeOf('function');
+    const normalize = mod.canonicalInstallRoot as (path: string) => string;
+    const temp = mkdtempSync(join(tmpdir(), 'folderforge-npm-path-'));
+    try {
+      const actual = join(temp, 'canonical ünicode dir');
+      const alias = join(temp, 'symlink-install');
+      mkdirSync(actual);
+      symlinkSync(actual, alias, 'dir');
+      expect(normalize(alias)).toBe(realpathSync(actual));
+      expect(normalize(alias)).not.toBe(alias);
+    } finally {
+      rmSync(temp, { recursive: true, force: true });
+    }
+  });
+
+  it('predeclares pinned profiles and overrides before dependency resolution', async () => {
+    const mod = await scriptExports as Record<string, unknown>;
+    expect(mod.createPinnedInstallManifest).toBeTypeOf('function');
+    const createManifest = mod.createPinnedInstallManifest as (
+      manifest: { profiles: Array<{ package: string; version: string }>; npmOverrides: Array<{ package: string; version: string }> },
+    ) => { dependencies: Record<string, string>; overrides: Record<string, string> };
+    const manifest = JSON.parse(readFileSync(MANIFEST, 'utf8')) as Parameters<typeof createManifest>[0];
+    const result = createManifest(manifest);
+
+    expect(result.dependencies['@modelcontextprotocol/server-filesystem']).toBe('2026.7.10');
+    expect(result.dependencies['@playwright/mcp']).toBe('0.0.78');
+    expect(Object.keys(result.dependencies)).toHaveLength(5);
+    expect(result.overrides).toMatchObject({ glob: '14.0.3', minimatch: '11.0.3' });
+  });
+
+  it('rejects any nested vulnerable override resolution instead of silently accepting it', async () => {
+    const mod = await scriptExports as Record<string, unknown>;
+    expect(mod.assertPinnedOverridesInLock).toBeTypeOf('function');
+    const check = mod.assertPinnedOverridesInLock as (
+      lock: { packages: Record<string, { version: string; integrity: string }> },
+      overrides: Array<{ package: string; version: string; integrity: string }>,
+    ) => void;
+    const manifest = JSON.parse(readFileSync(MANIFEST, 'utf8')) as { npmOverrides: Parameters<typeof check>[1] };
+    const glob = manifest.npmOverrides.find((entry) => entry.package === 'glob')!;
+    const minimatch = manifest.npmOverrides.find((entry) => entry.package === 'minimatch')!;
+    const valid = { packages: {
+      'node_modules/glob': { version: glob.version, integrity: glob.integrity },
+      'node_modules/minimatch': { version: minimatch.version, integrity: minimatch.integrity },
+    } };
+    expect(() => check(valid, manifest.npmOverrides)).not.toThrow();
+    const macosRegression = { packages: {
+      ...valid.packages,
+      'node_modules/@modelcontextprotocol/server-filesystem/node_modules/glob': {
+        version: '10.5.0', integrity: 'sha512-old',
+      },
+    } };
+    expect(() => check(macosRegression, manifest.npmOverrides)).toThrow(/glob.*10\.5\.0.*14\.0\.3/);
   });
 });
 

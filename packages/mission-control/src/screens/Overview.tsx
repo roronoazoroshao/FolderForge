@@ -50,6 +50,26 @@ export function OverviewScreen() {
     <div className="grid gap-6">
       <PageHeader title="Overview" subtitle="Live control-plane snapshot, refreshed every 5 seconds." />
 
+      {fleet.data && instances.length === 0 ? (
+        <Card>
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="min-w-0 max-w-2xl">
+              <h2 className="text-base font-semibold">Make this computer available to AI</h2>
+              <p className="mt-2 text-sm text-muted">
+                Start with a suggested workspace, without browsing folders or installing a
+                VS Code extension. Host-level AI access still requires a signed owner session.
+              </p>
+            </div>
+            <Link
+              to="/fleet"
+              className="inline-flex min-h-10 items-center rounded-lg bg-accent-deep px-4 py-2 text-sm font-semibold text-accent hover:bg-raised"
+            >
+              Set up AI access
+            </Link>
+          </div>
+        </Card>
+      ) : null}
+
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Stat label="instances running" value={running} icon={<Boxes size={17} />} tone={running > 0 ? 'good' : 'default'} />
         <Stat label="folders provisioned" value={instances.length} icon={<FolderGit2 size={17} />} />

@@ -1,11 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
-  copyFileSync,
   closeSync,
+  constants,
+  copyFileSync,
   fsyncSync,
   openSync,
   unlinkSync,
   existsSync,
+  fstatSync,
   lstatSync,
   mkdirSync,
   readFileSync,
@@ -57,6 +59,22 @@ export interface WorktreeIsolation {
   discardedAt?: string;
 }
 
+/** Advisory-only evidence. Neither Git naming nor a path grants ownership. */
+export interface UnregisteredWorktreeObservation {
+  id: string;
+  worktreeRoot: string;
+  branch: string | null;
+  headCommit: string;
+  classification: "candidate_not_owned" | "ambiguous_not_owned";
+}
+
+/** A Git branch ref without a checked-out worktree; no isolation ID or ownership is inferred. */
+export interface UnregisteredBranchObservation {
+  branch: string;
+  headCommit: string;
+  classification: "branch_only_not_owned";
+}
+
 export interface WorkingTreeStatus {
   headCommit: string;
   clean: boolean;
@@ -94,6 +112,8 @@ export interface WorktreeManagerHooks {
   withLegacyWritersFenced?: <T>(registryPath: string, action: () => T) => T;
   /** Test/fault-injection hook invoked immediately before an untracked copy. */
   beforeUntrackedCopy?: (entry: { source: string; target: string }) => void;
+  /** Test-only race after an untracked copy, before checksum validation. */
+  afterUntrackedCopy?: (entry: { source: string; target: string }) => void;
   /** Test-only interleaving point; health is checked after this hook. */
   beforeFinalMutationCheck?: (isolation: WorktreeIsolation) => void;
   /** Test-only interleaving point after worktree removal, before branch deletion. */
@@ -192,6 +212,52 @@ function sha256(value: string | Buffer): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
+/**
+ * Persist one file before publishing its name. The directory fsync is
+ * available on POSIX; Windows cannot claim directory-entry durability here.
+ * This does NOT provide a writer fence, transaction authority or atomic CAS.
+ */
+function writeAtomicDurably(
+  path: string,
+  bytes: string,
+  beforeRename?: () => void,
+  afterRename?: () => void,
+): void {
+  const temp = `${path}.${process.pid}.${randomUUID()}.tmp`;
+  let renamed = false;
+  try {
+    const fd = openSync(temp, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
+    try {
+      writeFileSync(fd, bytes);
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
+    beforeRename?.();
+    renameSync(temp, path);
+    renamed = true;
+    afterRename?.();
+    if (process.platform !== "win32") {
+      const dirFd = openSync(dirname(path), constants.O_RDONLY);
+      try {
+        fsyncSync(dirFd);
+      } finally {
+        closeSync(dirFd);
+      }
+    }
+  } catch (error) {
+    if (!renamed) {
+      rmSync(temp, { force: true });
+    } else {
+      throw new Error(
+        "ISOLATION_DURABILITY_UNCERTAIN: rename completed but directory sync did not; refuse to certify durable state.",
+        { cause: error },
+      );
+    }
+    throw error;
+  }
+}
+
 function samePaths(left: string[], right: string[]): boolean {
   return [...left].sort().join("\0") === [...right].sort().join("\0");
 }
@@ -253,6 +319,12 @@ function assertRelativePath(value: string): string {
 export class WorktreeManager {
   private readonly isolations = new Map<string, WorktreeIsolation>();
   private readonly statePath: string;
+  /** Optimistic snapshot; not a kernel writer fence. */
+  private registryFileDigest: string | undefined;
+  /** Preserve unknown top-level metadata belonging to other registry consumers. */
+  private registryExtraFields: Record<string, unknown> = {};
+  /** If a rename succeeded without a confirmed directory fsync, stop reusing this writer. */
+  private durabilityUncertain = false;
   private readonly worktreesRoot: string;
   private readonly rollbacksRoot: string;
   private readonly projectRoot: string;
@@ -370,6 +442,8 @@ export class WorktreeManager {
       const suffix = id.slice(-8);
       const branch = `folderforge/task/${taskId}-${suffix}`;
       const worktreeRoot = resolve(this.worktreesRoot, id);
+      // Reject redirected managed roots before creating a Git ref or worktree.
+      this.assertInside(this.worktreesRoot, dirname(dirname(this.worktreesRoot)));
       mkdirSync(dirname(worktreeRoot), { recursive: true, mode: 0o700 });
       this.assertInside(worktreeRoot, this.worktreesRoot);
       git(this.projectRoot, [
@@ -405,6 +479,146 @@ export class WorktreeManager {
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
       .map(cloneIsolation);
   }
+
+  /**
+   * Read-only inventory for the git-worktree-add -> registry-persist crash gap.
+   * These are NEVER eligible for automatic registration, reset, or deletion:
+   * old writers and foreign actors can create paths with matching names.
+   */
+  /** Fail-closed parsing of a read-only Git inventory; no ownership inference. */
+  private gitWorktreeEntries(): Array<{
+    worktreeRoot: string;
+    headCommit: string;
+    branch: string | null;
+  }> {
+    const raw = git(this.projectRoot, [
+      "--no-optional-locks", "worktree", "list", "--porcelain",
+    ]);
+    if (!/\r?\n\r?\n$/.test(raw)) {
+      throw new Error("ISOLATION_INVENTORY_INCOMPLETE: incomplete Git worktree inventory.");
+    }
+    const seen = new Set<string>();
+    const seenBranches = new Set<string>();
+    return raw.split(/\r?\n\r?\n/).filter(Boolean).map((block) => {
+      const lines = block.split(/\r?\n/);
+      const paths = lines.filter((line) => line.startsWith("worktree "));
+      const heads = lines.filter((line) => /^HEAD [a-f0-9]{40,64}$/i.test(line));
+      const branches = lines.filter((line) => line.startsWith("branch refs/heads/") || line === "detached");
+      const [pathLine] = paths;
+      const [headLine] = heads;
+      const [branchLine] = branches;
+      if (paths.length !== 1 || heads.length !== 1 || branches.length !== 1 ||
+          !pathLine || !headLine || !branchLine) {
+        throw new Error("ISOLATION_INVENTORY_INCOMPLETE: malformed Git worktree entry.");
+      }
+      const physicalPath = pathLine.slice("worktree ".length);
+      const headCommit = headLine.slice("HEAD ".length);
+      if (!isAbsolute(physicalPath) || /^0+$/.test(headCommit)) {
+        throw new Error("ISOLATION_INVENTORY_INCOMPLETE: invalid Git worktree path or HEAD.");
+      }
+      const worktreeRoot = canonicalRoot(physicalPath);
+      if (seen.has(worktreeRoot)) {
+        throw new Error("ISOLATION_INVENTORY_INCOMPLETE: duplicate Git worktree path.");
+      }
+      seen.add(worktreeRoot);
+      const branch = branchLine === "detached" ? null : branchLine.slice("branch refs/heads/".length);
+      if (branch !== null) {
+        if (seenBranches.has(branch)) {
+          throw new Error("ISOLATION_INVENTORY_INCOMPLETE: duplicate checked-out Git branch.");
+        }
+        seenBranches.add(branch);
+      }
+      return { worktreeRoot, headCommit, branch };
+    });
+  }
+
+  discoverUnregisteredWorktrees(): UnregisteredWorktreeObservation[] {
+    this.requireAvailable();
+    this.assertRegistryCurrent();
+    const inventory = this.gitWorktreeEntries();
+    const registered = new Set(
+      [...this.isolations.values()].map((item) => canonicalRoot(item.worktreeRoot)),
+    );
+    const observed: UnregisteredWorktreeObservation[] = [];
+    for (const entry of inventory) {
+      const { worktreeRoot, branch, headCommit } = entry;
+      if (!isPathWithin(this.worktreesRoot, worktreeRoot) ||
+          samePath(this.worktreesRoot, worktreeRoot) ||
+          registered.has(worktreeRoot)) {
+        continue;
+      }
+      const id = relative(this.worktreesRoot, worktreeRoot);
+      // Git path/branch naming is only diagnostic evidence, never ownership.
+      if (!/^iso_[a-f0-9]{20}$/.test(id)) continue;
+      const expectedSuffix = id.slice(-8);
+      const taskPart = branch?.startsWith("folderforge/task/")
+        ? branch.slice("folderforge/task/".length, -expectedSuffix.length - 1)
+        : undefined;
+      const expectedBranch = taskPart && TASK_ID.test(taskPart)
+        ? `folderforge/task/${taskPart}-${expectedSuffix}` : undefined;
+      let directoryValid = false;
+      try {
+        const stat = lstatSync(worktreeRoot);
+        directoryValid = stat.isDirectory() && !stat.isSymbolicLink();
+      } catch {
+        // Disappearing/prunable entries must remain ambiguous, never owned.
+      }
+      observed.push({
+        id,
+        worktreeRoot,
+        branch,
+        headCommit,
+        classification: directoryValid && expectedBranch === branch
+          ? "candidate_not_owned" : "ambiguous_not_owned",
+      });
+    }
+    this.assertRegistryCurrent();
+    return observed.sort((a, b) => a.id.localeCompare(b.id));
+  }
+
+  /**
+   * Advisory scan of un-checked-out task refs (e.g. crash before git worktree
+   * add). Branch names never establish an isolation ID or ownership.
+   */
+  discoverUnregisteredBranches(): UnregisteredBranchObservation[] {
+    this.requireAvailable();
+    this.assertRegistryCurrent();
+    const checkoutBranches = new Set(
+      this.gitWorktreeEntries().map((entry) => entry.branch).filter((branch) => branch !== null),
+    );
+    const registeredBranches = new Set(
+      [...this.isolations.values()].map((entry) => entry.branch),
+    );
+    const refs = git(this.projectRoot, [
+      "--no-optional-locks", "for-each-ref",
+      "--format=%(refname)%00%(objectname)",
+      "refs/heads/folderforge/task/",
+    ]);
+    const seen = new Set<string>();
+    const observed: UnregisteredBranchObservation[] = [];
+    for (const line of refs.split(/\r?\n/).filter(Boolean)) {
+      const match = /^(refs\/heads\/folderforge\/task\/[^\0]+)\0([a-f0-9]{40,64})$/i.exec(line);
+      const refName = match?.[1];
+      const headCommit = match?.[2];
+      if (!refName || !headCommit || /^0+$/.test(headCommit)) {
+        throw new Error("ISOLATION_INVENTORY_INCOMPLETE: invalid Git task ref.");
+      }
+      const branch = refName.slice("refs/heads/".length);
+      if (seen.has(branch)) {
+        throw new Error("ISOLATION_INVENTORY_INCOMPLETE: duplicate Git task ref.");
+      }
+      seen.add(branch);
+      if (checkoutBranches.has(branch) || registeredBranches.has(branch)) continue;
+      observed.push({
+        branch,
+        headCommit,
+        classification: "branch_only_not_owned",
+      });
+    }
+    this.assertRegistryCurrent();
+    return observed.sort((a, b) => a.branch.localeCompare(b.branch));
+  }
+
 
   inspect(id: string): IsolationHealthObservation {
     const isolation = this.requireExisting(id);
@@ -539,16 +753,52 @@ export class WorktreeManager {
       "--",
     ]);
     const untracked = this.preflightUntracked(isolation, status.untracked);
+    // A byte-identical replacement of a tracked source file is not visible
+    // to Git's content fingerprint. Preserve file ownership at preflight.
+    const sourceFileIdentity = (path: string): string => {
+      const target = this.validatedInside(
+        resolve(isolation.sourceRoot, assertRelativePath(path)),
+        isolation.sourceRoot,
+      );
+      let stats: ReturnType<typeof lstatSync>;
+      try {
+        stats = lstatSync(target);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return "missing";
+        throw error;
+      }
+      if (!stats.isFile() || stats.isSymbolicLink()) {
+        throw new Error(`APPLY_SOURCE_IDENTITY_CHANGED: unsafe source file: ${path}`);
+      }
+      return `${stats.dev}:${stats.ino}:${stats.ctimeMs}:${stats.size}`;
+    };
+    const sourceIdentities = new Map(
+      status.changed.map((path) => [path, sourceFileIdentity(path)]),
+    );
+    const assertSourceIdentities = (): void => {
+      for (const [path, identity] of sourceIdentities) {
+        if (sourceFileIdentity(path) !== identity) {
+          throw new Error(`APPLY_SOURCE_IDENTITY_CHANGED: tracked source replaced: ${path}`);
+        }
+      }
+    };
     this.hooks.beforeFinalMutationCheck?.(cloneIsolation(isolation));
     this.assertWorktreePresent(isolation);
+    assertSourceIdentities();
     if (patch)
       git(isolation.sourceRoot, ["apply", "--check", "--binary", "-"], patch);
 
     const patchPath = this.rollbackPatchPath(isolation.id);
     mkdirSync(dirname(patchPath), { recursive: true, mode: 0o700 });
-    const patchTemp = `${patchPath}.${process.pid}.${randomUUID()}.tmp`;
-    writeFileSync(patchTemp, patch, { mode: 0o600 });
-    renameSync(patchTemp, patchPath);
+    // The recovery patch must be synced before the applying intent is published.
+    try {
+      writeAtomicDurably(patchPath, patch);
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("ISOLATION_DURABILITY_UNCERTAIN")) {
+        this.durabilityUncertain = true;
+      }
+      throw error;
+    }
     isolation.state = "applying";
     isolation.appliedTracked = [...status.changed];
     isolation.appliedUntracked = untracked.map((entry) => ({
@@ -561,7 +811,13 @@ export class WorktreeManager {
     delete isolation.rolledBackAt;
     this.persistUnderLock();
 
-    const copied: string[] = [];
+    const copied: Array<{
+      target: string;
+      sha256: string;
+      dev: number;
+      ino: number;
+      ctimeMs: number;
+    }> = [];
     let patchApplied = false;
     try {
       // The journal was persisted after the earlier preflight. Recheck at
@@ -571,22 +827,45 @@ export class WorktreeManager {
       if (sourceSnapshot(isolation.sourceRoot).fingerprint !== isolation.sourceFingerprint) {
         throw new Error("Source workspace changed after isolation creation; refusing to overwrite user work.");
       }
+      assertSourceIdentities();
       if (patch) {
+        git(isolation.sourceRoot, ["apply", "--check", "--binary", "-"], patch);
         git(isolation.sourceRoot, ["apply", "--binary", "-"], patch);
         patchApplied = true;
       }
-      for (const entry of untracked) {
+      for (const [index, entry] of untracked.entries()) {
         this.hooks.beforeUntrackedCopy?.(entry);
         this.assertWorktreePresent(isolation);
         const source = this.validatedInside(
           entry.source,
           isolation.worktreeRoot,
         );
+        const expectedSha = isolation.appliedUntracked?.[index]?.sha256;
+        if (!expectedSha || sha256(readFileSync(source)) !== expectedSha) {
+          throw new Error("Untracked task file changed after journal; refusing apply.");
+        }
         let target = this.validatedInside(entry.target, isolation.sourceRoot);
         mkdirSync(dirname(target), { recursive: true });
         target = this.validatedInside(entry.target, isolation.sourceRoot);
-        copyFileSync(source, target);
-        copied.push(target);
+        // The preflight existence check is not atomic with the copy. A user
+        // may have created this file meanwhile; never truncate their bytes.
+        copyFileSync(source, target, constants.COPYFILE_EXCL);
+        const created = lstatSync(target);
+        copied.push({
+          target,
+          sha256: expectedSha,
+          dev: created.dev,
+          ino: created.ino,
+          ctimeMs: created.ctimeMs,
+        });
+        this.hooks.afterUntrackedCopy?.(entry);
+        const observed = lstatSync(target);
+        if (!observed.isFile() || observed.isSymbolicLink() ||
+            observed.dev !== created.dev || observed.ino !== created.ino ||
+            observed.ctimeMs !== created.ctimeMs ||
+            sha256(readFileSync(target)) !== expectedSha) {
+          throw new Error("Untracked task file changed or replaced during copy; refusing apply.");
+        }
       }
       isolation.state = "applied";
       isolation.appliedAt = new Date().toISOString();
@@ -598,10 +877,20 @@ export class WorktreeManager {
     } catch (error) {
       let rollbackError: unknown;
       try {
-        for (const target of copied.reverse()) {
-          rmSync(this.validatedInside(target, isolation.sourceRoot), {
-            force: true,
-          });
+        for (const entry of copied.reverse()) {
+          const target = this.validatedInside(entry.target, isolation.sourceRoot);
+          // A matching checksum is not ownership: an unrelated writer may
+          // replace the copied path with identical bytes before recovery.
+          const observed = lstatSync(target);
+          if (!observed.isFile() || observed.isSymbolicLink() ||
+              observed.dev !== entry.dev || observed.ino !== entry.ino ||
+              observed.ctimeMs !== entry.ctimeMs ||
+              sha256(readFileSync(target)) !== entry.sha256) {
+            throw new Error(
+              "APPLY_RECOVERY_INCOMPLETE: copied file changed or replaced; refusing to delete uncertain source data.",
+            );
+          }
+          rmSync(target);
         }
         if (patchApplied)
           git(
@@ -718,7 +1007,13 @@ export class WorktreeManager {
     }
     // Preserve bounded verified source bytes before the first rollback deletion.
     // A task worktree might disappear while later files are being removed.
-    const sourceBackups = new Map<string, { bytes: Buffer; mode: number }>();
+    const sourceBackups = new Map<string, {
+      bytes: Buffer;
+      mode: number;
+      dev: number;
+      ino: number;
+      ctimeMs: number;
+    }>();
     let totalBackupBytes = 0;
     for (const entry of expectedUntracked) {
       const target = resolve(
@@ -745,7 +1040,14 @@ export class WorktreeManager {
       if (totalBackupBytes > MAX_UNTRACKED_BYTES) {
         throw new Error("Rollback untracked file backup exceeds allowed limit.");
       }
-      sourceBackups.set(entry.path, { bytes, mode: lstatSync(target).mode & 0o777 });
+      const original = lstatSync(target);
+      sourceBackups.set(entry.path, {
+        bytes,
+        mode: original.mode & 0o777,
+        dev: original.dev,
+        ino: original.ino,
+        ctimeMs: original.ctimeMs,
+      });
     }
     if (patch)
       git(
@@ -753,6 +1055,30 @@ export class WorktreeManager {
         ["apply", "--reverse", "--check", "--binary", "-"],
         patch,
       );
+
+    // A successful reverse precheck proves patch applicability, not file
+    // ownership at the later Git mutation. Preserve identity of every
+    // affected tracked path, including paths currently absent after apply.
+    const trackedSourceIdentity = (path: string): string => {
+      const target = this.validatedInside(
+        resolve(isolation.sourceRoot, assertRelativePath(path)),
+        isolation.sourceRoot,
+      );
+      let observed: ReturnType<typeof lstatSync>;
+      try {
+        observed = lstatSync(target);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return "missing";
+        throw error;
+      }
+      if (!observed.isFile() || observed.isSymbolicLink()) {
+        throw new Error(`ROLLBACK_SOURCE_CHANGED: unsafe tracked source: ${path}`);
+      }
+      return `${observed.dev}:${observed.ino}:${observed.ctimeMs}:${observed.size}`;
+    };
+    const trackedBefore = new Map(
+      expectedTracked.map((path) => [path, trackedSourceIdentity(path)]),
+    );
 
     this.hooks.beforeRollbackMutation?.(cloneIsolation(isolation));
     this.assertWorktreePresent(isolation);
@@ -765,11 +1091,35 @@ export class WorktreeManager {
           resolve(isolation.sourceRoot, assertRelativePath(entry.path)),
           isolation.sourceRoot,
         );
+        // Preflight's byte checksum does not establish ownership at unlink:
+        // a concurrent writer may replace this path with an equal-byte inode.
+        const backup = sourceBackups.get(entry.path);
+        let observed: ReturnType<typeof lstatSync>;
+        try {
+          observed = lstatSync(target);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+          throw new Error(`ROLLBACK_SOURCE_CHANGED: missing source file: ${entry.path}`);
+        }
+        if (!backup || !observed.isFile() || observed.isSymbolicLink() ||
+            observed.dev !== backup.dev || observed.ino !== backup.ino ||
+            observed.ctimeMs !== backup.ctimeMs ||
+            sha256(readFileSync(target)) !== entry.sha256) {
+          throw new Error(`ROLLBACK_SOURCE_CHANGED: preserving concurrent source data: ${entry.path}`);
+        }
         rmSync(target);
         removed.push(entry);
       }
       if (patch) {
         this.assertWorktreePresent(isolation);
+        for (const [path, identity] of trackedBefore) {
+          if (trackedSourceIdentity(path) !== identity) {
+            throw new Error(`ROLLBACK_SOURCE_CHANGED: tracked source identity changed: ${path}`);
+          }
+        }
+        // A writer may have modified patch applicability after the first
+        // precheck, even if its file identity still matches.
+        git(isolation.sourceRoot, ["apply", "--reverse", "--check", "--binary", "-"], patch);
         git(
           isolation.sourceRoot,
           ["apply", "--reverse", "--binary", "-"],
@@ -829,7 +1179,7 @@ export class WorktreeManager {
       ? (action: () => ReturnType<WorktreeManager["reconcileMissing"]>) => this.withLegacyWriterFence(action)
       : (action: () => ReturnType<WorktreeManager["reconcileMissing"]>) => action();
     return withFence(() => this.withRegistryLock(() => {
-      const original = this.readRegistryBytes();
+      const original = this.requireRegistryBytes();
       const beforeSha256 = sha256(original);
       if (beforeSha256 !== options.expectedSha256)
         throw new Error("Registry digest lease changed.");
@@ -856,13 +1206,15 @@ export class WorktreeManager {
       const healthAgain = inspectWorktreeHealth(record);
       if (healthAgain.observedHealth !== "missing_worktree" || healthAgain.branchRef !== "absent")
         throw new Error("Missing worktree identity changed before commit.");
-      if (sha256(this.readRegistryBytes()) !== beforeSha256)
+      if (sha256(this.requireRegistryBytes()) !== beforeSha256)
         throw new Error("Registry digest lease changed before commit.");
       const replacement: WorktreeIsolation = {
         ...record, state: "discarded", discardedAt: new Date().toISOString(),
       };
       const isolations = this.list().map(entry => entry.id === id ? replacement : entry);
-      const next: PersistedState = { version: 1, isolations, digest: isolationDigest(isolations) };
+      const next: PersistedState = {
+        ...this.registryExtraFields, version: 1, isolations, digest: isolationDigest(isolations),
+      };
       const afterBytes = Buffer.from(JSON.stringify(next, null, 2) + "\n");
       const afterSha256 = sha256(afterBytes);
       const historyRoot = resolve(dirname(this.statePath), "reconciliations");
@@ -878,7 +1230,7 @@ export class WorktreeManager {
         sourceHead: record.sourceHead, sourceDirty: record.sourceDirty,
         acknowledged: true, recordedAt: replacement.discardedAt,
       }, null, 2) + "\n");
-      if (sha256(this.readRegistryBytes()) !== beforeSha256)
+      if (sha256(this.requireRegistryBytes()) !== beforeSha256)
         throw new Error("Registry changed before atomic replacement.");
       this.atomicWriteRegistry(afterBytes);
       this.loadedRegistrySha256 = afterSha256;
@@ -892,7 +1244,7 @@ export class WorktreeManager {
   }): { status: "RESTORED"; sha256: string } {
     this.requireAvailable();
     return this.withLegacyWriterFence(() => this.withRegistryLock(() => {
-      const current = this.readRegistryBytes();
+      const current = this.requireRegistryBytes();
       const hash = sha256(current);
       if (hash !== options.expectedSha256 || hash !== this.loadedRegistrySha256)
         throw new Error("Restore registry SHA-256 lease mismatch or stale manager.");
@@ -925,7 +1277,7 @@ export class WorktreeManager {
       const prior = old.isolations.find(entry => entry.id === id);
       if (!prior || prior.state !== "active") throw new Error("Invalid restoration target.");
       this.validatePersistedIsolation(prior);
-      if (sha256(this.readRegistryBytes()) !== hash)
+      if (sha256(this.requireRegistryBytes()) !== hash)
         throw new Error("Registry changed before restore.");
       this.atomicWriteRegistry(original);
       this.loadedRegistrySha256 = sha256(original);
@@ -941,11 +1293,11 @@ export class WorktreeManager {
     return coordinator(this.statePath, action);
   }
 
-  private readRegistryBytes(): Buffer {
-    const stat = lstatSync(this.statePath);
-    if (!stat.isFile() || stat.isSymbolicLink())
-      throw new Error("Isolation registry must be a regular non-symlink file.");
-    return readFileSync(this.statePath);
+  private requireRegistryBytes(): Buffer {
+    const bytes = this.readRegistryBytes();
+    if (bytes === undefined)
+      throw new Error("ISOLATION_REGISTRY_MISSING: an existing registry file is required.");
+    return bytes;
   }
 
   private withRegistryLock<T>(action: () => T): T {
@@ -989,12 +1341,19 @@ export class WorktreeManager {
   }
 
   private atomicWriteRegistry(bytes: Buffer): void {
-    const temp = this.statePath + "." + process.pid + "." + randomUUID() + ".tmp";
-    const fd = openSync(temp, "wx", 0o600);
-    try { writeFileSync(fd, bytes); fsyncSync(fd); }
-    finally { closeSync(fd); }
-    renameSync(temp, this.statePath);
-    this.syncDirectory(this.statePath);
+    const digest = sha256(bytes);
+    writeAtomicDurably(
+      this.statePath,
+      bytes.toString("utf8"),
+      () => this.assertLoadedRegistryCurrent(),
+      () => {
+        // A successful rename is not proof of directory-entry durability.
+        this.loadedRegistrySha256 = digest;
+        this.registryFileDigest = digest;
+        this.durabilityUncertain = true;
+      },
+    );
+    this.durabilityUncertain = false;
   }
 
   discard(id: string): WorktreeIsolation {
@@ -1019,10 +1378,27 @@ export class WorktreeManager {
       if (observedWorktreeHead !== priorTaskHead) {
         throw new IsolationHealthError("ISOLATION_IDENTITY_MISMATCH", "identity_mismatch");
       }
+      // A force-remove followed by ref deletion can orphan task-only commits.
+      // Only discard if the exact task head is already reachable from source HEAD.
+      const sourceHead = git(isolation.sourceRoot, ["rev-parse", "--verify", "HEAD"]).trim();
+      const uniqueCommits = git(isolation.sourceRoot, [
+        "rev-list", "--count", sourceHead + ".." + priorTaskHead,
+      ]).trim();
+      if (uniqueCommits !== "0") {
+        throw new Error("ISOLATION_UNMERGED_COMMITS: task branch has commits not reachable from source HEAD.");
+      }
+      // Never force-delete uncommitted or ignored task output; Git's ordinary
+      // worktree removal provides an additional dirty-state check at deletion.
+      const dirty = workingTreeStatus(isolation.worktreeRoot);
+      const ignored = git(isolation.worktreeRoot, [
+        "ls-files", "--others", "--ignored", "--exclude-standard", "-z",
+      ]);
+      if (!dirty.clean || ignored.length > 0) {
+        throw new Error("ISOLATION_TASK_WORKTREE_DIRTY: preserve uncommitted or ignored task files.");
+      }
       git(isolation.sourceRoot, [
         "worktree",
         "remove",
-        "--force",
         isolation.worktreeRoot,
       ]);
       const currentTaskHead = git(isolation.sourceRoot, ["rev-parse", "--verify", taskRef]).trim();
@@ -1032,6 +1408,9 @@ export class WorktreeManager {
       // Ref deletion is compare-and-swap: Git refuses to delete if another
       // actor replaced the task branch after our latest SHA observation.
       this.hooks.beforeBranchDelete?.(cloneIsolation(isolation));
+      if (git(isolation.sourceRoot, ["rev-parse", "--verify", "HEAD"]).trim() !== sourceHead) {
+        throw new Error("ISOLATION_SOURCE_HEAD_CHANGED: preserving task ref after source HEAD moved.");
+      }
       try {
         git(isolation.sourceRoot, ["update-ref", "-d", taskRef, priorTaskHead]);
       } catch {
@@ -1344,10 +1723,53 @@ export class WorktreeManager {
     return isolation;
   }
 
+  private readRegistryBytes(): Buffer | undefined {
+    let entry: ReturnType<typeof lstatSync>;
+    try {
+      entry = lstatSync(this.statePath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      throw error;
+    }
+    // A symlink alias can be inside the Git directory yet not be the owned
+    // registry inode. Refuse it even when its JSON digest is valid.
+    if (!entry.isFile() || entry.isSymbolicLink() || entry.nlink !== 1) {
+      throw new Error("ISOLATION_REGISTRY_UNSAFE: expected a single-link regular registry file.");
+    }
+    // O_NOFOLLOW also rejects a final-component symlink swapped after lstat
+    // on platforms which support it. This is not a parent-path/UID fence.
+    const fd = openSync(this.statePath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    try {
+      const opened = fstatSync(fd);
+      if (!opened.isFile() || opened.nlink !== 1) {
+        throw new Error("ISOLATION_REGISTRY_UNSAFE: registry inode is not a single-link file.");
+      }
+      return readFileSync(fd);
+    } finally {
+      closeSync(fd);
+    }
+  }
+
+  private currentRegistryDigest(): string | undefined {
+    const bytes = this.readRegistryBytes();
+    return bytes === undefined ? undefined : sha256(bytes);
+  }
+
+  private assertRegistryCurrent(): void {
+    if (this.durabilityUncertain) {
+      throw new Error("ISOLATION_DURABILITY_UNCERTAIN: directory sync failed; restart and inspect recovery state.");
+    }
+    if (this.currentRegistryDigest() !== this.registryFileDigest) {
+      throw new Error(
+        "ISOLATION_REGISTRY_CHANGED: another writer updated the isolation registry; reload before mutating.",
+      );
+    }
+  }
+
   private load(): void {
-    if (!existsSync(this.statePath)) return;
-    const original = this.readRegistryBytes();
-    const parsed = JSON.parse(original.toString("utf8")) as PersistedState;
+    const bytes = this.readRegistryBytes();
+    if (bytes === undefined) return;
+    const parsed = JSON.parse(bytes.toString("utf8")) as PersistedState & Record<string, unknown>;
     if (
       parsed.version !== 1 ||
       !Array.isArray(parsed.isolations) ||
@@ -1359,31 +1781,44 @@ export class WorktreeManager {
       throw new Error("Isolation state integrity check failed.");
     }
     const seen = new Set<string>();
+    const activeTasks = new Set<string>();
     for (const value of parsed.isolations) {
       const isolation = this.validatePersistedIsolation(value);
       if (seen.has(isolation.id))
         throw new Error(`Duplicate isolation id: ${isolation.id}`);
+      if (isolation.state !== "discarded") {
+        if (activeTasks.has(isolation.taskId))
+          throw new Error(`Duplicate isolation taskId: ${isolation.taskId}`);
+        activeTasks.add(isolation.taskId);
+      }
       seen.add(isolation.id);
       this.isolations.set(isolation.id, isolation);
     }
-    this.loadedRegistrySha256 = sha256(original);
+
+    this.registryExtraFields = Object.fromEntries(
+      Object.entries(parsed).filter(([key]) =>
+        key !== "version" && key !== "isolations" && key !== "digest"),
+    );
+    this.registryFileDigest = sha256(bytes);
+    this.loadedRegistrySha256 = sha256(bytes);
   }
 
   private assertLoadedRegistryCurrent(): void {
-    const actual = existsSync(this.statePath)
-      ? sha256(this.readRegistryBytes()) : null;
+    this.assertRegistryCurrent();
+    const actual = this.currentRegistryDigest() ?? null;
     if (actual !== this.loadedRegistrySha256)
       throw new Error("Stale manager: isolation registry changed since load.");
   }
 
-  /** Caller already holds the same cooperative registry lock. */
+  /** Caller holds the cooperative registry lock across the Git and registry operations. */
   private persistUnderLock(): void {
     this.assertLoadedRegistryCurrent();
     const isolations = this.list();
-    const state: PersistedState = { version: 1, isolations, digest: isolationDigest(isolations) };
+    const state: PersistedState = {
+      ...this.registryExtraFields, version: 1, isolations, digest: isolationDigest(isolations),
+    };
     const bytes = Buffer.from(JSON.stringify(state, null, 2) + "\n");
     this.atomicWriteRegistry(bytes);
-    this.loadedRegistrySha256 = sha256(bytes);
   }
 
   private persist(): void {

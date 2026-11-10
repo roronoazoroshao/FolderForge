@@ -340,6 +340,15 @@ describe('dashboard admin authorization plane', () => {
     expect(rollbackResponse.status).toBe(200);
     expect(readFileSync(join(harness.root, 'tracked.txt'), 'utf8')).toBe('before\n');
 
+    const blockedDiscard = await fetch(
+      `${harness.baseUrl}/isolations/${isolation.id}/discard`,
+      { method: 'POST' },
+    );
+    expect(blockedDiscard.status).toBe(409);
+    expect(readFileSync(join(isolation.worktreeRoot, 'tracked.txt'), 'utf8')).toBe('after\n');
+    // The rollback changed only source; clean disposable task edits explicitly.
+    execFileSync('git', ['checkout', '--', 'tracked.txt'], { cwd: isolation.worktreeRoot });
+
     const discardedResponse = await fetch(
       `${harness.baseUrl}/isolations/${isolation.id}/discard`,
       { method: 'POST' },

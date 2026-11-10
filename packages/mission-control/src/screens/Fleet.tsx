@@ -114,6 +114,7 @@ export function FleetScreen() {
   const [credential, setCredential] = useState<OneTimeCredential | null>(null);
   const [optionalConnectionKey, setOptionalConnectionKey] = useState<OneTimeCredential | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [editingProjectFolder, setEditingProjectFolder] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [quickAccessBusy, setQuickAccessBusy] = useState<string | null>(null);
   const [quickStartBusy, setQuickStartBusy] = useState(false);
@@ -351,6 +352,28 @@ export function FleetScreen() {
   };
 
   const instances = fleet.data?.instances ?? [];
+
+  // Start on the server's already-allowed folder. New users should not need
+  // to know a Unix path or open Browse just to create their first AI Fleet.
+  // This never expands allowed roots or grants host-execution permission.
+  useEffect(() => {
+    let mounted = true;
+    void api<{ path?: string }>('/fs/browse', {
+      method: 'POST', sensitive: true, body: {},
+    }).then(result => {
+      if (mounted && typeof result.path === 'string' && result.path.trim()) {
+        setPath(current => current.trim() ? current : result.path!);
+      } else if (mounted) {
+        // No governable default: show the picker rather than a dead-end button.
+        setEditingProjectFolder(true);
+      }
+    }).catch(() => {
+      // Keep manual path/Browse available if the optional default cannot load.
+      if (mounted) setEditingProjectFolder(true);
+    });
+    return () => { mounted = false; };
+  }, []);
+
   useEffect(() => {
     let active = true;
     const refreshOwnerSession = () => {
@@ -415,20 +438,33 @@ export function FleetScreen() {
             </p>
           </div>
           <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
-            <Field label="Project folder">
-              <div className="flex gap-2">
-                <Input
-                  value={path}
-                  onChange={(event) => setPath(event.target.value)}
-                  placeholder="/home/devops/my-project"
-                  aria-label="Folder path to provision"
-                />
-                <Button variant="subtle" title="Browse folders on this machine"
-                  onClick={() => setPickerOpen(true)}>
-                  <FolderSearch size={14} aria-hidden /> Browse
+            <div className="grid min-w-0 gap-2">
+              <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-lg border border-border-soft bg-raised px-3 py-2">
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-muted">AI workspace</p>
+                  <p className="mt-1 break-all font-mono text-xs" data-visual-dynamic-path>{path.trim() || 'No project folder selected'}</p>
+                </div>
+                <Button variant="subtle" onClick={() => setEditingProjectFolder(!editingProjectFolder)}>
+                  {editingProjectFolder ? 'Use selected folder' : 'Change folder'}
                 </Button>
               </div>
-            </Field>
+              {editingProjectFolder ? (
+                <Field label="Project folder">
+                  <div className="flex gap-2">
+                    <Input
+                      value={path}
+                      onChange={(event) => setPath(event.target.value)}
+                      placeholder="/home/devops/my-project"
+                      aria-label="Folder path to provision"
+                    />
+                    <Button variant="subtle" title="Browse folders on this machine"
+                      onClick={() => setPickerOpen(true)}>
+                      <FolderSearch size={14} aria-hidden /> Browse
+                    </Button>
+                  </div>
+                </Field>
+              ) : null}
+            </div>
             <Button variant="primary" busy={quickStartBusy}
               disabled={!path.trim() || quickStartBusy || ownerSessionVerified === null}
               onClick={() => void quickStart()}>

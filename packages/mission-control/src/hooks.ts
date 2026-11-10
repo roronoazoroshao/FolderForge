@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from './api';
 
 /** Poll a governed dashboard endpoint; tracks first-load for skeleton states. */
-export function useApi<T>(path: string, refreshMs = 5000) {
+export function useApi<T>(path: string, refreshMs = 5000, sensitive = false) {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -11,7 +11,7 @@ export function useApi<T>(path: string, refreshMs = 5000) {
   useEffect(() => {
     let alive = true;
     const load = () => {
-      api<T>(path)
+      api<T>(path, sensitive ? { sensitive: true } : undefined)
         .then((d) => {
           if (!alive) return;
           setData(d);
@@ -30,7 +30,7 @@ export function useApi<T>(path: string, refreshMs = 5000) {
       alive = false;
       clearInterval(timer);
     };
-  }, [path, tick, refreshMs]);
+  }, [path, tick, refreshMs, sensitive]);
   return { data, error, loading, reload };
 }
 

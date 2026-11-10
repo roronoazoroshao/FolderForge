@@ -106,6 +106,79 @@ execution remains an explicit local server configuration action followed by a
 restart. Dashboard tokens are required on non-loopback deployments; existing
 blocked-command, workspace, audit, and rate-limit controls are unchanged.
 
+## Configuration inventory (read-only D1)
+
+The Settings screen also shows a minimal allowlisted **Configuration inventory**.
+`GET /operator/config` reports a bounded set of live parent-process
+`shell_exec` rate-limit values (`dailyQuota`, `maxCalls`, `windowMs`) and
+whether rate limiting is enabled. The response uses the ordinary dashboard
+authentication boundary and includes a scope, source status, apply category,
+and an explicit editing blocker for each item. It never serializes raw YAML,
+workspace roots, tokens, authentication credentials, or host consent data.
+
+All inventory fields are **read-only** in this phase: `POST /operator/config`
+does not exist, and the Settings UI cannot change the daily quota. The
+source is displayed as **unknown** until configuration precedence can be
+proven; `desired` is unset rather than fabricated. Rate-limit counters are
+still **in-memory per process**, and restarts do not preserve their usage.
+The separate, revisioned quota editor in the
+[Configuration Hub implementation plan](superpowers/plans/2026-11-01-mission-control-config-hub.md)
+requires additional persistence, authorization, audit, and rollback tests.
+
+## Bounded shell quota editor (Configuration Hub D2)
+
+The **shell_exec quota** card on Mission Control → Settings reads the
+**parent process only** through `GET /operator/config/quota`. The card shows the
+effective `dailyQuota`, `maxCalls`, `windowMs`, current in-memory hit usage,
+revision and whether its values came from the operator settings record or
+startup configuration. Startup configuration precedence beyond that remains
+unknown; the card must not claim values came from handwritten YAML specifically.
+
+Only a **signed local Dashboard owner** can save changes. A forwarded localhost
+browser tab without the owner bearer credential is read-only. Save first calls
+`POST /operator/config/validate` then `POST /operator/config/apply`. Both
+require an authenticated bearer, same-origin request, and an exact request
+body containing **only** `scope: "parent"`,
+`key: "rateLimit.overrides.shell_exec"`, `expectedRevision` and `value`
+with three safe integer fields. Allowed ranges: daily calls **1–10,000**,
+window calls **1–50**, window milliseconds **1,000–60,000**.
+Unsupported scope, unknown/privileged keys, quota disable, cross-origin POST,
+unauthenticated owner, write freeze and stale revisions are all refused.
+
+A durable audit intent containing the actor and proposed bounded diff is
+**required before** applying a quota change; if this pre-commit audit is
+unavailable, no quota change occurs. A separate applied-event audit is
+best-effort because the persisted revision is authoritative after commit.
+
+The validated record is persisted at
+`.folderforge/rate-limit-settings.json`, with versioned schema, strict
+permissions, integrity checksum, exclusive writer lock and fsynced atomic
+replacement. Persisted settings reload at the next process start and are
+applied to the **existing** rate limiter without clearing accepted hits.
+Dashboardless MCP/Fleet processes that share the same folder do not load this
+operator-only record. They continue using their own startup limit.
+This is a *per-process counter*: existing hits do not survive restart, and
+a separate Fleet instance has independent limits. Two live control processes
+are **not** automatically hot-synchronized; a stale process is refused
+concurrent persistence. For recovery, use the original startup configuration
+and fix an invalid operator settings file *offline*, after stopping the
+affected service. If the file rename succeeds but the directory fsync fails, the live quota is
+updated to match the visible disk record, and the API reports a 503
+`commit_uncertain` rather than an ordinary failed write. Reload Settings
+to obtain the current authoritative revision before retrying. A power loss
+could still roll back that filesystem entry; this is not a durable-commit
+guarantee.
+
+The record's checksum is accidental-corruption detection,
+**not** a cryptographic defense against a malicious process with the same OS
+write privileges. Shell commands with unrestricted host access remain bound
+by the owner's OS permissions, not by this settings file.
+
+No arbitrary YAML/JSON editing, filesystem scope expansion, raw credentials,
+sandbox changes, rate-limit disable or trusted-host grant is available through
+this editor. The safe read-only inventory remains separate from writable
+configuration. Existing owner consent and emergency write-freeze are unchanged.
+
 ## Operator endpoints
 
 | Endpoint | Behavior |
@@ -149,6 +222,33 @@ npm run verify
 The tests cover restart persistence, prior-mode restoration, state tampering,
 exact containment allowlisting, agent denial, active-call value redaction,
 write-freeze mutation blocking, and a live dashboard stop-process flow.
+
+## First-run Overview
+
+When no Fleet is provisioned, **Overview** shows a single **Set up AI
+access** link to Fleet. This is navigation only: it never starts a process,
+grants host execution, selects additional filesystem roots, or creates
+credentials. Once Fleet reports at least one instance, the onboarding prompt
+disappears. If Fleet cannot load, Overview does not claim that no instance
+exists. The signed owner session remains mandatory before enabling AI host
+execution; a VS Code extension is not required.
+
+## First-run AI Fleet: one clear action
+
+Open the authenticated (signed) Dashboard link and go to **Fleet**.
+For first-time setup, the server selects its already-allowed project folder:
+the quick-start panel shows **AI workspace** and the selected folder rather
+than asking for a Unix path or a Browse dialog up front. Choose
+**Create & Start AI Fleet** to request an authenticated MCP Fleet with its
+scoped permissions. Use **Change folder** only when the suggested workspace
+is not the intended one; the normal folder input and Browse remain available
+then. If the server cannot determine a permitted default, the manual
+selector opens automatically. Selecting a path never expands allowed roots.
+
+The signed owner Dashboard link (or a genuinely verified SSH owner session)
+is still required for host-enabled Fleet creation. An anonymous localhost
+tab forwarded by VS Code does not gain owner authority, even if it can
+see the selected project folder. No VS Code extension is required.
 
 ## Fleet terminal execution profiles
 
