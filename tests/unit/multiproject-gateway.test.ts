@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { createServer, type Server } from "node:http";
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync, renameSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, renameSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createProjectGateway, type ProjectWorker } from "../../src/multiproject/project-gateway.js";
@@ -14,7 +14,7 @@ afterEach(async () => {
 });
 
 function projects() {
-  const parent = mkdtempSync(join(tmpdir(), "ff-project-router-"));
+  const parent = realpathSync(mkdtempSync(join(tmpdir(), "ff-project-router-")));
   roots.push(parent);
   mkdirSync(join(parent, "frontend"));
   mkdirSync(join(parent, "backend"));

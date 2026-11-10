@@ -1,5 +1,5 @@
 import { describe, expect, it, afterEach } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadProjectGatewaySpec } from "../../src/multiproject/cli.js";
@@ -7,7 +7,7 @@ import { loadProjectGatewaySpec } from "../../src/multiproject/cli.js";
 const scratch: string[] = [];
 afterEach(() => scratch.splice(0).forEach((dir) => rmSync(dir, { recursive: true, force: true })));
 function fixture() {
-  const parent = mkdtempSync(join(tmpdir(), "ff-projects-config-"));
+  const parent = realpathSync(mkdtempSync(join(tmpdir(), "ff-projects-config-")));
   scratch.push(parent);
   mkdirSync(join(parent, "frontend"));
   const configPath = join(parent, "projects.json");
