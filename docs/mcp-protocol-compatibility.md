@@ -2,7 +2,7 @@
 
 **Status:** G59 product branch **under review**, no merge/release authorization; exact-head GitHub CI and independent security review must verify the *final PR head*. This document describes the proposed implementation and scoped local results, not npm v3.0.1 or production certification.
 
-Design: [G59 architectural spec](superpowers/specs/2026-10-10-goal59-mcp-dual-era-protocol-adapter-design.md). Approved plan: [G59 TDD plan](superpowers/plans/2026-10-10-goal59-version-aware-mcp-adapter.md). Official versions: [MCP 2025-11-25](https://modelcontextprotocol.io/specification/2025-11-25) and [MCP 2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28).
+Design: [G59 architectural spec](superpowers/specs/2026-10-10-goal59-mcp-dual-era-protocol-adapter-design.md). Original G59 TDD plan was removed from the active tree at operator request; the historical plan remains available in Git commit history. Official versions: [MCP 2025-11-25](https://modelcontextprotocol.io/specification/2025-11-25) and [MCP 2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28).
 
 ## Actual SDK and protocol boundaries
 

@@ -158,9 +158,9 @@
     "access": "public"
   },
   "overrides": {
-    "@hono/node-server": "2.1.5",
+    "@hono/node-server": "2.1.6",
     "fast-uri": "4.2.3",
-    "hono": "4.13.14",
+    "hono": "4.13.16",
     "postcss": "8.5.23",
     "proxy-addr": "2.0.8",
     "source-map-js": "1.2.2",

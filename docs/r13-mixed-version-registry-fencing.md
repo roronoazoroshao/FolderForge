@@ -1,5 +1,8 @@
 # R13 — isolation registry mixed-version writer compatibility
 
+**2026-11-10 STATUS CORRECTION:** PR #117 source code is now merged into `main` (along with #124); statements below that it remains Draft or unmerged are **historical**. The security conclusion is still valid: **production writer-epoch fence, independent review and real host activation are NOT complete**. Reconcile/restore mutation remains fail-closed without an external trusted coordinator (`src/isolation/worktree-manager.ts:1289-1294`). See [current audit](audit/AUDIT_REPORT.md).
+
+
 Scope: FolderForge PR #117 (`fix/issue14-stale-reconcile`), validated against R12 parent
 `fa1a4a91db8ff62f782355a39dccdaa691fe7523`. The Poker Master OS registry
 and worktrees are **not** test fixtures and MUST NOT be modified to test this.

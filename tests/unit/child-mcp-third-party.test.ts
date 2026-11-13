@@ -70,6 +70,18 @@ describe('third-party child MCP compatibility manifest', () => {
         integrity: expect.stringMatching(/^sha512-/),
         reason: expect.stringMatching(/GHSA-g3hv-75wg-m249/),
       }),
+      expect.objectContaining({
+        package: '@hono/node-server',
+        version: '2.1.6',
+        integrity: expect.stringMatching(/^sha512-/),
+        reason: expect.stringMatching(/GHSA-qv5m-9pm6-hqp3/),
+      }),
+      expect.objectContaining({
+        package: 'hono',
+        version: '4.13.16',
+        integrity: expect.stringMatching(/^sha512-/),
+        reason: expect.stringContaining('route authorization'),
+      }),
     ]);
   });
 
@@ -82,6 +94,8 @@ describe('third-party child MCP compatibility manifest', () => {
       ...manifest.profiles.map((profile) => `${profile.package}@${profile.version}`),
       'glob@14.0.3',
       'minimatch@11.0.3',
+      '@hono/node-server@2.1.6',
+      'hono@4.13.16',
     ]);
   });
 

@@ -1,5 +1,8 @@
 # HANDOFF — G58 managed isolation integrity product merged (2026-10-09)
 
+**2026-11-10 CURRENTNESS NOTE:** Historical 2026-10-09 handoff only; prior repo org/version are dated evidence, not current instructions. Canonical source baseline `roronoazoroshao/FolderForge@8c00b15` (v3.2.4 in `package.json`). See [new operations guide](OPERATIONS.md) and [audit](audit/AUDIT_REPORT.md).
+
+
 _Updated 2026-10-09 from independent public npm/GitHub observations. Exact release-source SHA `7104f75f8784423ae2680a9ab80f8ac5a972eef4` has CI `37751407631` SUCCESS 6/6 jobs. This closeout document must not self-certify its own PR or eventual merge._
 
 ## G59 review-stage continuation (2026-10-10; not a closeout)

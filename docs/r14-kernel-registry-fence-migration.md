@@ -1,5 +1,8 @@
 # R14 — Host-enforced writer fencing: Linux DAC, migration, and release gates
 
+**2026-11-10 STATUS CORRECTION:** The PR #117/#124 *source merge* occurred, so the “merge blocked” note below is historical. **Actual host kernel DAC writer epoch, trusted coordinator, qualified independent APPROVED review and production activation remain BLOCKED/NOT VERIFIED**. No real registry migration, process restart, worktree cleanup or deploy is authorized by source merge. See [current audit](audit/AUDIT_REPORT.md).
+
+
 Scope: `roronoazoroshao/FolderForge` PR #117; dependent system:
 `roronoazoroshao/poker-master-os`. This is an **operational design and
 sandbox evidence**, NOT authorization for a Poker production migration.

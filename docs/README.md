@@ -3,17 +3,18 @@
 This index separates current user and operator guidance from contributor design
 material and historical records.
 
-## Current project truth
+## Dated handoffs (historical, not current source truth)
 
 | Document | Audience | Purpose |
 | --- | --- | --- |
-| [Project status](PROJECT_STATUS.md) | Maintainer / Agent | Verified current repository, CI, release, security, dependency, and maturity state. |
-| [Current frontier](CURRENT_FRONTIER.md) | Maintainer / Agent | Prioritized P0/P1/P2 execution frontier and exit conditions. |
-| [Handoff](HANDOFF.md) | Maintainer / Agent | Resume instructions, preserved working-tree scope, and the immediate next action. |
+| [Project status](PROJECT_STATUS.md) | Maintainer / Agent | 2026-10-09 release/source snapshot. Not current; see the 2026-11-10 audit below. |
+| [Current frontier](CURRENT_FRONTIER.md) | Maintainer / Agent | Historical G58/G59 frontier; current review is the dated feature-flow audit. |
+| [Handoff](HANDOFF.md) | Maintainer / Agent | Historical 2026-10-09 handoff and preserved recovery evidence. |
 
-These documents are the entry point for current execution state. Historical
-roadmaps and implementation logs provide context but must not override current
-repository, CI, release, or verification evidence.
+These dated records preserve forensic and release evidence, not current operational
+instructions. For the current checked source baseline use the 2026-11-10 audit,
+configuration guide and new full feature-flow audit linked below. Live host/release state is a
+separate operational verification gate.
 
 ## Getting started
 
@@ -46,7 +47,6 @@ repository, CI, release, or verification evidence.
 | [Beta program](beta-program.md) | User / Maintainer | Entry, evidence, privacy, and graduation criteria for external beta testing. |
 | [Benchmark protocol](../benchmarks/README.md) | Contributor / Maintainer | Neutral tasks, immutable result validation, and publication rules. |
 | [Benchmark operations](benchmark-operations.md) | Contributor / Maintainer | No-shell harness execution, evidence, environment isolation, and result creation. |
-| [Production-readiness action plan](production-readiness-action-plan.md) | Maintainer / Contributor | Approved epics, dependencies, proof gates, and 30/60/90-day execution sequence. |
 | [Stability and regression policy](stability-policy.md) | Maintainer / Contributor | Feature-freeze scope, bug definition of done, severity, and regression-test requirements. |
 
 ## Reference
@@ -102,10 +102,7 @@ repository, CI, release, or verification evidence.
 
 These documents are useful context but are **not current product contracts**:
 
-- [Roadmap](roadmap.md) — historical delivery record and future ideas.
-- [AI-agent roadmap](ai-agent-roadmap.md) — planning material.
 - [Implementation log](implementation-log.md) — historical implementation notes.
-- [ChatGPT lifecycle plan](chatgpt-lifecycle-plan.md) — internal design plan.
 
 When an internal document conflicts with README, reference, security, or
 compatibility documentation, the current user-facing document and executable
@@ -118,6 +115,14 @@ tests take precedence.
 - [Durable task runtime and Proof Packs](task-runtime-and-proof-packs.md)
 - [ADR-0011: Capsules and worktrees](adr-0011-workspace-capsules-and-isolation.md)
 
-## Optional independent-project gateway (F14 MVP)
+## Full feature and flow audit (2026-11-14)
 
-[Multi-project MCP gateway](multi-project-gateway.md) documents the opt-in, loopback-only per-project-worker route. This is not an automatic change to existing public tunnels or owner authorization.
+[Current full feature-flow audit](audit/FEATURE_FLOW_AUDIT_2026-11-14.md) covers source feature inventory, runtime paths, security gaps, gates and exact tested evidence. Historical plan documents have been removed from this branch at the owner's request; their content is recoverable from Git history.
+
+## Multi-project gateway (F14/F15 — source integrated)
+
+[Multi-project MCP gateway](multi-project-gateway.md) documents the opt-in per-project worker and fair admission. Merging source does not activate a public tunnel or certify production readiness; independent security and host-isolation evidence remain required.
+
+## Audit and configuration (baseline 2026-11-10)
+
+The dated [Audit report](audit/AUDIT_REPORT.md) and [Feature inventory](audit/FEATURE_INVENTORY.md) document the source baseline before F14/F15 were merged. See [Multi-workspace isolation audit](audit/MULTI_WORKSPACE_TUNNEL.md), [Architecture](ARCHITECTURE.md), [Configuration](CONFIGURATION.md), [Tools and APIs](TOOLS.md), and [Operations](OPERATIONS.md). These documents are historical evidence where their status references differ from current main; no production cutover is implied.
