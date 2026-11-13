@@ -122,7 +122,7 @@ source is displayed as **unknown** until configuration precedence can be
 proven; `desired` is unset rather than fabricated. Rate-limit counters are
 still **in-memory per process**, and restarts do not preserve their usage.
 The separate, revisioned quota editor in the
-[Configuration Hub implementation plan](superpowers/plans/2026-11-01-mission-control-config-hub.md)
+[Feature-flow audit and Configuration Hub status](audit/FEATURE_FLOW_AUDIT_2026-11-14.md)
 requires additional persistence, authorization, audit, and rollback tests.
 
 ## Bounded shell quota editor (Configuration Hub D2)

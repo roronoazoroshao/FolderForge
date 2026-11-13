@@ -21,4 +21,4 @@ As-of 2026-11-10 `main@8c00b15`. This is a **reviewed drift sample** across curr
 ## Files changed versus deferred
 **Created under docs:** `docs/audit/AUDIT_REPORT.md`, `FEATURE_INVENTORY.md`, `TOOL_CATALOG.md`, `HTTP_ROUTE_CATALOG.md`, `ENV_REFERENCE.md`, `PROPOSALS.md`, `DOCS_DRIFT.md`, `ROOT_DOCS_PATCH_PLAN.md`, `UNRELEASED_CHANGELOG.md`, `docs/ARCHITECTURE.md`, `CONFIGURATION.md`, `TOOLS.md`, `OPERATIONS.md`, `ROADMAP.md`.
 **Minimal existing-doc edits:** `docs/README.md` index and dated banners on historical status/registry docs.
-**Explicitly NOT modified:** root `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md` because Phases 0–4 prohibit tracked edits outside `docs/`. See [root patch plan](ROOT_DOCS_PATCH_PLAN.md). No source/CI/workflow/secret changes.
+**Explicitly NOT modified:** root `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md` because Phases 0–4 prohibit tracked edits outside `docs/`. See [current feature-flow audit](FEATURE_FLOW_AUDIT_2026-11-14.md). No source/CI/workflow/secret changes.

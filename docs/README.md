@@ -8,12 +8,12 @@ material and historical records.
 | Document | Audience | Purpose |
 | --- | --- | --- |
 | [Project status](PROJECT_STATUS.md) | Maintainer / Agent | 2026-10-09 release/source snapshot. Not current; see the 2026-11-10 audit below. |
-| [Current frontier](CURRENT_FRONTIER.md) | Maintainer / Agent | Historical G58/G59 frontier; current priorities are in ROADMAP.md. |
+| [Current frontier](CURRENT_FRONTIER.md) | Maintainer / Agent | Historical G58/G59 frontier; current review is the dated feature-flow audit. |
 | [Handoff](HANDOFF.md) | Maintainer / Agent | Historical 2026-10-09 handoff and preserved recovery evidence. |
 
 These dated records preserve forensic and release evidence, not current operational
 instructions. For the current checked source baseline use the 2026-11-10 audit,
-configuration guide and roadmap linked below. Live host/release state is a
+configuration guide and new full feature-flow audit linked below. Live host/release state is a
 separate operational verification gate.
 
 ## Getting started
@@ -47,7 +47,6 @@ separate operational verification gate.
 | [Beta program](beta-program.md) | User / Maintainer | Entry, evidence, privacy, and graduation criteria for external beta testing. |
 | [Benchmark protocol](../benchmarks/README.md) | Contributor / Maintainer | Neutral tasks, immutable result validation, and publication rules. |
 | [Benchmark operations](benchmark-operations.md) | Contributor / Maintainer | No-shell harness execution, evidence, environment isolation, and result creation. |
-| [Production-readiness action plan](production-readiness-action-plan.md) | Maintainer / Contributor | Approved epics, dependencies, proof gates, and 30/60/90-day execution sequence. |
 | [Stability and regression policy](stability-policy.md) | Maintainer / Contributor | Feature-freeze scope, bug definition of done, severity, and regression-test requirements. |
 
 ## Reference
@@ -103,10 +102,7 @@ separate operational verification gate.
 
 These documents are useful context but are **not current product contracts**:
 
-- [Roadmap](roadmap.md) — historical delivery record and future ideas.
-- [AI-agent roadmap](ai-agent-roadmap.md) — planning material.
 - [Implementation log](implementation-log.md) — historical implementation notes.
-- [ChatGPT lifecycle plan](chatgpt-lifecycle-plan.md) — internal design plan.
 
 When an internal document conflicts with README, reference, security, or
 compatibility documentation, the current user-facing document and executable
@@ -118,6 +114,10 @@ tests take precedence.
 - [Managed task isolation](task-isolation.md)
 - [Durable task runtime and Proof Packs](task-runtime-and-proof-packs.md)
 - [ADR-0011: Capsules and worktrees](adr-0011-workspace-capsules-and-isolation.md)
+
+## Full feature and flow audit (2026-11-14)
+
+[Current full feature-flow audit](audit/FEATURE_FLOW_AUDIT_2026-11-14.md) covers source feature inventory, runtime paths, security gaps, gates and exact tested evidence. Historical plan documents have been removed from this branch at the owner's request; their content is recoverable from Git history.
 
 ## Multi-project gateway (F14/F15 — source integrated)
 

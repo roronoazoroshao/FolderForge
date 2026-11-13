@@ -85,6 +85,6 @@ Baseline: `main@8c00b15ff7d34dedfd8f50e46066ad0a3defc23c` (2026-11-10). Read-onl
 
 ## Root documentation change restriction
 
-User instruction **only permits tracked changes under `docs/` in Phases 0–4**. Therefore root `README.md`, `CHANGELOG.md` and `CONTRIBUTING.md` remain untouched by this branch. The exact reviewable patch plan is [ROOT_DOCS_PATCH_PLAN.md](ROOT_DOCS_PATCH_PLAN.md). No source code, workflow, environment secret, production process or registry modified.
+User instruction **only permits tracked changes under `docs/` in Phases 0–4**. Therefore root `README.md`, `CHANGELOG.md` and `CONTRIBUTING.md` remain untouched by this branch. The exact reviewable patch plan is [current full feature-flow audit](FEATURE_FLOW_AUDIT_2026-11-14.md). No source code, workflow, environment secret, production process or registry modified.
 
-See [multi-child tunnel finding](MULTI_WORKSPACE_TUNNEL.md), [feature inventory](FEATURE_INVENTORY.md), [tool catalog](TOOL_CATALOG.md), [configuration](../CONFIGURATION.md), [operations](../OPERATIONS.md), [proposals](PROPOSALS.md) and [roadmap](../ROADMAP.md).
+See [multi-child tunnel finding](MULTI_WORKSPACE_TUNNEL.md), [feature inventory](FEATURE_INVENTORY.md), [tool catalog](TOOL_CATALOG.md), [configuration](../CONFIGURATION.md), [operations](../OPERATIONS.md), [current full feature-flow audit](FEATURE_FLOW_AUDIT_2026-11-14.md).
