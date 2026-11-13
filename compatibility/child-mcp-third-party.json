@@ -12,6 +12,18 @@
       "version": "11.0.3",
       "integrity": "sha512-iny/40PEGkNJQ5/Pv6z3nm6FbRAby32GeZRjCUJk2WnNDbgPSTcdI+DDvLqsgBdD4cD5sMtMheqPPnehCCa8Nw==",
       "reason": "Pin a patched minimatch release against GHSA-g3hv-75wg-m249 throughout the pinned third-party compatibility fixture."
+    },
+    {
+      "package": "@hono/node-server",
+      "version": "2.1.6",
+      "integrity": "sha512-p/KH9MnfNcsm3sR6x4lNgm5j+QN4Et8srKredl9DZfXiyZ1UQ3aQ2YVpFLbqktYN5JI+DB+VZFKM2PqE5hLKjQ==",
+      "reason": "Pin fixed @hono/node-server against GHSA-qv5m-9pm6-hqp3 and GHSA-jpvv-r467-5p4w."
+    },
+    {
+      "package": "hono",
+      "version": "4.13.16",
+      "integrity": "sha512-AOLOEhvrV+iH92xXCnFr/5+3KjPKcI3xP63XJtX5spAnkznPdHijlIsUTpi7/9EhWqrTCekw5c5zh1K+YsVw7A==",
+      "reason": "Pin fixed Hono against route authorization, CSRF, validation and HTML injection advisories."
     }
   ],
   "profiles": [

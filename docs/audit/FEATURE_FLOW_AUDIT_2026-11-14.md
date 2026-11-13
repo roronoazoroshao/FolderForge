@@ -11,6 +11,10 @@
 - 24 managed isolation records có `state=active`: 20 `present_consistent`, 2 `unverifiable`, 2 `missing_worktree`; 2 `sourceDirty`. `workflow_list` trả về 0 run; `process_list` 0 session; `distributed_status` 0 running jobs; `provision_list` 0 Fleet. **Không được suy ra có 24 agent đang chạy**. Không prune/force-remove worktrees.
 - Nhánh `fix/g01-recovery-adversarial-20261030@4c5bff8` còn 4 commit chưa tích hợp; merge thử nghiệm có conflict trong `src/isolation/worktree-manager.ts` và `tests/unit/worktree-manager.test.ts`. Mã recovery mức rủi ro cao: giữ nguyên branch cho tới khi có conflict resolution/TDD và independent security gate.
 
+## 1.1. Pinned third-party compatibility security remediation (2026-11-14)
+
+Sau lần CI đầu tiên của PR #158, Windows Node 22 báo lỗi tại `Pinned third-party child MCP compatibility`: cả năm MCP probe thành công nhưng npm audit của fixture phát hiện hai advisory mức Moderate, không phải lỗi test logic. Chính sách fail-closed được giữ nguyên. Bổ sung integrity-pinned overrides cho `@hono/node-server@2.1.6` và `hono@4.13.16`, đồng bộ `compatibility/child-mcp-third-party.package-lock.json` theo registry npm. Chạy lại `node scripts/child-mcp-third-party.mjs --output evidence.json` trên Linux: **5/5 profiles PASS, audit 0 vulnerabilities (exit 0)**; Windows exact-head CI của commit sửa bảo mật phải được xác minh riêng. Không thay đổi cơ chế kiểm tra hoặc hạ ngưỡng bảo mật.
+
 ## 2. Inventory feature theo lớp
 
 | Feature | Entry/source chính | Flow và dữ liệu | Trạng thái audit | Rủi ro / next proof |
