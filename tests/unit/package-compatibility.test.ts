@@ -71,10 +71,10 @@ describe('package and CI compatibility contract', () => {
       packages?: Record<string, { version?: string }>;
     };
     const patchedOverrides = {
-      '@hono/node-server': '2.1.5',
+      '@hono/node-server': '2.1.6',
       'body-parser': '2.4.0',
       'fast-uri': '4.2.3',
-      'hono': '4.13.14',
+      'hono': '4.13.16',
       'ip-address': '10.7.5',
       'qs': '6.17.1',
     };

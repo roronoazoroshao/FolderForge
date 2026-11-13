@@ -15,6 +15,12 @@
 
 Sau lần CI đầu tiên của PR #158, Windows Node 22 báo lỗi tại `Pinned third-party child MCP compatibility`: cả năm MCP probe thành công nhưng npm audit của fixture phát hiện hai advisory mức Moderate, không phải lỗi test logic. Chính sách fail-closed được giữ nguyên. Bổ sung integrity-pinned overrides cho `@hono/node-server@2.1.6` và `hono@4.13.16`, đồng bộ `compatibility/child-mcp-third-party.package-lock.json` theo registry npm. Chạy lại `node scripts/child-mcp-third-party.mjs --output evidence.json` trên Linux: **5/5 profiles PASS, audit 0 vulnerabilities (exit 0)**; Windows exact-head CI của commit sửa bảo mật phải được xác minh riêng. Không thay đổi cơ chế kiểm tra hoặc hạ ngưỡng bảo mật.
 
+## 1.2. Production dependency advisory remediation (2026-11-14)
+
+Đợt CI trước đó #43478220883: 6/7 job thành công, Ubuntu Node 22 không qua `Production dependency audit` do **3 npm audit Moderate findings** (hai package trực tiếp `hono@4.13.14`, `@hono/node-server@2.1.5`, một finding lan truyền qua `@modelcontextprotocol/sdk`). Findings thuộc **dependency production của repo**, phân biệt với fixture child-MCP ở §1.1. Đây là lỗ hổng dependency thực tế, không phải lỗi test hay điều kiện được phép bỏ qua.
+
+Thay đổi tối thiểu: nâng root `package.json` overrides lên `hono@4.13.16` và `@hono/node-server@2.1.6`, chỉ thay đổi hai package tương ứng và SHA-512 trong `package-lock.json`, đồng bộ test khóa pin. `npm audit --omit=dev` trên cây mới: **0 vulnerabilities / exit 0**; các test tương thích, build, multi-OS CI exact-head cần được kiểm tra lại trên commit mới trước khi merge. Không tắt audit, không tự động phát hành hoặc triển khai.
+
 ## 2. Inventory feature theo lớp
 
 | Feature | Entry/source chính | Flow và dữ liệu | Trạng thái audit | Rủi ro / next proof |
