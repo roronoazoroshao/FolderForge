@@ -6,6 +6,20 @@ All notable changes to FolderForge are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/), and the project follows
 semantic versioning.
 
+## [Unreleased] — F14 independent-project gateway (source-only)
+
+### Added
+- Opt-in authenticated loopback MCP gateway multiplexing individually approved
+  child project roots to lazy separate MCP worker processes, with session affinity,
+  canonical root identity checks, request-size limits, bounded worker count,
+  and capped session-affinity map with expiry reclamation.
+- Real MCP worker integration, 500-request interleaving and fail-closed tests.
+
+### Limitations
+- Static token gateway only; existing OpenAI/Cloudflare tunnel targets are unchanged.
+  Worker processes under one UID are not OS-level filesystem isolation.
+- No deployment, publishing, credential change, or host registry migration.
+
 ## [3.2.4] - 2026-10-16
 
 ### Fixed
