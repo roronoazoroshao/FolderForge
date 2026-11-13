@@ -31,6 +31,27 @@ describe("F14 multi-project operator allowlist", () => {
     expect(() => loadProjectGatewaySpec(f.configPath, { FOLDERFORGE_MULTI_PROJECT_GATEWAY_TOKEN: "weak" })).toThrow(/token/i);
   });
 
+  it("reads only allowed scheduling options and rejects unknown or invalid queue policy", () => {
+    const f = fixture();
+    const manifest = {
+      parentRoot: f.parent, port: 7339,
+      projects: [{ id: "frontend", root: join(f.parent, "frontend") }],
+      scheduling: { globalConcurrency: 2, perProjectConcurrency: 1,
+        maxRequestsPerProject: 5, maxRequestsGlobal: 15 },
+    };
+    const env = { FOLDERFORGE_MULTI_PROJECT_GATEWAY_TOKEN: token };
+    writeFileSync(f.configPath, JSON.stringify(manifest));
+    expect(loadProjectGatewaySpec(f.configPath, env).scheduling).toEqual(manifest.scheduling);
+    writeFileSync(f.configPath, JSON.stringify({
+      ...manifest, scheduling: { ...manifest.scheduling, undocumentedPermission: true },
+    }));
+    expect(() => loadProjectGatewaySpec(f.configPath, env)).toThrow(/unknown|limit/i);
+    writeFileSync(f.configPath, JSON.stringify({
+      ...manifest, scheduling: { globalConcurrency: -2 },
+    }));
+    expect(() => loadProjectGatewaySpec(f.configPath, env)).toThrow(/invalid|limit/i);
+  });
+
   it("rejects writable/symlink allowlists, unknown configuration keys and public binds", () => {
     const f = fixture();
     const env = { FOLDERFORGE_MULTI_PROJECT_GATEWAY_TOKEN: token };

@@ -2,6 +2,7 @@ import { createServer, request as httpRequest, type Server, type ServerResponse 
 import { lstatSync, realpathSync } from "node:fs";
 import { timingSafeEqual } from "node:crypto";
 import { isAbsolute, relative, resolve, sep } from "node:path";
+import { AdmissionError, FairProjectScheduler, type FairSchedulingOptions } from "./fair-scheduler.js";
 
 export interface ProjectSpec {
   id: string;
@@ -27,9 +28,12 @@ export interface ProjectGatewayOptions {
   /** Hard-bounded gateway session affinity table (default 1024, maximum 4096). */
   maxSessions?: number;
   maxBodyBytes?: number;
+  /** Independently bounded project queues and shared abuse limits. */
+  scheduling?: FairSchedulingOptions;
 }
 export interface ProjectGateway {
   server: Server;
+  snapshot(): ReturnType<FairProjectScheduler["snapshot"]>;
   close(): Promise<void>;
 }
 const PROJECT_ID = /^[a-z][a-z0-9_-]{0,47}$/;
@@ -133,6 +137,7 @@ export async function createProjectGateway(
   if (!Number.isFinite(sessionTtlMs) || sessionTtlMs < 1000) {
     throw new Error("Invalid session lifetime");
   }
+  const scheduler = new FairProjectScheduler(options.scheduling, Date.now, projects.size);
   const workers = new Map<string, Promise<ProjectWorker>>();
   const sessions = new Map<string, SessionAffinity>();
   function pruneExpiredSessions(): void {
@@ -214,8 +219,36 @@ export async function createProjectGateway(
       if (!projectId) { json(res, 400, "project_required"); return; }
       const project = projects.get(projectId);
       if (!project) { json(res, 404, "unknown_project"); return; }
-      if (req.headers["content-length"] && Number(req.headers["content-length"]) > maxBodyBytes) {
+      const rawLength = req.headers["content-length"];
+      const declaredBytes = rawLength !== undefined ? Number(rawLength) : maxBodyBytes;
+      if (!Number.isSafeInteger(declaredBytes) || declaredBytes < 0) {
+        json(res, 400, "invalid_content_length"); return;
+      }
+      if (declaredBytes > maxBodyBytes) {
         json(res, 413, "body_too_large"); return;
+      }
+      if (shuttingDown) { json(res, 503, "gateway_shutting_down"); return; }
+      const cancelled = new AbortController();
+      res.once("close", () => cancelled.abort());
+      let release: () => void;
+      try {
+        // Admit BEFORE reading or retaining the request body and before
+        // creating a child worker; queued requests retain only bounded metadata.
+        release = await scheduler.acquire(projectId, declaredBytes, cancelled.signal);
+      } catch (error) {
+        if (res.destroyed) return;
+        if (error instanceof AdmissionError) {
+          if (error.status === 429 || error.status === 503) res.setHeader("retry-after", "1");
+          json(res, error.status === 499 ? 503 : error.status, error.code);
+        } else {
+          json(res, 503, "admission_unavailable");
+        }
+        return;
+      }
+      res.once("close", release);
+      if (res.destroyed || cancelled.signal.aborted) {
+        release();
+        return;
       }
       const chunks: Buffer[] = [];
       let total = 0;
@@ -323,8 +356,10 @@ export async function createProjectGateway(
 
   return {
     server,
+    snapshot: () => scheduler.snapshot(),
     async close() {
       shuttingDown = true;
+      scheduler.close();
       await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
       await Promise.allSettled([...workers.values()].map(async (p) => (await p).close()));
       workers.clear();

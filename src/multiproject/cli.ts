@@ -2,12 +2,14 @@ import { openSync, readFileSync, closeSync, fstatSync, constants } from "node:fs
 import { isAbsolute } from "node:path";
 import { createProjectGateway, type ProjectGatewayOptions } from "./project-gateway.js";
 import { spawnProjectWorker } from "./project-worker.js";
+import { FairProjectScheduler, type FairSchedulingOptions } from "./fair-scheduler.js";
 
 interface Manifest {
   parentRoot: string;
   port: number;
   maxWorkers?: number;
   maxSessions?: number;
+  scheduling?: FairSchedulingOptions;
   projects: Array<{ id: string; root: string }>;
 }
 
@@ -47,7 +49,7 @@ export function loadProjectGatewaySpec(
   if ("host" in manifest) {
     throw new Error("Project gateway must remain loopback-only; host override refused");
   }
-  const allowed = new Set(["parentRoot", "port", "maxWorkers", "maxSessions", "projects"]);
+  const allowed = new Set(["parentRoot", "port", "maxWorkers", "maxSessions", "projects", "scheduling"]);
   for (const key of Object.keys(manifest)) {
     if (!allowed.has(key)) throw new Error("Unknown gateway configuration key: " + key);
   }
@@ -57,6 +59,25 @@ export function loadProjectGatewaySpec(
       typeof project.root === "string" && Object.keys(project).every((key) => key === "id" || key === "root"))) {
     throw new Error("Invalid gateway projects manifest");
   }
+  let scheduling: FairSchedulingOptions | undefined;
+  if (manifest.scheduling !== undefined) {
+    if (!manifest.scheduling || typeof manifest.scheduling !== "object" ||
+      Array.isArray(manifest.scheduling)) throw new Error("Invalid scheduling policy");
+    const limits = new Set([
+      "globalConcurrency", "perProjectConcurrency", "maxQueuedPerProject",
+      "maxQueuedBytes", "queueTimeoutMs", "maxRequestsPerProject",
+      "maxRequestsGlobal", "rateWindowMs",
+    ]);
+    for (const [key, value] of Object.entries(manifest.scheduling)) {
+      if (!limits.has(key)) throw new Error("Unknown scheduling limit: " + key);
+      if (!Number.isSafeInteger(value) || (value as number) <= 0) {
+        throw new Error("Invalid scheduling limit: " + key);
+      }
+    }
+    scheduling = manifest.scheduling;
+    // Apply the exact same cross-field invariants as the request runtime.
+    new FairProjectScheduler(scheduling);
+  }
   return {
     parentRoot: manifest.parentRoot,
     projects: manifest.projects,
@@ -65,6 +86,7 @@ export function loadProjectGatewaySpec(
     token,
     ...(manifest.maxWorkers !== undefined ? { maxWorkers: manifest.maxWorkers } : {}),
     ...(manifest.maxSessions !== undefined ? { maxSessions: manifest.maxSessions } : {}),
+    ...(scheduling ? { scheduling } : {}),
   };
 }
 
