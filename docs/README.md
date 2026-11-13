@@ -119,6 +119,10 @@ tests take precedence.
 - [Durable task runtime and Proof Packs](task-runtime-and-proof-packs.md)
 - [ADR-0011: Capsules and worktrees](adr-0011-workspace-capsules-and-isolation.md)
 
-## Audit, configuration and proposed roadmap (2026-11-10)
+## Multi-project gateway (F14/F15 — source integrated)
 
-The current source-baseline review is [Audit report](audit/AUDIT_REPORT.md) and [Feature inventory](audit/FEATURE_INVENTORY.md). Reference [One tunnel / many child workspace limitations](audit/MULTI_WORKSPACE_TUNNEL.md), [Architecture](ARCHITECTURE.md), [Configuration](CONFIGURATION.md), [Tools and APIs](TOOLS.md), [Operations](OPERATIONS.md), [Proposals and approval gate](audit/PROPOSALS.md), and [90-day Roadmap](ROADMAP.md). Old `PROJECT_STATUS`, `CURRENT_FRONTIER` and `HANDOFF` are preserved historical snapshots; no Phase 5 source changes are approved by these documents.
+[Multi-project MCP gateway](multi-project-gateway.md) documents the opt-in per-project worker and fair admission. Merging source does not activate a public tunnel or certify production readiness; independent security and host-isolation evidence remain required.
+
+## Audit and configuration (baseline 2026-11-10)
+
+The dated [Audit report](audit/AUDIT_REPORT.md) and [Feature inventory](audit/FEATURE_INVENTORY.md) document the source baseline before F14/F15 were merged. See [Multi-workspace isolation audit](audit/MULTI_WORKSPACE_TUNNEL.md), [Architecture](ARCHITECTURE.md), [Configuration](CONFIGURATION.md), [Tools and APIs](TOOLS.md), and [Operations](OPERATIONS.md). These documents are historical evidence where their status references differ from current main; no production cutover is implied.

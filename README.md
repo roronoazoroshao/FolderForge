@@ -61,6 +61,16 @@ as `--allow /srv` when starting the control plane. No command here grants root
 privileges, bypasses sandbox policy, or publishes an MCP tunnel automatically.
 Remote tunnels still require their separate authenticated configuration.
 
+## Optional: multiple independent projects under one endpoint (F14 MVP)
+
+An opt-in, loopback-only authenticated multi-project gateway accepts an owner
+manifest and launches a separate bounded MCP worker for each authorized project.
+Clients select a project during initialization. Ambiguous requests fail closed.
+Optional F15 admission enforces separate project rate/concurrency budgets,
+fair bounded waiting queues, and a retained global flood cap.
+The existing tunnel target and OS permissions are **not** changed by this
+command. See [the gateway guide](docs/multi-project-gateway.md).
+
 ## Quick start
 
 **Requirements:** Node.js 22 or 24 and an MCP client that supports stdio.
