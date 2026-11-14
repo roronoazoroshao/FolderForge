@@ -19,6 +19,8 @@
 
 ### FF-001 — Chốt baseline và compatibility contract (P0)
 
+**GitHub:** [#162](https://github.com/roronoazoroshao/FolderForge/issues/162)
+
 - [ ] **Hoàn thành và có bằng chứng**
 - **Phụ thuộc:** không.
 - **PASS:** baseline SHA và list public contracts được khóa; 0 unexpected change; test tập trung có lệnh tái hiện.
@@ -26,6 +28,8 @@
 - **Evidence / Commit / Reviewer:** _(chưa có; bổ sung khi triển khai)_
 
 ### FF-002 — Tạo operational safety manifest và recovery boundary (P0)
+
+**GitHub:** [#163](https://github.com/roronoazoroshao/FolderForge/issues/163)
 
 - [ ] **Hoàn thành và có bằng chứng**
 - **Phụ thuộc:** FF-001.
@@ -35,6 +39,8 @@
 
 ### FF-003 — Isolated fixture/test harness + fault injection (P0)
 
+**GitHub:** [#164](https://github.com/roronoazoroshao/FolderForge/issues/164)
+
 - [ ] **Hoàn thành và có bằng chứng**
 - **Phụ thuộc:** FF-001.
 - **PASS:** temp directories auto cleanup theo ownership; không target `~/.folderforge` thật; every destructive case isolated.
@@ -42,6 +48,8 @@
 - **Evidence / Commit / Reviewer:** _(chưa có; bổ sung khi triển khai)_
 
 ### FF-004 — Workspace identity / immutable context types (P0)
+
+**GitHub:** [#165](https://github.com/roronoazoroshao/FolderForge/issues/165)
 
 - [ ] **Hoàn thành và có bằng chứng**
 - **Phụ thuộc:** FF-001, FF-003.
@@ -51,6 +59,8 @@
 
 ### FF-005 — Verify root & path identity with adversarial cases (P0)
 
+**GitHub:** [#166](https://github.com/roronoazoroshao/FolderForge/issues/166)
+
 - [ ] **Hoàn thành và có bằng chứng**
 - **Phụ thuộc:** FF-004.
 - **PASS:** mọi path escape deterministic bị deny; không claim OS confinement chỉ bằng string checks; test Windows/macOS/Linux theo CI.
@@ -58,6 +68,8 @@
 - **Evidence / Commit / Reviewer:** _(chưa có; bổ sung khi triển khai)_
 
 ### FF-006 — Durable registry + CAS + idempotency port (P0)
+
+**GitHub:** [#167](https://github.com/roronoazoroshao/FolderForge/issues/167)
 
 - [ ] **Hoàn thành và có bằng chứng**
 - **Phụ thuộc:** FF-004, FF-003.
@@ -67,6 +79,8 @@
 
 ### FF-007 — Bind workspace context at MCP entry (stdio) (P0)
 
+**GitHub:** [#168](https://github.com/roronoazoroshao/FolderForge/issues/168)
+
 - [ ] **Hoàn thành và có bằng chứng**
 - **Phụ thuộc:** FF-004, FF-005, FF-006.
 - **PASS:** 0 cross-project wrong-root; backward compatible request/response wire format.
@@ -74,6 +88,8 @@
 - **Evidence / Commit / Reviewer:** _(chưa có; bổ sung khi triển khai)_
 
 ### FF-008 — Bind workspace context at MCP entry (HTTP) (P0)
+
+**GitHub:** [#169](https://github.com/roronoazoroshao/FolderForge/issues/169)
 
 - [ ] **Hoàn thành và có bằng chứng**
 - **Phụ thuộc:** FF-004, FF-005, FF-006.
@@ -83,6 +99,8 @@
 
 ### FF-009 — Tool kernel context enforcement and two-root matrix (P0)
 
+**GitHub:** [#170](https://github.com/roronoazoroshao/FolderForge/issues/170)
+
 - [ ] **Hoàn thành và có bằng chứng**
 - **Phụ thuộc:** FF-007, FF-008.
 - **PASS:** all tool families tested with 0 wrong-root; no bypass through adaptive tools. Shell OS confinement evidence separated from logical checks.
@@ -90,6 +108,8 @@
 - **Evidence / Commit / Reviewer:** _(chưa có; bổ sung khi triển khai)_
 
 ### FF-010 — Add/list/status usecases (P1)
+
+**GitHub:** [#171](https://github.com/roronoazoroshao/FolderForge/issues/171)
 
 - [ ] **Hoàn thành và có bằng chứng**
 - **Phụ thuộc:** FF-006, FF-009.
@@ -99,6 +119,8 @@
 
 ### FF-011 — Managed start/stop/health supervisor (P1)
 
+**GitHub:** [#172](https://github.com/roronoazoroshao/FolderForge/issues/172)
+
 - [ ] **Hoàn thành và có bằng chứng**
 - **Phụ thuộc:** FF-010.
 - **PASS:** no duplicate daemon, no arbitrary process kill, reason-coded degraded state, no false connected.
@@ -106,6 +128,8 @@
 - **Evidence / Commit / Reviewer:** _(chưa có; bổ sung khi triển khai)_
 
 ### FF-012 — ConnectionReceipt + client config preview/undo (P1)
+
+**GitHub:** [#173](https://github.com/roronoazoroshao/FolderForge/issues/173)
 
 - [ ] **Hoàn thành và có bằng chứng**
 - **Phụ thuộc:** FF-010, FF-011.
@@ -115,6 +139,8 @@
 
 ### FF-013 — Owner grants, revocation and enforcement lifecycle (P0)
 
+**GitHub:** [#174](https://github.com/roronoazoroshao/FolderForge/issues/174)
+
 - [ ] **Hoàn thành và có bằng chứng**
 - **Phụ thuộc:** FF-006, FF-009, FF-010.
 - **PASS:** new requests fail on revoked grant, existing long-running request status truthful, no host elevation from local token.
@@ -122,6 +148,8 @@
 - **Evidence / Commit / Reviewer:** _(chưa có; bổ sung khi triển khai)_
 
 ### FF-014 — Versioned local Control API for add/status/health (P1)
+
+**GitHub:** [#175](https://github.com/roronoazoroshao/FolderForge/issues/175)
 
 - [ ] **Hoàn thành và có bằng chứng**
 - **Phụ thuộc:** FF-010, FF-011, FF-013.
@@ -131,6 +159,8 @@
 
 ### FF-015 — Connection/grants/session/activity endpoints (P1)
 
+**GitHub:** [#176](https://github.com/roronoazoroshao/FolderForge/issues/176)
+
 - [ ] **Hoàn thành và có bằng chứng**
 - **Phụ thuộc:** FF-012, FF-013, FF-014.
 - **PASS:** Web can list real connections, create receipt, review grant/approval and revoke; no owner claim from tunnel.
@@ -138,6 +168,8 @@
 - **Evidence / Commit / Reviewer:** _(chưa có; bổ sung khi triển khai)_
 
 ### FF-016 — New command router for `up` (P1)
+
+**GitHub:** [#177](https://github.com/roronoazoroshao/FolderForge/issues/177)
 
 - [ ] **Hoàn thành và có bằng chứng**
 - **Phụ thuộc:** FF-010, FF-012, FF-014.
@@ -147,6 +179,8 @@
 
 ### FF-017 — CLI `status`, `ui`, `stop`, scoped access controls (P1)
 
+**GitHub:** [#178](https://github.com/roronoazoroshao/FolderForge/issues/178)
+
 - [ ] **Hoàn thành và có bằng chứng**
 - **Phụ thuộc:** FF-011, FF-013, FF-016.
 - **PASS:** CLI and Web share operation ID, status enums, validation; no new insecure shortcut to `danger`.
@@ -154,6 +188,8 @@
 - **Evidence / Commit / Reviewer:** _(chưa có; bổ sung khi triển khai)_
 
 ### FF-018 — CLI compatibility & connect client protocol matrix (P0)
+
+**GitHub:** [#179](https://github.com/roronoazoroshao/FolderForge/issues/179)
 
 - [ ] **Hoàn thành và có bằng chứng**
 - **Phụ thuộc:** FF-016, FF-017.
@@ -163,6 +199,8 @@
 
 ### FF-019 — Semantic tokens and UI primitives (P1)
 
+**GitHub:** [#180](https://github.com/roronoazoroshao/FolderForge/issues/180)
+
 - [ ] **Hoàn thành và có bằng chứng**
 - **Phụ thuộc:** FF-014.
 - **PASS:** all new screens consume tokens/components; WCAG AA contrast verified, reduced motion, 320–1440 responsive.
@@ -170,6 +208,8 @@
 - **Evidence / Commit / Reviewer:** _(chưa có; bổ sung khi triển khai)_
 
 ### FF-020 — Typed API client + hooks (P1)
+
+**GitHub:** [#181](https://github.com/roronoazoroshao/FolderForge/issues/181)
 
 - [ ] **Hoàn thành và có bằng chứng**
 - **Phụ thuộc:** FF-014, FF-015.
@@ -179,6 +219,8 @@
 
 ### FF-021 — Navigation and legacy deep-link preservation (P1)
 
+**GitHub:** [#182](https://github.com/roronoazoroshao/FolderForge/issues/182)
+
 - [ ] **Hoàn thành và có bằng chứng**
 - **Phụ thuộc:** FF-019.
 - **PASS:** existing bookmarks/tests work, no blank screen, valid active nav at narrow widths.
@@ -186,6 +228,8 @@
 - **Evidence / Commit / Reviewer:** _(chưa có; bổ sung khi triển khai)_
 
 ### FF-022 — Add Folder wizard, typed permissions (P1)
+
+**GitHub:** [#183](https://github.com/roronoazoroshao/FolderForge/issues/183)
 
 - [ ] **Hoàn thành và có bằng chứng**
 - **Phụ thuộc:** FF-019, FF-020, FF-021.
@@ -195,6 +239,8 @@
 
 ### FF-023 — Connect Agent + accurate health receipt (P1)
 
+**GitHub:** [#184](https://github.com/roronoazoroshao/FolderForge/issues/184)
+
 - [ ] **Hoàn thành và có bằng chứng**
 - **Phụ thuộc:** FF-012, FF-020, FF-022.
 - **PASS:** 0 false CONNECTED; dry-run config modifications understandable, undo available.
@@ -202,6 +248,8 @@
 - **Evidence / Commit / Reviewer:** _(chưa có; bổ sung khi triển khai)_
 
 ### FF-024 — Folder details, Sessions and Activity (P1)
+
+**GitHub:** [#185](https://github.com/roronoazoroshao/FolderForge/issues/185)
 
 - [ ] **Hoàn thành và có bằng chứng**
 - **Phụ thuộc:** FF-015, FF-020, FF-021, FF-023.
@@ -211,6 +259,8 @@
 
 ### FF-025 — Web visual + accessibility acceptance suite (P1)
 
+**GitHub:** [#186](https://github.com/roronoazoroshao/FolderForge/issues/186)
+
 - [ ] **Hoàn thành và có bằng chứng**
 - **Phụ thuộc:** FF-019 through FF-024.
 - **PASS:** no critical/serious a11y findings, no broken layout, no secret content in screenshots. Baseline screenshots reviewed rather than blind snapshot update.
@@ -218,6 +268,8 @@
 - **Evidence / Commit / Reviewer:** _(chưa có; bổ sung khi triển khai)_
 
 ### FF-026 — Extract Dashboard workspace/owner routes by domain (P2)
+
+**GitHub:** [#187](https://github.com/roronoazoroshao/FolderForge/issues/187)
 
 - [ ] **Hoàn thành và có bằng chứng**
 - **Phụ thuộc:** FF-014, FF-015, FF-025.
@@ -227,6 +279,8 @@
 
 ### FF-027 — Simplify `src/main.ts` dispatch without changing options (P2)
 
+**GitHub:** [#188](https://github.com/roronoazoroshao/FolderForge/issues/188)
+
 - [ ] **Hoàn thành và có bằng chứng**
 - **Phụ thuộc:** FF-018, FF-026.
 - **PASS:** all legacy CLI cases no behavioral drift; diff size reviewable.
@@ -234,6 +288,8 @@
 - **Evidence / Commit / Reviewer:** _(chưa có; bổ sung khi triển khai)_
 
 ### FF-028 — Break up Fleet UI & formalize Advanced navigation (P2)
+
+**GitHub:** [#189](https://github.com/roronoazoroshao/FolderForge/issues/189)
 
 - [ ] **Hoàn thành và có bằng chứng**
 - **Phụ thuộc:** FF-021, FF-025.
@@ -243,6 +299,8 @@
 
 ### FF-029 — Golden end-to-end scenario + parity proof (P0)
 
+**GitHub:** [#190](https://github.com/roronoazoroshao/FolderForge/issues/190)
+
 - [ ] **Hoàn thành và có bằng chứng**
 - **Phụ thuộc:** FF-018, FF-024, FF-026, FF-027.
 - **PASS:** AC-01..AC-14 evidence table with commit SHA, command, exit code and counterexample cases; 0 wrong-root / 0 false connection.
@@ -250,6 +308,8 @@
 - **Evidence / Commit / Reviewer:** _(chưa có; bổ sung khi triển khai)_
 
 ### FF-030 — Documentation, migration, release candidate (P2)
+
+**GitHub:** [#191](https://github.com/roronoazoroshao/FolderForge/issues/191)
 
 - [ ] **Hoàn thành và có bằng chứng**
 - **Phụ thuộc:** FF-029.
@@ -259,6 +319,8 @@
 
 ### FF-031 — Multi-project gateway eligibility (P3)
 
+**GitHub:** [#192](https://github.com/roronoazoroshao/FolderForge/issues/192)
+
 - [ ] **Hoàn thành và có bằng chứng**
 - **Phụ thuộc:** C5 + explicit gateway security review; #118 only if activating isolation registry/recovery.
 - **PASS:** no wrong-root across gateway; explicit limit statements; no claim multi-host fairness without shared store.
@@ -267,6 +329,8 @@
 
 ### FF-032 — Browser control scope (P3)
 
+**GitHub:** [#193](https://github.com/roronoazoroshao/FolderForge/issues/193)
+
 - [ ] **Hoàn thành và có bằng chứng**
 - **Phụ thuộc:** FF-013, C5.
 - **PASS:** browser remains OFF by default unless explicit scoped grant and sandbox evidence; no privileged browser tool bypass.
@@ -274,6 +338,8 @@
 - **Evidence / Commit / Reviewer:** _(chưa có; bổ sung khi triển khai)_
 
 ### FF-033 — Production attestation, canary, rollback (P0)
+
+**GitHub:** [#194](https://github.com/roronoazoroshao/FolderForge/issues/194)
 
 - [ ] **Hoàn thành và có bằng chứng**
 - **Phụ thuộc:** C5 + owner written sign-off + host capacity/artifact/auth gates; **GATE-SEC-118 + GATE-RECOVERY nếu có isolation registry/recovery integration**; FF-031 nếu deploy gateway.
