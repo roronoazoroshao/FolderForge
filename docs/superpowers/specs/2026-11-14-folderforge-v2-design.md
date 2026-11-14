@@ -4,7 +4,7 @@
 
 **Bản đề xuất để duyệt · 14/11/2026 · Ngôn ngữ: Tiếng Việt**  
 **Tên hướng đi:** Workspace-first MCP · **Baseline kiểm tra:** `main@b2ad52e1bb20babed2436890841ec622cc6c4a5a`, package `@musashishao/folderforge@3.2.4`.  
-**Trạng thái:** DRAFT / CHƯA PHÊ DUYỆT / CHƯA TRIỂN KHAI. Những lệnh, endpoint và interface có ghi **ĐỀ XUẤT** chưa tồn tại trên sản phẩm.
+**Trạng thái:** SPEC ĐANG XEM XÉT; FF-001/003/004 đã có source/test trên nhánh review, **chưa** hoàn thành hệ thống hoặc production. Những lệnh, endpoint và interface có ghi **ĐỀ XUẤT** chưa tồn tại trên sản phẩm.
 
 > **Một câu dễ nhớ:** Chọn một thư mục → cấp quyền cho AI → kết nối MCP → xem và điều khiển cùng một workspace bằng Web hoặc CLI.
 
@@ -63,9 +63,9 @@ Hiện FolderForge là một control plane có nhiều công cụ (file, Git, sh
 
 ### Mục tiêu và ngoài phạm vi
 
-**Trong MVP:** Local single-user, one/multiple local folders, stdio + HTTP loopback, owner-approved connection, file/Git/shell/test/build, health/status, revoke, audit, Web & CLI parity, non-Git folders, design system.
+**Trong MVP:** Local single-user, one/multiple local folders, stdio + HTTP loopback, owner-approved connection, file/Git/shell/test/build, capability discovery, **local browser control qua adapter có consent/permission**, health/status, revoke, audit, Web & CLI parity, non-Git folders, design system. Một nền tảng không thể hứa browser control nếu chưa có adapter chạy được.
 
-**Giai đoạn Advanced có điều kiện:** F14/F15 multi-project HTTP gateway, remote tunnel/OAuth, browser adapter, Fleet, plugin/marketplace, host-wide privilege, model-driven autonomous orchestration.
+**Giai đoạn Advanced có điều kiện:** F14/F15 multi-project HTTP gateway, remote tunnel/OAuth, browser nâng cao, Fleet, plugin/marketplace, quyền host được cấp riêng, model-driven autonomous orchestration. **Local browser control** là năng lực quan trọng của sản phẩm; khả dụng khi adapter được cài và owner bật, không được tự động bật.
 
 **Ngoài phạm vi v2 cơ bản:** viết lại MCP protocol, xây một AI model/provider mới, OS root admin qua MCP token, thay filesystem bằng cloud, Kubernetes/microservices, xóa hàng loạt module cũ, sửa issue #118 bằng UI.
 
@@ -437,14 +437,46 @@ npm run test:coverage
 
 1. **Full workspace** có yêu cầu chạy shell tùy ý trong thư mục bằng sandbox bắt buộc không, hay chỉ owner-consented `danger` trong trusted local mode? Khác biệt lớn về OS boundary.
 2. Người dùng ưu tiên **stdio local** hay một **HTTP gateway chung**? Cả hai hỗ trợ, nhưng ưu tiên định hình lệnh `up`, health/status và đường triển khai.
-3. Browser control nghĩa là **quản trị Web console** hay **AI điều khiển trình duyệt Playwright** (hoặc cả hai)? Đây là hai capability khác nhau, mức nguy cơ khác nhau.
+3. Browser control phải gồm **cả Web console để chủ máy điều khiển và agent điều khiển Chromium qua Playwright khi bật rõ ràng**. Remote browser/desktop control nằm ở Advanced, cần quyền và kiểm tra độc lập.
 4. Số platform MVP: Linux, macOS, Windows đều được hỗ trợ hiện tại; OS sandbox/isolation equivalence khác nhau và cần matrix proof.
 5. Trạng thái cấu hình của client nên yêu cầu consent mỗi lần hay lưu trusted owner grant có thời hạn? Default draft: mỗi loại file ngoài workspace lần đầu phải xác nhận.
 
 ### Quyết định chốt để triển khai
 
-**D-01** Modular monolith/strangler; **D-02** Local-first; **D-03** one identity per root; **D-04** 4 khu vực Web; **D-05** existing ToolRegistry; **D-06** scoped Full workspace; **D-07** Advanced opt-in. Các quyết định này đang ở trạng thái **đề xuất**. Sau khi chủ repo duyệt, mới triển khai theo Plan liên kết.
+**D-01** Modular monolith/strangler; **D-02** Local-first; **D-03** one identity per root; **D-04** 4 khu vực Web; **D-05** existing ToolRegistry; **D-06** scoped Full workspace; **D-07** Advanced opt-in; **D-08** AI làm việc qua mọi capability đang được owner cấp (không chỉ bộ tool MVP); **D-09** host operator chỉ qua broker có xác thực và audit riêng. Các quyết định này đang ở trạng thái **đề xuất**. Sau khi chủ repo duyệt, mới triển khai theo Plan liên kết.
 
 ---
 
-**Liên kết tài liệu:** `FolderForge_v2_Plan_2026-11-14.md` (implementation plan), `FolderForge_v2_Tasks_2026-11-14.md` (checklist). **Không có source code hay CI đã thay đổi khi xuất bản draft này.**
+**Liên kết tài liệu:** [Implementation Plan](../plans/2026-11-14-folderforge-v2-implementation.md) · [Task ledger](../../../tasks/todo.md). Các thay đổi source đầu tiên đang ở nhánh review, không phải runtime đã triển khai.
+
+## 16. Full-capability agent: định nghĩa sản phẩm thật sự
+
+**Tầm nhìn:** AI agent có thể thực hiện bất kỳ công việc máy tính nào mà (a) runtime có adapter/tool thực hiện được, (b) owner **đã cấp** quyền tương ứng, và (c) các điều kiện hệ điều hành/môi trường cho phép. Không gắn FolderForge với duy nhất AI provider hay tập tool cố định. Đây là **khả năng mở rộng**, không phải lời hứa rằng mọi API/thiết bị đều hoạt động ngay.
+
+| Domain năng lực | Hành động ví dụ | Trust boundary bắt buộc | MVP / Advanced |
+|---|---|---|---|
+| Files / code / Git | read/write, grep, build, commit, patch | canonical WorkspaceId, tool policy, audit | MVP |
+| CLI / process | shell, test, service-owned process, terminal | owner grant + OS execution identity, cancellation/timeout | MVP workspace; host Advanced |
+| Browser | navigate, click, form, screenshot, inspect | Playwright adapter, isolated profile, origin/network/credential grants | MVP local opt-in; remote Advanced |
+| Network / APIs | HTTP request, webhook, fetch | egress grant, hostname/scheme rules, timeout and secret policy | Opt-in |
+| Child MCP / plugins | Discover tool, invoke verified adapter | transitive capability classification, manifest provenance, quarantine | Opt-in |
+| Host OS / desktop | cross-folder files, packages, local apps, GUI | **owner-only Host Operator broker**, explicit OS principal, expiry/revoke/audit | Advanced separate security gate |
+| Multi-agent / long runs | schedule, plan, verify, delegate | immutable per-session identity, budget, evidence, no hidden privilege expansion | Later stages |
+
+### Authority levels: không đánh tráo quyền
+
+1. **Inspect:** read-only within approved workspace.
+2. **Develop:** file/Git/build/shell mutations scoped to approved workspace; no assertion of OS confinement without sandbox proof.
+3. **Workspace Operator:** broad tool set including browser/network **only where separately enabled**, high-risk actions follow policy + audit.
+4. **Host Operator (advanced, explicit):** may manage permitted resources outside workspace through an **owner-authenticated local broker** and scoped, expiring OS-authorized grant. It is not implied by `--policy danger`, not derivable from MCP bearer token, and not root by default.
+
+**Không tồn tại “grant all” vô điều kiện.** Mỗi operation phải mang `{principal, session, workspace, capabilities, grantRevision, expiry, risk, budget, correlationId}`; adapter không thể bỏ qua kernel. Lệnh shell cùng UID **không tự giới hạn** trong thư mục chỉ vì `cwd` nằm ở đó. Nếu chưa có OS sandbox, sản phẩm phải hiển thị `UNCONFINED_HOST_UID` thay vì tuyên bố Full Workspace đã được cô lập.
+
+### Acceptance nâng cao
+
+- **AC-15:** Agent có thể khám phá capability hiệu lực theo principal và workspace; từng capability có trạng thái `ready/disabled/not-installed/denied` và hướng bật. Không quảng cáo tool không khả dụng.
+- **AC-16:** Local browser khi owner opt-in có smoke E2E navigate → click → screenshot trong browser profile riêng; quyền web không biến thành quyền host.
+- **AC-17:** MCP token/principal tự ý gọi Host Operator grant, admin endpoint hoặc child-tool nâng quyền đều bị từ chối; revocation và audit có bằng chứng.
+- **AC-18:** `Full host` (khi triển khai) yêu cầu owner-local consent, broker được kiểm chứng, expiry, cancel/kill state rõ, security review độc lập và rollback; chưa có broker thì tính năng phải được đánh dấu **UNAVAILABLE**, không tự chuyển sang `danger`.
+
+**Ranh giới hoàn thành:** FF-034…FF-037 là advanced workstream sau MVP; không chặn sử dụng MCP cơ bản. Người dùng có thể mở rộng độ tự chủ; quyền host thật yêu cầu một đường triển khai độc lập, không phải checkbox trong Web.

@@ -6,7 +6,7 @@
 1. [Product North Star / 2027–2030](../docs/strategy/FOLDERFORGE_NORTH_STAR_2027_2030.md): why and what not to build.
 2. [Full v2 specification](../docs/superpowers/specs/2026-11-14-folderforge-v2-design.md): user journeys, boundaries, 14 acceptance criteria.
 3. [Executable implementation plan](../docs/superpowers/plans/2026-11-14-folderforge-v2-implementation.md): per-task file targets, dependencies, TDD, checks and rollback.
-4. [33-task checklist](todo.md): synchronized task IDs and 7 C0–C6 checkpoints.
+4. [37-task checklist](todo.md): synchronized task IDs and 7 C0–C6 checkpoints.
 5. [GitHub master roadmap #195](https://github.com/roronoazoroshao/FolderForge/issues/195), with all individual task issue links below.
 
 ## Phases
@@ -19,6 +19,7 @@
 | P04 | FF-019–FF-025 | Folders / Sessions / Activity / Settings | C4 |
 | P05 | FF-026–FF-030 | Modular source + parity and E2E evidence | C5 |
 | P06 | FF-031–FF-033 | Optional extensions and owner-approved canary | C6 |
+| P07 | FF-034–FF-037 | Browser quality, capability breadth and host broker | C7 (Advanced) |
 
 ## GitHub execution issues (synchronized 2026-11-14)
 
@@ -80,3 +81,11 @@
 - Do not restart live processes, mutate isolation recovery, delete detached worktrees or publish npm automatically.
 - Full-workspace grants are not evidence of OS confinement. A stdio config is not a connected client.
 - Strategic and architectural decisions remain proposals until the owner explicitly approves the design.
+
+### P07
+- [FF-034 — #196](https://github.com/roronoazoroshao/FolderForge/issues/196): Capability catalog + effective permission discovery
+- [FF-035 — #197](https://github.com/roronoazoroshao/FolderForge/issues/197): Local browser control E2E
+- [FF-036 — #198](https://github.com/roronoazoroshao/FolderForge/issues/198): Owner-granted Host Operator authority broker
+- [FF-037 — #199](https://github.com/roronoazoroshao/FolderForge/issues/199): Cross-agent capability conformance
+
+**C7:** Advanced host authority proof remains gated; no production privilege grant by a roadmap issue.
