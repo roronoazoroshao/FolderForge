@@ -390,3 +390,9 @@ Bộ tài liệu v2 hiện tại có **14 acceptance criteria, 33 task, 7 checkp
 6. [GitHub main CI](https://github.com/roronoazoroshao/FolderForge/actions/runs/43542136075) và [repo audit](https://github.com/roronoazoroshao/FolderForge/blob/main/docs/audit/REPO_FULL_FLOW_ISSUES_AUDIT_2026-11-14.md). 2026-11-14 snapshot: 5 open issues (#118, #145, #126, #105, #70), 0 open PR.
 
 **Thành thật về giới hạn:** Không có dữ liệu người dùng thật, revenue, support cost, buyer interviews hoặc market share trong phạm vi audit. TTFVA targets, giai đoạn và thứ tự kinh doanh là **giả thuyết chiến lược có test**, không phải số liệu thực tế. Không có thay đổi source hoặc production trong công việc soạn tài liệu này.
+
+## 12. Full-capability future: AI làm được nhiều việc, quyền vẫn theo owner
+
+FolderForge hướng đến **universal execution fabric**, không phải một danh sách 100 tool cố định. Năng lực phải mở rộng qua adapters: filesystem/Git/CLI, local browser/Playwright, network, child MCP, desktop/OS, agent planning. Từng khả năng có `available/disabled/denied/unavailable` rõ ràng.
+
+**Nguyên tắc không được nhượng bộ:** chủ máy quyết định phạm vi; agent không tự nâng quyền; `danger`/MCP bearer token không tương đương owner; các thao tác host bên ngoài thư mục cần broker với OS principal, expiry, revoke, evidence. Không có hệ điều hành/sandbox proof thì không được marketing rằng “confined”. Xem [Spec §16](../superpowers/specs/2026-11-14-folderforge-v2-design.md) và [Plan P07](../superpowers/plans/2026-11-14-folderforge-v2-implementation.md).

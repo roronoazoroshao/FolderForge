@@ -2,7 +2,7 @@
 
 **Canonical specification:** [Spec](../docs/superpowers/specs/2026-11-14-folderforge-v2-design.md) · **Detailed plan:** [Plan](../docs/superpowers/plans/2026-11-14-folderforge-v2-implementation.md) · **Issue tracker:** [tasks/plan.md](plan.md).
 
-**Chưa task nào đã được triển khai.** Checklist được tạo từ `FolderForge_v2_Plan_2026-11-14.md`. Đây là công cụ theo dõi, không phải báo cáo tiến độ thực tế.  
+**Source implementation đã bắt đầu trong nhánh review:** FF-001 contract regression, FF-003 isolated fixtures và FF-004 workspace identity/context mới (chưa gắn MCP). **Chưa checkpoint nào được ký nhận và chưa issue nào được đóng.** Checklist được đồng bộ với [Implementation Plan](../docs/superpowers/plans/2026-11-14-folderforge-v2-implementation.md). Đây là công cụ theo dõi, không phải báo cáo tiến độ thực tế.
 **Cách dùng:** tích task **sau khi** có test/CI evidence và owner review; ghi commit SHA, test run và reviewer trong issue/PR tương ứng. Đừng xóa task cũ chỉ vì không còn branch.
 
 ## Các checkpoint cần ký nhận
@@ -346,6 +346,42 @@
 - **PASS:** independent security sign-off cho boundary được deploy (bao gồm #118 nếu động isolation registry), exact artifact hash matches process, rollback tested, no audit-loss ENOSPC; no active invalid record overwritten. Owner approves cutover.
 - **Kiểm tra:** signed operator evidence + CI links + runtime traces, not just passing unit tests.
 - **Evidence / Commit / Reviewer:** _(chưa có; bổ sung khi triển khai)_
+
+## P07 — Host Operator / full-capability agent (Advanced)
+
+### FF-034 — Capability catalog và effective access explanation
+
+**GitHub:** [#196](https://github.com/roronoazoroshao/FolderForge/issues/196)
+- [ ] **Hoàn thành và có bằng chứng** (chưa triển khai)
+- **Phụ thuộc:** FF-009, FF-013, FF-020.
+- **PASS:** correct `ready/disabled/not-installed/denied` plus CLI/Web parity.
+- **Kiểm tra:** unit capability inventory, TypeScript, lint, architecture.
+
+### FF-035 — Local browser automation quality & proof
+
+**GitHub:** [#197](https://github.com/roronoazoroshao/FolderForge/issues/197)
+- [ ] **Hoàn thành và có bằng chứng** (chưa triển khai)
+- **Phụ thuộc:** FF-013, FF-023, FF-029.
+- **PASS:** owner opt-in, pinned Chromium E2E, isolated browser profile and screenshot evidence.
+- **Kiểm tra:** browser integration + permission negative tests.
+
+### FF-036 — Owner-authenticated Host Operator broker
+
+**GitHub:** [#198](https://github.com/roronoazoroshao/FolderForge/issues/198)
+- [ ] **Hoàn thành và có bằng chứng** (chưa triển khai)
+- **Phụ thuộc:** FF-013, FF-034, C5 + independent security review.
+- **PASS:** no MCP privilege self-grant, expiring broker scope and rollback.
+- **Kiểm tra:** host authority negative matrix and approved isolated canary.
+
+### FF-037 — Cross-agent capability conformance + host rollback
+
+**GitHub:** [#199](https://github.com/roronoazoroshao/FolderForge/issues/199)
+- [ ] **Hoàn thành và có bằng chứng** (chưa triển khai)
+- **Phụ thuộc:** FF-034, FF-035, FF-036.
+- **PASS:** verified end-to-end evidence; 0 wrong-scope mutations and truthful outcomes.
+- **Kiểm tra:** CI capability matrix + independent operator sign-off.
+
+- [ ] **C7:** Full-host authority stage independently reviewed and approved; not required for basic MCP MVP.
 
 ## Gate phải báo owner trước khi đổi production
 
