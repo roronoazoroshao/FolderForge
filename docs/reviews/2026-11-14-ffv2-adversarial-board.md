@@ -83,3 +83,22 @@ Reviewer cần ghi `NOT_RUN` nếu chưa chạy. Đề xuất kiểm thử là `
 **Decision: CHANGES_REQUESTED.** Chỉ cho phép chuẩn hóa Spec/Plan, bổ sung test/probe source trong PR draft. Không ký G-DESIGN cho đến khi RV-01, RV-03, RV-04 được xử lý trong tài liệu; không ký G-MERGE cho đến khi non-author reviewer; không ký G-PROD vì RV-05/RV-09. Review lại trên **exact head SHA mới**, không dùng chữ ký của SHA cũ.
 
 **Source/test evidence không tương đương sản phẩm chạy được:** CI đã PASS nhưng WorkspaceContext chưa được wired vào MCP request chain, nên không cấp G-ARCH / C1.
+
+
+## 8. Recheck sau vòng sửa tài liệu — nhánh review 2026-11-14
+
+**Phương pháp:** kiểm tra trực tiếp các bản Markdown ở `feat/ff-v2-foundation`, parse `#### FF-XXX` và dòng `Depends:`, duyệt dependency graph bằng DFS, đối chiếu `AC-XX` giữa Spec §12 và Plan §5, kiểm đủ issue links. Đây là **static consistency audit**, không phải test runtime hay security certification.
+
+| Mục | Kết quả tại SHA `53812e94` | Diễn giải |
+|---|---|---|
+| Plan task headings | **37/37**, không trùng ID | PASS cấu trúc tài liệu |
+| Acceptance trong Spec | **18/18** | PASS coverage ID |
+| AC trace rows trong Plan | **18/18** | PASS *mapping existence*, chưa PASS nghiệm thu runtime |
+| Task issue links | **37/37** trong `tasks/plan.md` và `tasks/todo.md` | PASS liên kết |
+| DAG từ dòng Depends | **0 cycle, 0 unknown dependency** | PASS sau khi chuyển ghi chú “FF-029” ra khỏi dòng Depends FF-035 |
+| Reviewer signatures | **0 independent reviews** tại lần kiểm tra | **HOLD** G-MERGE |
+| Latest GitHub Actions | `in_progress` cho source SHA `53812e94` tại lúc kiểm tra | **PENDING**; các run SHA cũ có kết luận success hoặc cancelled, không dùng thay thế |
+
+**Disposition của findings:** RV-03 (18 AC trace) và RV-04 (browser DAG) đã được **addressed in draft documentation**; chưa có chữ ký product owner và chưa có test sản phẩm. RV-01/02 (contract + identity persistence), RV-05/07 (real privilege enforcement), RV-06 (real MCP handshake), RV-08 (user/a11y evidence), RV-09 (host proof) và RV-11 (human review) **vẫn mở**. Vì vậy verdict chung vẫn **CHANGES REQUESTED / NOT APPROVED**.
+
+**Bài học:** kiểm thử graph cần parse riêng dòng `Depends:`; đặt mã task trong ngoặc chú thích cũng có thể gây *dependency edge giả*. Thêm graph checker vào CI nếu quy trình còn phát triển; chưa tuyên bố đã có checker trong repo.
