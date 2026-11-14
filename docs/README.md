@@ -16,6 +16,15 @@ instructions. For the current checked source baseline use the 2026-11-10 audit,
 configuration guide and new full feature-flow audit linked below. Live host/release state is a
 separate operational verification gate.
 
+## FolderForge v2 — product vision, specification and tasks
+
+| Document | Audience | Purpose |
+| --- | --- | --- |
+| [North Star 2027–2030](strategy/FOLDERFORGE_NORTH_STAR_2027_2030.md) | Product owner / contributor | Long-term direction, architecture principles, portfolio choices and roadmap; **DRAFT**. |
+| [Workspace-first v2 spec](superpowers/specs/2026-11-14-folderforge-v2-design.md) | Product / engineering | Journeys, security invariants, proposed contracts and 14 acceptance criteria; **DRAFT**. |
+| [33-task detailed plan](superpowers/plans/2026-11-14-folderforge-v2-implementation.md) | Contributor / agent | Dependency-ordered TDD steps, verification and rollback; **not yet implemented**. |
+| [Task and checkpoint index](../tasks/plan.md) | Maintainer | 33 FF tasks, phases P00–P06 and owner approval gates. |
+
 ## Getting started
 
 | Document | Audience | Purpose |
