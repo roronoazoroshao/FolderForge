@@ -11,3 +11,5 @@ Start with the [full product and architecture vision](FOLDERFORGE_NORTH_STAR_202
 **Review cadence:** quarterly roadmap, semiannual strategy. KPIs are proposed targets until measured.
 
 **Review and execution tracker:** [Roadmap issue #195](https://github.com/roronoazoroshao/FolderForge/issues/195); individual issues `FF-001`–`FF-037` linked in [tasks/plan.md](../../tasks/plan.md).
+
+**Adversarial review (not approval):** [Findings](../reviews/2026-11-14-ffv2-adversarial-board.md) · [Review prompts](../reviews/2026-11-14-ffv2-review-prompts.md) · [Sign-off board #201](https://github.com/roronoazoroshao/FolderForge/issues/201).

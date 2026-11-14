@@ -217,6 +217,14 @@
 - **Kiểm tra:** UI build + API contract tests.
 - **Evidence / Commit / Reviewer:** _(chưa có; bổ sung khi triển khai)_
 
+### FF-034 — Capability catalog và effective access explanation
+
+**GitHub:** [#196](https://github.com/roronoazoroshao/FolderForge/issues/196)
+- [ ] **Hoàn thành và có bằng chứng** (chưa triển khai)
+- **Phụ thuộc:** FF-009, FF-013, FF-020.
+- **PASS:** correct `ready/disabled/not-installed/denied` plus CLI/Web parity.
+- **Kiểm tra:** unit capability inventory, TypeScript, lint, architecture.
+
 ### FF-021 — Navigation and legacy deep-link preservation (P1)
 
 **GitHub:** [#182](https://github.com/roronoazoroshao/FolderForge/issues/182)
@@ -297,13 +305,21 @@
 - **Kiểm tra:** Mission Control build + Fleet integration/visual regression.
 - **Evidence / Commit / Reviewer:** _(chưa có; bổ sung khi triển khai)_
 
+### FF-035 — Local browser automation quality & proof
+
+**GitHub:** [#197](https://github.com/roronoazoroshao/FolderForge/issues/197)
+- [ ] **Hoàn thành và có bằng chứng** (chưa triển khai)
+- **Phụ thuộc:** FF-013, FF-023, FF-025.
+- **PASS:** owner opt-in, pinned Chromium E2E, isolated browser profile and screenshot evidence.
+- **Kiểm tra:** browser integration + permission negative tests.
+
 ### FF-029 — Golden end-to-end scenario + parity proof (P0)
 
 **GitHub:** [#190](https://github.com/roronoazoroshao/FolderForge/issues/190)
 
 - [ ] **Hoàn thành và có bằng chứng**
-- **Phụ thuộc:** FF-018, FF-024, FF-026, FF-027.
-- **PASS:** AC-01..AC-14 evidence table with commit SHA, command, exit code and counterexample cases; 0 wrong-root / 0 false connection.
+- **Phụ thuộc:** FF-018, FF-024, FF-026, FF-027, FF-035 (MVP browser proof).
+- **PASS:** AC-01..AC-11, AC-13..AC-16 evidence table with commit SHA, command, exit code and counterexample cases; 0 wrong-root / 0 false connection.
 - **Kiểm tra:** `npm run verify`, `npm run build`, `npm run smoke:stdio`, `npm run smoke:http`, `npm run smoke:onboarding`, `npm run docs:check`, selected coverage/critical tests.
 - **Evidence / Commit / Reviewer:** _(chưa có; bổ sung khi triển khai)_
 
@@ -327,13 +343,13 @@
 - **Kiểm tra:** staged load/chaos, independent security review, metrics report.
 - **Evidence / Commit / Reviewer:** _(chưa có; bổ sung khi triển khai)_
 
-### FF-032 — Browser control scope (P3)
+### FF-032 — Remote browser/desktop scope (P3)
 
 **GitHub:** [#193](https://github.com/roronoazoroshao/FolderForge/issues/193)
 
 - [ ] **Hoàn thành và có bằng chứng**
-- **Phụ thuộc:** FF-013, C5.
-- **PASS:** browser remains OFF by default unless explicit scoped grant and sandbox evidence; no privileged browser tool bypass.
+- **Phụ thuộc:** FF-013, FF-035, C5.
+- **PASS:** remote/desktop browser remains OFF unless explicit separately qualified grant; local browser E2E belongs FF-035.
 - **Kiểm tra:** pinned browser CI + isolated real browser E2E.
 - **Evidence / Commit / Reviewer:** _(chưa có; bổ sung khi triển khai)_
 
@@ -347,23 +363,9 @@
 - **Kiểm tra:** signed operator evidence + CI links + runtime traces, not just passing unit tests.
 - **Evidence / Commit / Reviewer:** _(chưa có; bổ sung khi triển khai)_
 
-## P07 — Host Operator / full-capability agent (Advanced)
+## P07 — Host Operator (Advanced C7, FF-036/037 only)
 
-### FF-034 — Capability catalog và effective access explanation
 
-**GitHub:** [#196](https://github.com/roronoazoroshao/FolderForge/issues/196)
-- [ ] **Hoàn thành và có bằng chứng** (chưa triển khai)
-- **Phụ thuộc:** FF-009, FF-013, FF-020.
-- **PASS:** correct `ready/disabled/not-installed/denied` plus CLI/Web parity.
-- **Kiểm tra:** unit capability inventory, TypeScript, lint, architecture.
-
-### FF-035 — Local browser automation quality & proof
-
-**GitHub:** [#197](https://github.com/roronoazoroshao/FolderForge/issues/197)
-- [ ] **Hoàn thành và có bằng chứng** (chưa triển khai)
-- **Phụ thuộc:** FF-013, FF-023, FF-029.
-- **PASS:** owner opt-in, pinned Chromium E2E, isolated browser profile and screenshot evidence.
-- **Kiểm tra:** browser integration + permission negative tests.
 
 ### FF-036 — Owner-authenticated Host Operator broker
 

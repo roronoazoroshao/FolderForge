@@ -21,9 +21,9 @@ separate operational verification gate.
 | Document | Audience | Purpose |
 | --- | --- | --- |
 | [North Star 2027–2030](strategy/FOLDERFORGE_NORTH_STAR_2027_2030.md) | Product owner / contributor | Long-term direction, architecture principles, portfolio choices and roadmap; **DRAFT**. |
-| [Workspace-first v2 spec](superpowers/specs/2026-11-14-folderforge-v2-design.md) | Product / engineering | Journeys, security invariants, proposed contracts and 14 acceptance criteria; **DRAFT**. |
+| [Workspace-first v2 spec](superpowers/specs/2026-11-14-folderforge-v2-design.md) | Product / engineering | Journeys, security invariants, proposed contracts and 18 acceptance criteria; **REVIEW REQUIRED**. |
 | [37-task detailed plan](superpowers/plans/2026-11-14-folderforge-v2-implementation.md) | Contributor / agent | Dependency-ordered TDD steps, verification and rollback; **not yet implemented**. |
-| [Task and checkpoint index](../tasks/plan.md) | Maintainer | 37 FF tasks, phases P00–P06 and owner approval gates. |
+| [Task and checkpoint index](../tasks/plan.md) | Maintainer | 37 FF tasks, phases P00–P07 and owner approval gates. |
 
 ## Getting started
 

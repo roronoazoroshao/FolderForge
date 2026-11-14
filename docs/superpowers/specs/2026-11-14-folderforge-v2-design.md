@@ -2,6 +2,8 @@
 
 **North Star:** [Vision 2027–2030](../../strategy/FOLDERFORGE_NORTH_STAR_2027_2030.md) · **Plan:** [Implementation Plan](../plans/2026-11-14-folderforge-v2-implementation.md) · **Task ledger:** [33 nhiệm vụ](../../../tasks/todo.md).
 
+> **Review board #201:** [Adversarial findings](../../reviews/2026-11-14-ffv2-adversarial-board.md) · [Decision register](../../reviews/2026-11-14-ffv2-decision-register.md). **Design review: CHANGES REQUESTED; human sign-off pending.** Two source CI runs succeeded for PR #200, but CI does not approve a design or host privilege. All newly added AC-15…18 are PROPOSED until reviewed.
+
 **Bản đề xuất để duyệt · 14/11/2026 · Ngôn ngữ: Tiếng Việt**  
 **Tên hướng đi:** Workspace-first MCP · **Baseline kiểm tra:** `main@b2ad52e1bb20babed2436890841ec622cc6c4a5a`, package `@musashishao/folderforge@3.2.4`.  
 **Trạng thái:** SPEC ĐANG XEM XÉT; FF-001/003/004 đã có source/test trên nhánh review, **chưa** hoàn thành hệ thống hoặc production. Những lệnh, endpoint và interface có ghi **ĐỀ XUẤT** chưa tồn tại trên sản phẩm.
@@ -207,6 +209,8 @@ type OperationOutcome<T> =
   | { kind: 'uncertain'; operationId: string; evidenceId: string };
 ```
 
+**RV-01 CONTRACT GAP (không xem là đã triển khai):** Interface mục tiêu trong block trên chứa `canonicalRoot` và `grantId`, trong khi mã đang review `src/workspace/workspace-context.ts` chỉ chứa `root` và chưa có `grantId` hoặc bước xác thực grant từ store. Chỉ trusted transport/owner-auth service mới được xây context sau khi kiểm tra persisted workspace/session/grant. **FF-004 chưa đạt kiến trúc đích** và FF-007/008/013 cần negative tests: forged workspace/root, revoked grant, stale grantRevision, session đổi root. Chữ ký GitHub review không thể thay test. Quyết định DR-03 đang chờ architecture+security owner duyệt.
+
 **Lưu ý:** `deviceId/fileId` biểu diễn OS identity theo nền tảng, không giả định inode có nghĩa giống nhau trên Windows. Khi không xác minh được, phải có trạng thái `UNVERIFIED_ROOT`, không tự nhận "kernel confined". Root được revalidate trước mutation nhạy cảm; chống TOCTOU ở worker bằng cơ chế OS handle/path-aware APIs khi có thể.
 
 ### Invariants bắt buộc (vi phạm là bug/blocker)
@@ -396,6 +400,10 @@ packages/mission-control/src/
 | **AC-12** | Production activation chỉ sau artifact SHA proof, host security gate #118, canary/rollback sign-off | P0 trước cutover |
 | **AC-13** | Source verify/type/lint/architecture/docs/test/stdio-http smoke CI giữ xanh, no skipped critical test không giải thích | P0 |
 | **AC-14** | Advanced tools vẫn có truy cập và API compatibility; hidden ≠ deleted | P1 |
+| **AC-15** | Capability inventory theo principal+workspace phân biệt ready/disabled/not-installed/denied và Web/CLI parity; không quảng cáo quyền chưa có | P1 MVP |
+| **AC-16** | Browser local opt-in đã được thử nghiệm Chromium thực navigate/click/screenshot + denied origins/credentials + evidence | P1 MVP (nếu giữ browser trong MVP) |
+| **AC-17** | MCP token/agent không tự cấp host privilege; deny forged/expired grant, transitive child tool escalation | P0 Security Advanced |
+| **AC-18** | Host Operator chỉ qua broker với owner-local consent, OS identity/expiry/revocation/rollback và independent review | P0 Security Advanced |
 
 **Chỉ số sản phẩm cần đo, không tự hứa:** thời gian first successful handshake (p50/p95), tỷ lệ onboarding thành công ở 3 MCP clients, sai root = 0, số thao tác phải dùng Advanced, `Connected` false positives = 0; thiết lập baseline từ test/telemetry trước khi đặt SLO.
 
@@ -472,11 +480,11 @@ npm run test:coverage
 
 **Không tồn tại “grant all” vô điều kiện.** Mỗi operation phải mang `{principal, session, workspace, capabilities, grantRevision, expiry, risk, budget, correlationId}`; adapter không thể bỏ qua kernel. Lệnh shell cùng UID **không tự giới hạn** trong thư mục chỉ vì `cwd` nằm ở đó. Nếu chưa có OS sandbox, sản phẩm phải hiển thị `UNCONFINED_HOST_UID` thay vì tuyên bố Full Workspace đã được cô lập.
 
-### Acceptance nâng cao
+### AC-15…18 — diễn giải chi tiết (được ánh xạ trong mục 12 và Plan §5)
 
 - **AC-15:** Agent có thể khám phá capability hiệu lực theo principal và workspace; từng capability có trạng thái `ready/disabled/not-installed/denied` và hướng bật. Không quảng cáo tool không khả dụng.
 - **AC-16:** Local browser khi owner opt-in có smoke E2E navigate → click → screenshot trong browser profile riêng; quyền web không biến thành quyền host.
 - **AC-17:** MCP token/principal tự ý gọi Host Operator grant, admin endpoint hoặc child-tool nâng quyền đều bị từ chối; revocation và audit có bằng chứng.
 - **AC-18:** `Full host` (khi triển khai) yêu cầu owner-local consent, broker được kiểm chứng, expiry, cancel/kill state rõ, security review độc lập và rollback; chưa có broker thì tính năng phải được đánh dấu **UNAVAILABLE**, không tự chuyển sang `danger`.
 
-**Ranh giới hoàn thành:** FF-034…FF-037 là advanced workstream sau MVP; không chặn sử dụng MCP cơ bản. Người dùng có thể mở rộng độ tự chủ; quyền host thật yêu cầu một đường triển khai độc lập, không phải checkbox trong Web.
+**Ranh giới hoàn thành (đề xuất DR-04/DR-05):** FF-034 (capability inventory) và FF-035 (local browser opt-in proof) là điều kiện **MVP/C5** nếu vẫn quảng cáo browser trong MVP; FF-036/FF-037 (Host Operator broker và conformance) là **Advanced/C7**. Các quyết định này chờ owner xác nhận, không tự cấp quyền host. Người dùng có thể mở rộng độ tự chủ; quyền host thật yêu cầu một đường triển khai độc lập, không phải checkbox trong Web.

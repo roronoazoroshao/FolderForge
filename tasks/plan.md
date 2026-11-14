@@ -1,6 +1,6 @@
 # FolderForge v2 — Task and rollout index
 
-**Status:** Draft / owner review required. **Created:** 2026-11-14. **Baseline:** `b2ad52e1bb20babed2436890841ec622cc6c4a5a`.
+**Status:** Adversarial review `CHANGES REQUESTED` / owner sign-off pending. [Review board #201](https://github.com/roronoazoroshao/FolderForge/issues/201). **Created:** 2026-11-14. **Baseline:** `b2ad52e1bb20babed2436890841ec622cc6c4a5a`.
 
 ## Read in this order
 1. [Product North Star / 2027–2030](../docs/strategy/FOLDERFORGE_NORTH_STAR_2027_2030.md): why and what not to build.
@@ -16,10 +16,10 @@
 | P01 | FF-004–FF-009 | Per-request, immutable workspace context | C1 |
 | P02 | FF-010–FF-015 | One application service / correct grants | C2 |
 | P03 | FF-016–FF-018 | CLI one-command, real connection proof | C3 |
-| P04 | FF-019–FF-025 | Folders / Sessions / Activity / Settings | C4 |
-| P05 | FF-026–FF-030 | Modular source + parity and E2E evidence | C5 |
+| P04 | FF-019–FF-025 + FF-034 | Folders / Sessions / Activity / Settings + capabilities | C4 |
+| P05 | FF-026–FF-030 + FF-035 | Modular source + local browser + parity and E2E proof | C5 |
 | P06 | FF-031–FF-033 | Optional extensions and owner-approved canary | C6 |
-| P07 | FF-034–FF-037 | Browser quality, capability breadth and host broker | C7 (Advanced) |
+| P07 | FF-036–FF-037 | Advanced Host Broker and independent review | C7 (Advanced) |
 
 ## GitHub execution issues (synchronized 2026-11-14)
 
@@ -54,6 +54,7 @@
 ### P04
 - [FF-019 — #180](https://github.com/roronoazoroshao/FolderForge/issues/180): Semantic tokens and UI primitives (P1)
 - [FF-020 — #181](https://github.com/roronoazoroshao/FolderForge/issues/181): Typed API client + hooks (P1)
+- [FF-034 — #196](https://github.com/roronoazoroshao/FolderForge/issues/196): Capability catalog + effective permission discovery
 - [FF-021 — #182](https://github.com/roronoazoroshao/FolderForge/issues/182): Navigation and legacy deep-link preservation (P1)
 - [FF-022 — #183](https://github.com/roronoazoroshao/FolderForge/issues/183): Add Folder wizard, typed permissions (P1)
 - [FF-023 — #184](https://github.com/roronoazoroshao/FolderForge/issues/184): Connect Agent + accurate health receipt (P1)
@@ -64,6 +65,7 @@
 - [FF-026 — #187](https://github.com/roronoazoroshao/FolderForge/issues/187): Extract Dashboard workspace/owner routes by domain (P2)
 - [FF-027 — #188](https://github.com/roronoazoroshao/FolderForge/issues/188): Simplify `src/main.ts` dispatch without changing options (P2)
 - [FF-028 — #189](https://github.com/roronoazoroshao/FolderForge/issues/189): Break up Fleet UI & formalize Advanced navigation (P2)
+- [FF-035 — #197](https://github.com/roronoazoroshao/FolderForge/issues/197): Local browser control E2E
 - [FF-029 — #190](https://github.com/roronoazoroshao/FolderForge/issues/190): Golden end-to-end scenario + parity proof (P0)
 - [FF-030 — #191](https://github.com/roronoazoroshao/FolderForge/issues/191): Documentation, migration, release candidate (P2)
 
@@ -83,9 +85,9 @@
 - Strategic and architectural decisions remain proposals until the owner explicitly approves the design.
 
 ### P07
-- [FF-034 — #196](https://github.com/roronoazoroshao/FolderForge/issues/196): Capability catalog + effective permission discovery
-- [FF-035 — #197](https://github.com/roronoazoroshao/FolderForge/issues/197): Local browser control E2E
 - [FF-036 — #198](https://github.com/roronoazoroshao/FolderForge/issues/198): Owner-granted Host Operator authority broker
 - [FF-037 — #199](https://github.com/roronoazoroshao/FolderForge/issues/199): Cross-agent capability conformance
 
 **C7:** Advanced host authority proof remains gated; no production privilege grant by a roadmap issue.
+
+**Specialist sign-off:** [8-lens AI preliminary audit](../docs/reviews/2026-11-14-ffv2-adversarial-board.md) · [English expert prompts](../docs/reviews/2026-11-14-ffv2-review-prompts.md) · [Decision register](../docs/reviews/2026-11-14-ffv2-decision-register.md). `AI_SIMULATED` role critique does not grant independent approval.

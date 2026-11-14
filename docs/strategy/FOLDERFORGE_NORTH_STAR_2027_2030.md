@@ -352,7 +352,7 @@ Tuy nhiên đây là **định hướng có điều kiện**, không phải mộ
 
 ## 10. Đặt roadmap này vào spec/plan 33 task hiện có
 
-Bộ tài liệu v2 hiện tại có **14 acceptance criteria, 33 task, 7 checkpoint**. Không thay thế chúng bằng thêm 100 task chiến lược. Cách dùng đúng:
+Bộ tài liệu v2 hiện tại có **18 acceptance criteria, 37 task, 8 checkpoint**. Không thay thế chúng bằng thêm 100 task chiến lược. Cách dùng đúng:
 
 | Lớp tài liệu | Vai trò | Quy tắc cập nhật |
 |---|---|---|
