@@ -405,7 +405,9 @@
 
 #### FF-035 — Local browser automation production-quality slice (P1 MVP)
 
-- **Depends:** FF-013, FF-023, FF-025 (để browser proof có trước FF-029). **Files dự kiến:** `src/tools/browser-tools.ts`, `src/adapters/child-mcp/registry.ts`, `tests/integration/workspace-browser-control.test.ts`, `docs/browser-emulation-flows.md`.
+- **Depends:** FF-013, FF-023, FF-025.
+- **Sequencing:** Browser E2E must complete before the FF-029 golden release acceptance.
+- **Files dự kiến:** `src/tools/browser-tools.ts`, `src/adapters/child-mcp/registry.ts`, `tests/integration/workspace-browser-control.test.ts`, `docs/browser-emulation-flows.md`.
 - **RED:** denied origin/host escalation, wrong workspace browser profile, leaking authenticated browser state, absent Chromium, cancel and timeout.
 - **GREEN:** local browser opt-in navigate/click/screenshot → evidence, isolated profile and consent. **PASS:** one real pinned Chromium E2E, unavailable explained honestly. Remote desktop remains outside this slice.
 - **Verify:** CI pinned browser E2E + manual owner smoke.
