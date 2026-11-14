@@ -117,7 +117,7 @@ tests take precedence.
 
 ## Full feature and flow audit (2026-11-14)
 
-[Current full feature-flow audit](audit/FEATURE_FLOW_AUDIT_2026-11-14.md) covers source feature inventory, runtime paths, security gaps, gates and exact tested evidence. Historical plan documents have been removed from this branch at the owner's request; their content is recoverable from Git history.
+[Current repository flow and open-issues audit](audit/REPO_FULL_FLOW_ISSUES_AUDIT_2026-11-14.md) is the latest cross-check against `main`, GitHub issues/CI and the live host, including the branch-only cleanup and isolation-recovery warning. The [earlier source-focused feature-flow audit](audit/FEATURE_FLOW_AUDIT_2026-11-14.md) is retained as dated evidence. Superseded plan documents were removed from the active tree; Git history retains their committed versions.
 
 ## Multi-project gateway (F14/F15 — source integrated)
 
