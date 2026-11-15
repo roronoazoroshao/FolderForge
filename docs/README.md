@@ -16,7 +16,22 @@ instructions. For the current checked source baseline use the 2026-11-10 audit,
 configuration guide and new full feature-flow audit linked below. Live host/release state is a
 separate operational verification gate.
 
-## FolderForge v2 — product vision, specification and tasks
+## Universal Agent Work Environment — APPROVED product direction (2026-11-15)
+
+**Canonical design for new work; code and production still gated.** Build once for multiple authorized AI clients; each must be able to observe, act and verify coding/live Web UI and editable native design tasks, with isolation and auditable results. Avoid interpreting "10 chat tabs" as 10 authenticated agents or host root as a sandbox.
+
+| Document | Purpose |
+| --- | --- |
+| [GOAL MAP](strategy/UNIVERSAL_AGENT_GOALMAP_2026-11-15.md) | Product mission, user/outcome map, competitive strategy, explicit non-goals. |
+| [ROADMAP](strategy/UNIVERSAL_AGENT_ROADMAP_2026-11-15.md) | Milestones M0–M5, gates C0–C8 and time windows as non-binding targets. |
+| [Architecture / Product SPEC](superpowers/specs/2026-11-15-universal-agent-work-environment-design.md) | Trusted identity boundaries, observe/act/verify/repair, creative/editable workflow, 18 ACs. |
+| [Incremental implementation PLAN](superpowers/plans/2026-11-15-universal-agent-work-environment-implementation.md) | Task-by-task files, TDD steps, risk review, prerequisites, merge gates. |
+| [UA TASK LEDGER](../tasks/universal-agent-todo.md) | UA-001…UA-018 priorities, dependency DAG and proof statuses. |
+| [Source & runtime STATUS](status/UNIVERSAL_AGENT_STATUS_2026-11-15.md) | What was verified in repo; no fictitious completion or live claim. |
+| [Recursive MASTER PROMPT](prompts/MASTER_IMPLEMENTATION_RECURSIVE_HANDOFF.md) | Task contract, dynamic relevant plugins, exact-head CI/merge, evidence-based next prompt. |
+| [NEXT SESSION handoff](handoffs/NEXT_SESSION.md) | Latest source/PR/CI snapshot and the next unblocked target. |
+
+## FolderForge v2 — historical draft, retained for compatibility
 
 | Document | Audience | Purpose |
 | --- | --- | --- |

@@ -1,5 +1,7 @@
 # FOLDERFORGE — NORTH STAR 2027–2030
 
+> **Strategic supersession (2026-11-15):** This folder-first document is retained as a historical draft. The owner-approved product direction is now [Universal Agent GOAL MAP](UNIVERSAL_AGENT_GOALMAP_2026-11-15.md) with [Roadmap](UNIVERSAL_AGENT_ROADMAP_2026-11-15.md): isolated multi-agent execution with eyes/hands/live Web testing/editable creative output. The shipped product has not thereby changed.
+
 **Tầm nhìn, chiến lược sản phẩm, kiến trúc sạch và roadmap thực thi**  
 **Ngày lập:** 14/11/2026 · **Trạng thái:** **ĐỀ XUẤT CHIẾN LƯỢC, CHƯA DUYỆT, CHƯA TRIỂN KHAI**  
 **Baseline source:** `main@b2ad52e1bb20babed2436890841ec622cc6c4a5a` · `@musashishao/folderforge@3.2.4` · CI main success.  

@@ -89,7 +89,9 @@ jobs:
           FOLDERFORGE_REQUIRE_RUNTIME_TESTS: '1'
         run: |
           docker pull --quiet "$FOLDERFORGE_SANDBOX_IMAGE"
-          npx vitest run tests/integration/sandbox-runtime.test.ts
+          # Real Docker startup on shared CI can exceed the global 15s unit-test budget.
+          # Keep every isolation assertion, but bound this runtime-only suite at 45s/test.
+          npx vitest run tests/integration/sandbox-runtime.test.ts --testTimeout=45000
 
       - name: Sandbox smoke runtime selection (routing-only, not containment evidence)
         run: npx vitest run tests/unit/smoke-sandbox.test.ts

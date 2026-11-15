@@ -1,5 +1,7 @@
 # FolderForge v2 — Detailed Implementation Plan
 
+> **Strategic supersession (2026-11-15):** This 33-task plan remains for FF issue mapping. The approved incremental execution reference is [Universal Agent Plan](2026-11-15-universal-agent-work-environment-implementation.md) and [UA Tasks](../../../tasks/universal-agent-todo.md). Do not auto-complete or delete historical FF issues.
+
 **North Star:** [Vision 2027–2030](../../strategy/FOLDERFORGE_NORTH_STAR_2027_2030.md) · **GitHub task tracker:** [Tasks index](../../../tasks/plan.md) · **Source-of-truth:** this plan for implementation details.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (nếu có) hoặc `superpowers:executing-plans` để thực hiện từng task. Mỗi task: test đỏ → code tối thiểu → test xanh → review → commit nhỏ. **Không tự triển khai chỉ vì plan tồn tại.**

@@ -2,6 +2,8 @@
 
 > Turn a local project folder into a governed MCP workspace for AI coding agents.
 
+> **Future product direction (not current shipped capability):** [Universal Agent GOAL MAP](docs/strategy/UNIVERSAL_AGENT_GOALMAP_2026-11-15.md) targets independent multi-agent workspaces, live coding/browser visual QA and native-editable creative workflows. These are staged acceptance targets, not a claim that ten ChatGPT sessions are already isolated or that desktop/creative adapters are certified. [Implementation status](docs/status/UNIVERSAL_AGENT_STATUS_2026-11-15.md) · [Task ledger](tasks/universal-agent-todo.md) · [Next-session master prompt](docs/prompts/MASTER_IMPLEMENTATION_RECURSIVE_HANDOFF.md).
+
 [![CI](https://github.com/roronoazoroshao/FolderForge/actions/workflows/ci.yml/badge.svg)](https://github.com/roronoazoroshao/FolderForge/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/@musashishao/folderforge)](https://www.npmjs.com/package/@musashishao/folderforge)
 [![Node](https://img.shields.io/node/v/@musashishao/folderforge)](package.json)
