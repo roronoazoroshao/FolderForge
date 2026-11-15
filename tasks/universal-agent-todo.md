@@ -1,6 +1,6 @@
 # FolderForge — Universal Agent Task Ledger (UA-001…UA-018)
 
-**Decision baseline:** [Goal Map](../docs/strategy/UNIVERSAL_AGENT_GOALMAP_2026-11-15.md) → [Roadmap](../docs/strategy/UNIVERSAL_AGENT_ROADMAP_2026-11-15.md) → [Spec](../docs/superpowers/specs/2026-11-15-universal-agent-work-environment-design.md) → [Executable plan](../docs/superpowers/plans/2026-11-15-universal-agent-work-environment-implementation.md) → this tracker → [Session handoff](../docs/handoffs/NEXT_SESSION.md). **Baseline:** 2026-11-15. **Status:** planning approved; **UA-001 SOURCE_TESTED on `chore/ua-001-compat-baseline-20261115` (C0 CI 7/7 PASS on 730cce2; independent approval/merge pending)**; UA-002–UA-018 unverified. This file extends the existing 33 FF issues on `main` / draft expansion to 37 in PR #200; do not bulk-close FF issues.
+**Decision baseline:** [Goal Map](../docs/strategy/UNIVERSAL_AGENT_GOALMAP_2026-11-15.md) → [Roadmap](../docs/strategy/UNIVERSAL_AGENT_ROADMAP_2026-11-15.md) → [Spec](../docs/superpowers/specs/2026-11-15-universal-agent-work-environment-design.md) → [Executable plan](../docs/superpowers/plans/2026-11-15-universal-agent-work-environment-implementation.md) → this tracker → [Session handoff](../docs/handoffs/NEXT_SESSION.md). **Baseline:** 2026-11-15. **Status:** planning approved; **UA-001 SOURCE_TESTED on `chore/ua-001-compat-baseline-20261115` (latest confirmed CI 7/7 PASS on e1e31d8 (run 43729853827); independent approval, branch policy and merge pending)**; UA-002–UA-018 unverified. This file extends the existing 33 FF issues on `main` / draft expansion to 37 in PR #200; do not bulk-close FF issues.
 
 ## Status legend
 
@@ -12,7 +12,7 @@
 
 | ID / Phase | One focused deliverable | Depends on | Gate / AC | Mapping to existing FF work | State |
 | --- | --- | --- | --- | --- | --- |
-| UA-001 / M0 | Source+contract baseline, host boundary manifest | — | C0 | FF-001–003 (#162–164) | SOURCE_TESTED (CI 7/7 on 730cce2; independent approval/merge pending) |
+| UA-001 / M0 | Source+contract baseline, host boundary manifest | — | C0 | FF-001–003 (#162–164) | SOURCE_TESTED (latest CI 7/7 on e1e31d8; independent approval/policy/merge pending) |
 | UA-002 / M1 | Immutable context + real stored owner grants | UA-001 | C1 / AC02 | FF-004–006, FF-013 (#165–167, #174) | PLANNED |
 | UA-003 / M1 | Authenticated MCP stdio/HTTP request scope | UA-002 | C1/C3 / AC01–03,05 | FF-007/008 (#168/169) | PLANNED |
 | UA-004 / M1 | OS-bounded capsule or explicit unavailable state | UA-002 | C2 / AC04,16 | FF-009 (#170) | PLANNED |
@@ -62,7 +62,7 @@ Every AC must be proven by the spec's observable oracle, not merely by assigned 
 
 Each task is DONE only when its [execution card in the plan](../docs/superpowers/plans/2026-11-15-universal-agent-work-environment-implementation.md) is satisfied: **one red test (where behavior changes), minimal green implementation, exact test output, issue/PR evidence, no unresolved security blocker, reviewed and actually merged main commit if `MERGED_MAIN` is asserted**.
 
-- [ ] **UA-001** — SOURCE_TESTED on [PR #205](https://github.com/roronoazoroshao/FolderForge/pull/205) (source-tested commit `da483dd47b7b8091d891cb591d4a212891f012dd`); **not DONE**: seven exact-head CI checks succeeded at `730cce2` (run `43722930816`), but qualified independent review and verified merge remain outstanding; any new documentation commit requires fresh exact-head CI. Artifacts: `tests/contracts/legacy-commands.test.ts`, `tests/fixtures/ua-001-cli-baseline.json`, CLI/MCP negative oracle and status evidence. Next remains UA-001 until C0 is passed.
+- [ ] **UA-001** — SOURCE_TESTED on [PR #205](https://github.com/roronoazoroshao/FolderForge/pull/205) (source-tested commit `da483dd47b7b8091d891cb591d4a212891f012dd`); **not DONE**: seven checks succeeded at historical `730cce2` (run `43722930816`) **and** at checked `e1e31d84a92facb914628bd3327229b50bef27e5` (run `43729853827`), but qualified independent review and verified merge remain outstanding; any new documentation commit requires fresh exact-head CI. Artifacts: `tests/contracts/legacy-commands.test.ts`, `tests/fixtures/ua-001-cli-baseline.json`, CLI/MCP negative oracle and status evidence. Next remains UA-001 until C0 is passed.
 - [ ] **UA-002** — Workspace/grant authority and rename/stale/revoke tests; C1.
 - [ ] **UA-003** — stdio/HTTP principal-per-call binding; C1/C3.
 - [ ] **UA-004** — Verified capsule OS boundary or capability unavailable; C2.
@@ -87,3 +87,11 @@ Each task is DONE only when its [execution card in the plan](../docs/superpowers
 - **Never:** force merge on failing CI, waive required reviewers, alter branch protections, delete unmerged unique commits, remove archived/detached recovery worktrees, auto-clean disk/restart production to make the graph look tidy.
 - **Branch cleanup:** after merged PR confirmed and no unique work against main, delete only that merged feature branch if remote permissions and owner/org policies allow. Dependabot branches, active PRs and detached worktrees are separate subjects; `main`-only must not erase them.
 - **Last task deliverable:** write next task handoff in [NEXT_SESSION](../docs/handoffs/NEXT_SESSION.md) and output the recursive master prompt tail. A DONE statement without that handoff is incomplete as a session, even if code passed tests.
+
+## UA-001 C0 exact-head verification checkpoint — 2026-11-15 (Asia/Ho_Chi_Minh)
+
+- GitHub `main@2d3e83f789884094d2805a7f2df061711e151203` matches fetched `origin/main`; PR #205 was OPEN/non-draft/mergeable, branch `chore/ua-001-compat-baseline-20261115@e1e31d84a92facb914628bd3327229b50bef27e5` with clean working tree before this handoff-only edit. Any new documentation commit advances HEAD; check CI again.
+- [Exact checked-head CI run 43729853827](https://github.com/roronoazoroshao/FolderForge/actions/runs/43729853827): completed SUCCESS, **7/7 check-runs SUCCESS** on `e1e31d84a92facb914628bd3327229b50bef27e5`. Ubuntu Node 22 job steps include typecheck/lint/architecture/docs, real Docker isolation *fixture*, unit/integration tests, coverage, fuzz/stress, build, package and MCP smokes; none establish deployed host isolation.
+- PR diff inspected across five files; CLI tests use `tsx` source entry and pin fixture version `3.2.4`; package smoke runs separately in CI. No new P0/P1 code defect identified and **no runtime source edit** proposed.
+- One author `COMMENTED` review, no independent `APPROVED`, no review threads and no named review request. [Request for eligible independent reviewer](https://github.com/roronoazoroshao/FolderForge/pull/205#issuecomment-6896836022) is a comment, not approval. Branch-protection read 403; empty rulesets do not establish a waiver. **No merge; C0 HOLD.**
+- Host inspected at disk display 100% (~2.5 GiB available), swap 4085/4095 MiB consumed, 24 managed isolations (some unverifiable), and [issue #118](https://github.com/roronoazoroshao/FolderForge/issues/118) OPEN. Avoid full host suite, registry mutations, worktree cleanup, host/root privilege and production actions. Next target remains UA-001; UA-002/C1/UA-AC02 is conditional on legitimate C0 PASS and verified merged main.
