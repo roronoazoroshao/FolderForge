@@ -185,35 +185,17 @@ export class AgentLoopRunner {
   private async council(
     run: AgentLoopRun,
     principal: ToolPrincipal,
-    control: ToolCallControl,
+    _control: ToolCallControl,
   ): Promise<AgentLoopRun> {
-    const proposals = run.proposals.filter(
-      (proposal) => proposal.iteration === run.iteration,
+    // Synthetic expert outlines must NEVER be promoted to an AI council decision.
+    // Actual reviews use the independent provider-backed AI Review Board, which
+    // preserves response IDs, evidence digests and qualified vetoes per role.
+    // This legacy runner has no verified model invocations to count as votes.
+    return this.manager.pause(
+      run.id,
+      principal,
+      'Independent AI reviewer evidence unavailable. Synthetic proposals are previews only; run the AI Review Board with a configured model provider.',
     );
-    if (!proposals.length)
-      throw new Error("Council cannot run without discovery proposals.");
-    const winner = proposals
-      .slice()
-      .sort(
-        (left, right) =>
-          proposalAffinity(right, run) - proposalAffinity(left, run),
-      )[0]!;
-    for (const expert of run.experts) {
-      const score = expert.id === winner.expertId ? 0.92 : 0.82;
-      run = this.manager.submitVote(
-        run.id,
-        {
-          expertId: expert.id,
-          proposalId: winner.id,
-          score,
-          approve: true,
-          rationale: `Independent ${expert.role} review selected the proposal with the strongest evidence and lowest unresolved risk.`,
-        },
-        principal,
-      );
-    }
-    await this.progress(control, run);
-    return this.manager.decide(run.id, principal);
   }
 
   private async implementation(
@@ -427,32 +409,16 @@ function proposalForExpert(
   return {
     expertId: expert.id,
     phase: "discovery" as const,
-    summary: `${expert.role} proposal for: ${run.goal}`,
+    summary: `SYNTHETIC_PREVIEW (not an AI review): ${expert.role} outline for: ${run.goal}`,
     plan: [
       `Inspect the repository and relevant tests for ${run.goal}.`,
       "Implement through a bounded workflow in the managed workspace.",
       "Run the configured goal-gate checks and preserve proof evidence.",
+      "This deterministic preview is NOT an independent reviewer vote or authorization.",
     ],
     risks: risk,
     evidence,
   };
-}
-
-function proposalAffinity(
-  proposal: {
-    expertId: string;
-    plan: string[];
-    risks: string[];
-    evidence: string[];
-  },
-  run: AgentLoopRun,
-): number {
-  return (
-    proposal.evidence.length * 2 +
-    proposal.plan.length -
-    proposal.risks.length +
-    (run.experts.find((e) => e.id === proposal.expertId)?.weight ?? 1)
-  );
 }
 
 function summarizeResult(name: string, result: ToolResult): string {

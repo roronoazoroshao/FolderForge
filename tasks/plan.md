@@ -93,3 +93,9 @@
 **C7:** Advanced host authority proof remains gated; no production privilege grant by a roadmap issue.
 
 **Specialist sign-off:** [8-lens AI preliminary audit](../docs/reviews/2026-11-14-ffv2-adversarial-board.md) · [English expert prompts](../docs/reviews/2026-11-14-ffv2-review-prompts.md) · [Decision register](../docs/reviews/2026-11-14-ffv2-decision-register.md). `AI_SIMULATED` role critique does not grant independent approval.
+
+## AI-agent approval engine implementation (new workstream)
+
+[Source spec](../docs/superpowers/specs/2026-11-15-ai-board-execution-design.md) → [implementation plan](../docs/superpowers/plans/2026-11-15-ai-board-implementation-plan.md) → [ARB-001…ARB-007 checklist](ai-review-board.md) → [P0 blocker #202](https://github.com/roronoazoroshao/FolderForge/issues/202).
+
+**Reviewer authority:** 8 separate model reviewer invocations per round; ≥6 positive receipts after challenge including mandatory PRODUCT/ARCH/SEC/QA. No provider, no vote. Gate C0…C7 for product work remains separate; AI board stage verdicts do not grant host execution credentials.

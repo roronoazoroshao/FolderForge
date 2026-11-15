@@ -27,6 +27,10 @@ separate operational verification gate.
 
 **AI-led v2 review:** [Review governance](governance/AI_REVIEW_BOARD_POLICY_2026-11-15.md) · [Decision status](reviews/2026-11-15-ai-board-decision.md) · [Board #201](https://github.com/roronoazoroshao/FolderForge/issues/201). AI reviewers decide design and technical gates **when their independent execution evidence satisfies quorum**; no fabricated approvals.
 
+## AI Review Board (real multi-agent execution — draft)
+
+[AI reviewer execution design](superpowers/specs/2026-11-15-ai-board-execution-design.md) · [implementation plan](superpowers/plans/2026-11-15-ai-board-implementation-plan.md) · [7-task evidence ledger](../tasks/ai-review-board.md). The new `npm run review:ai` defaults to a **no-network NOT_QUORATE dry run**; only `--execute` with a model and API credential invokes independent reviewers. The old deterministic AgentLoopRunner no longer auto-generates approval votes in this development branch.
+
 ## Getting started
 
 | Document | Audience | Purpose |

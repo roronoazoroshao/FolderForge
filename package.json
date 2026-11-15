@@ -121,7 +121,8 @@
     "release:preflight": "node scripts/release-preflight.mjs",
     "release:publish": "node scripts/publish-release.mjs",
     "release:publish:dry-run": "node scripts/publish-release.mjs --dry-run",
-    "pretest": "npm run build"
+    "pretest": "npm run build",
+    "review:ai": "node --import tsx src/ai-board/cli.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
