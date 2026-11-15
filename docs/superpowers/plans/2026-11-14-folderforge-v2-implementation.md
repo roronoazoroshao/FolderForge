@@ -80,6 +80,8 @@
 
 **Được phép tiến hành:** viết test, refactor, build fixture/local isolated runner, tạo docs, UI preview; **không được** tự coi chúng là phép cấp quyền deploy.
 
+> **AI-led review authority (owner delegated 2026-11-15):** [AI Review Board Governance](../../governance/AI_REVIEW_BOARD_POLICY_2026-11-15.md) · [Decision record](../../reviews/2026-11-15-ai-board-decision.md) · [Board issue #201](https://github.com/roronoazoroshao/FolderForge/issues/201). AI specialist agents are **the primary design/spec/plan/code reviewers**. Separate verifiable agent runs and quorum are required before any AI approval; existing eight-role prose is `AI_PRE_REVIEWED`, not a real multi-agent decision. Production, host access and recovery still require real operator authority.
+
 ## 3. Phân chia phase — lý do và kết quả
 
 | Phase | Mục tiêu dễ hiểu | Deliverable độc lập | Chỉ được qua nếu |
@@ -88,9 +90,10 @@
 | **P01 / Workspace context** | AI biết đúng folder, không bị session khác đổi | identity, store, context binding, session tests | C1 |
 | **P02 / One control service** | CLI và Web thao tác cùng một logic | usecases, v2 API, grants, lifecycle | C2 |
 | **P03 / One-command CLI** | `folderforge up <dir>` có consent/status/receipt | CLI commands, compatibility tests | C3 CLI |
-| **P04 / Web console** | Add folder và kiểm soát qua 4 khu vực | design system, wizard, sessions/activity | C4 |
-| **P05 / Consolidation** | Tách backend file lớn an toàn, không phá cũ | route handlers, slim CLI, old-link aliases, E2E | C5 + MVP RC |
-| **P06 / Advanced & rollout** | web browser agent, tunnel, Fleet nếu cần | gated optional extensions, manual production acceptance | C6 |
+| **P04 / Web console** | Add folder và kiểm soát qua 4 khu vực | design system, wizard, sessions/activity, **FF-034 capability catalog** | C4 |
+| **P05 / Consolidation** | Tách backend file lớn an toàn, không phá cũ | routes, CLI, **FF-035 local browser E2E**, golden E2E | C5 + MVP RC |
+| **P06 / Advanced & rollout** | browser remote, tunnel, Fleet nếu cần | gated optional extensions, manual production acceptance | C6 |
+| **P07 / Full-capability host authority** | agent làm các tác vụ ngoài folder khi owner cấp quyền riêng | **FF-036/037 Host Broker + independent audit** | C7 (Advanced only) |
 
 ## 4. Task-by-task executable plan
 
@@ -314,6 +317,13 @@
 - **Verify:** UI build + API contract tests.
 - **Rollback:** API client introduced behind new routes only.
 
+#### FF-034 — Capability catalog và effective access explanation (P1 MVP)
+
+- **Depends:** FF-009, FF-013, FF-020. **Files dự kiến:** `src/policy/workspace-capabilities.ts`, `src/application/capability-inventory.ts`, `tests/unit/capability-inventory.test.ts`, `packages/mission-control/src/screens/Tools.tsx` (surgical).
+- **RED:** disabled/uninstalled child MCP/browser không được nói là ready; tools bị grant deny không được advertised; record includes provenance.
+- **GREEN:** one inventory DTO `available/denied/disabled/not-installed`, owner-visible scopes, no token values. **PASS:** CLI and Web explain same effective grants; tests for all four statuses.
+- **Verify:** focused Vitest, TS, lint, architecture, owner review.
+
 #### FF-021 — Navigation and legacy deep-link preservation (P1)
 
 - **Depends:** FF-019.
@@ -336,7 +346,7 @@
 
 #### FF-023 — Connect Agent + accurate health receipt (P1)
 
-- **Depends:** FF-012, FF-020, FF-022.
+- **Depends:** FF-012, FF-020, FF-022, FF-034 (capability availability and denial states).
 - **Files:** đề xuất `packages/mission-control/src/features/workspaces/ConnectAgent.tsx`, `packages/mission-control/src/features/workspaces/ConnectionReceipt.tsx`, `packages/mission-control/src/api.ts`, đề xuất `tests/visual/workspace-connect.spec.ts`.
 - **TDD:** stdio configured/not connected, HTTP ready/connected, auth mismatch, invalid client choice, save config denied, token redacted, copy receipt correct.
 - **Implementation:** transport-aware copy, probe status, Open ChatGPT option only when secure auth path explicitly supported.
@@ -397,12 +407,21 @@
 - **Verify:** Mission Control build + Fleet integration/visual regression.
 - **Rollback:** return old Fleet screen via route alias.
 
+#### FF-035 — Local browser automation production-quality slice (P1 MVP)
+
+- **Depends:** FF-013, FF-023, FF-025.
+- **Sequencing:** Browser E2E must complete before the FF-029 golden release acceptance.
+- **Files dự kiến:** `src/tools/browser-tools.ts`, `src/adapters/child-mcp/registry.ts`, `tests/integration/workspace-browser-control.test.ts`, `docs/browser-emulation-flows.md`.
+- **RED:** denied origin/host escalation, wrong workspace browser profile, leaking authenticated browser state, absent Chromium, cancel and timeout.
+- **GREEN:** local browser opt-in navigate/click/screenshot → evidence, isolated profile and consent. **PASS:** one real pinned Chromium E2E, unavailable explained honestly. Remote desktop remains outside this slice.
+- **Verify:** CI pinned browser E2E + manual owner smoke.
+
 #### FF-029 — Golden end-to-end scenario + parity proof (P0)
 
-- **Depends:** FF-018, FF-024, FF-026, FF-027.
+- **Depends:** FF-018, FF-024, FF-026, FF-027, FF-035 (local browser opt-in proof if part of MVP).
 - **Files:** đề xuất `tests/acceptance/workspace-v2-e2e.test.ts`, `tests/integration/workspace-tool-governance.test.ts`, `scripts/smoke-onboarding.mjs` (extend, don't rewrite), `docs/audit/` (new evidence report).
 - **TDD/E2E:** scenario A (non-Git→Cursor→stdio configured→MCP connected→read/write→audit); B (HTTP auth and two isolated workspace sessions); C (revoke + crash + disk full), all on isolated test dirs.
-- **PASS:** AC-01..AC-14 evidence table with commit SHA, command, exit code and counterexample cases; 0 wrong-root / 0 false connection.
+- **PASS:** AC-01..AC-11, AC-13..AC-16 MVP evidence table (AC-12 is production-only; AC-17/18 are Advanced) with commit SHA, command, exit code and counterexample cases; 0 wrong-root / 0 false connection.
 - **Verify:** `npm run verify`, `npm run build`, `npm run smoke:stdio`, `npm run smoke:http`, `npm run smoke:onboarding`, `npm run docs:check`, selected coverage/critical tests.
 - **Rollback:** no live migration; hold release if any parity failure.
 
@@ -416,7 +435,7 @@
 - **Verify:** docs check and manual first-user test with fresh state dir.
 - **Rollback:** docs-only.
 
-**Checkpoint C5 / MVP RC:** all AC-01..AC-11, AC-13, AC-14 proved in source/CI. AC-12 **remains a separate production gate**, not automatically green.
+**Checkpoint C5 / MVP RC:** all AC-01..AC-11 and AC-13..AC-16 proved in source/CI (including local browser only if DR-04 confirmed). AC-12 **remains a separate production gate**, not automatically green.
 
 ### P06 — Advanced extensions and production acceptance (not part of automatic MVP)
 
@@ -429,13 +448,13 @@
 - **Verify:** staged load/chaos, independent security review, metrics report.
 - **Rollback:** gateway remains opt-in, single-project route unaffected.
 
-#### FF-032 — Browser control scope (P3; chỉ sau user quyết định)
+#### FF-032 — Remote browser/desktop scope (P3; Advanced only)
 
-- **Depends:** FF-013, C5.
+- **Depends:** FF-035 (local browser proof), FF-013, C5.
 - **Files:** `src/browser/`, `src/tools/browser-tools.ts`, `src/adapters/child-mcp/`, `tests/integration/` matching current browser adapter.
-- **Decision:** có hai nghĩa: Web *control console* đã nằm P04; AI *browser automation* là adapter riêng. Owner chọn có bật Playwright/real browser hay không.
+- **Decision:** Web *control console* ở P04; **local agent browser opt-in** ở FF-035 trước C5. FF-032 chỉ chuẩn hóa **remote browser, desktop và external host browsing**, cần threat model, network and credential isolation.
 - **TDD:** allowed origins/domains, session isolation, secrets/cookies redaction, downloads confined, navigation abuse, approval for destructive external websites.
-- **PASS:** browser remains OFF by default unless explicit scoped grant and sandbox evidence; no privileged browser tool bypass.
+- **PASS:** remote/desktop browser stays DISABLED unless independently reviewed scope+network+credential grant; local browser FF-035 evidence unaffected.
 - **Verify:** pinned browser CI + isolated real browser E2E.
 - **Rollback:** adapter feature flag off.
 
@@ -466,6 +485,10 @@
 | AC-12 production qualification | FF-002, 031, 033 | signed gates/canary |
 | AC-13 CI verify, no blind skip | all + FF-029 | exact SHA CI |
 | AC-14 Advanced reachable | FF-021, 028, 030 | route/deeplink tests |
+| AC-15 capability inventory truth | FF-009, 013, 020, **034** | denied/disabled/not-installed/ready real tool tests; PM + QA |
+| AC-16 local browser opt-in | FF-013, 023, 025, **035**, 029 | Chromium navigate/click/screenshot + denied origin/credentials; Browser + QA |
+| AC-17 no self-grant host authority | FF-013, 034, **036**, 037 | forged token, expired grant, child MCP privilege escalation; independent security reviewer |
+| AC-18 host broker isolation/revoke | FF-002, 033, **036/037** | OS principal/expiry/revoke/rollback + signed security/SRE evidence; Advanced C7 |
 
 ## 6. Quality gates — lệnh thật và lịch chạy
 
@@ -521,7 +544,7 @@ npm run test:coverage
 | Host 100% disk | audit/config write fail, corrupt registry | off-host backup, headroom gate, fail-closed faults |
 | "Chỉ còn main" che mất recovery | 39 detached worktrees chứa state, branch identities gone | no forced deletion; owner recovery classification |
 | Revoke không dừng child | running subprocess vẫn có OS quyền | supervisor ownership, cancellation/revocation ack + honest status |
-| Thêm tính năng mọi nơi | MVP phình thành full Fleet/browser/distributed rewrite | advanced backlog after AC-01..14 and owner approval |
+| Thêm tính năng mọi nơi | MVP phình thành full Fleet/browser/distributed rewrite | Advanced host broker only after AC-01..16 and owner approval |
 
 ## 9. Chính sách change control, owner review và điều kiện dừng
 
@@ -529,7 +552,9 @@ npm run test:coverage
 
 **Khi không đủ thông tin**, ghi state `OPEN/UNVERIFIED` và thử nghiệm trong fixture, không điền bằng suy đoán. Reviewer độc lập cần được giao #118 riêng; người viết implementation không tự phê duyệt security proof của chính mình.
 
-**Quyết định owner cần chốt trước FF-016/FF-022:** mục tiêu primary MCP connection `stdio` hay HTTP; "full quyền" có OS-isolated workspace shell hay trusted local developer-only; Web browser automation thuộc MVP hay Advanced; OS/platform support level. Defaults của bản plan: local stdio đầu tiên, OS-confined claim chỉ sau proof, browser automation Advanced, mọi platform hỗ trợ nhưng no unsupported sandbox claim.
+**Chờ owner ký DR-01…DR-10 tại [Review Board #201](https://github.com/roronoazoroshao/FolderForge/issues/201) trước khi khóa Spec/Plan; cải tiến documentation/tests không đồng nghĩa G-DESIGN PASS.**
+
+**Quyết định owner cần chốt trước FF-016/FF-022:** mục tiêu primary MCP connection `stdio` hay HTTP; "full quyền" có OS-isolated workspace shell hay trusted local developer-only; Web browser automation thuộc MVP hay Advanced; OS/platform support level. Defaults của bản plan: local stdio đầu tiên, OS-confined claim chỉ sau proof, local browser adapter có consent là mục tiêu MVP; browser remote và host operator Advanced, mọi platform hỗ trợ nhưng no unsupported sandbox claim.
 
 ## 10. Bảng kiểm nghiệm thu cuối cùng
 
@@ -540,9 +565,34 @@ npm run test:coverage
 - [ ] **C4:** four-section Web, onboarding, revoke, Activity, accessibility, old links.
 - [ ] **C5:** modular refactor + full CI, documentation and RC proof.
 - [ ] **C6:** independently approved production security, artifact SHA/live canary/rollback, 24h soak as required.
+- [ ] **C7:** Host Operator broker độc lập, revocation, audit, negative privilege tests và owner-local consent (Advanced only).
 
-**Nguyên tắc cuối:** ưu tiên **một luồng sản phẩm đơn giản, một policy engine chuẩn và một root identity không thể nhầm**, thay vì chỉ thu nhỏ menu hoặc xóa mã cho đẹp. Phase P00–P05 đủ để cho ra v2 MVP; P06 là chương trình nâng cao riêng có gate.
+**Nguyên tắc cuối:** ưu tiên **một luồng sản phẩm đơn giản, một policy engine chuẩn và một root identity không thể nhầm**, thay vì chỉ thu nhỏ menu hoặc xóa mã cho đẹp. Phase P00–P05 đủ để cho ra v2 MVP (bao gồm local browser opt-in); P06 và P07 là các chương trình Advanced có security gate riêng.
 
 ---
 
+**G-QA:** [Adversarial board](../../reviews/2026-11-14-ffv2-adversarial-board.md) requires 18/18 AC trace to issue+test+human reviewer+gate. These mappings are a plan, not evidence of completion.
+
 **Cách dùng plan:** chủ repo review Spec và các quyết định còn mở → xác nhận từng checkpoint → triển khai một task mỗi lần trên isolated checkout → đính CI/evidence trong task checklist → chỉ merge/cutover sau gates. *Không task nào đã được thực hiện bởi việc xuất bản tài liệu này.*
+
+## 11. P07 — Full-capability agent, quyền host thực tế (Advanced, không tự chạy production)
+
+Động lực: user muốn agent **làm được mọi việc trong phạm vi quyền do họ chủ động cấp**, gồm browser, CLI, network, ứng dụng OS, adapter. Capability catalog FF-034 được đặt P04 và local browser FF-035 đặt P05/C5. **P07 chỉ gồm FF-036/FF-037 cho Host Operator Advanced**, không được tự triển khai production.
+
+
+
+#### FF-036 — Explicit Host Operator authority broker (P0 security)
+
+- **Depends:** FF-013, FF-034, C5 and owner-approved threat model. **Files dự kiến:** `src/operator/host-authority.ts`, `src/operator/host-broker.ts`, `tests/integration/host-authority.test.ts`, `docs/security/host-operator-threat-model.md`.
+- **RED:** MCP token cannot self-grant, `danger` not owner, expired/forged/repurposed grant rejected, arbitrary PID kill rejected, same-UID assumption surfaced.
+- **GREEN:** local owner grant via authenticated broker with OS principal, explicit scope/expiry, audited revocation + fencing. **PASS:** independent security review; no unsafe elevated default.
+- **Verify:** negative security matrix + local isolated proof; never root production tests by default.
+
+#### FF-037 — Cross-agent capability conformance and host rollback (P0)
+
+- **Depends:** FF-034, FF-035, FF-036; applicable #118 only if real isolation recovery activated. **Files dự kiến:** `tests/integration/capability-conformance.test.ts`, `scripts/check-capability-evidence.mjs`, `docs/operations/host-operator-rollout.md`.
+- **RED:** wrong-root, stale grant, adapter transitive escalation, browser escape, host-broker crash, unresolved mutations.
+- **GREEN:** evidence matrix per transport/agent/tool and owner-approved canary/revoke/rollback. **PASS:** zero cross-scope mutations; full-host capability **not claimed** until a verified OS enforcement/authority chain exists.
+- **Verify:** CI + independent operator review + off-host evidence; no automatic production cutover.
+
+**Checkpoint C7:** Verified capability breadth and host authority, independently reviewed. P07 is **not** authorization to disable auditing or execute host-root operations by default.

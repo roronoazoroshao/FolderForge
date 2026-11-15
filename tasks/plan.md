@@ -3,13 +3,15 @@
 > **2026-11-15 canonical strategic baseline:** Owner approved [Universal Agent GOAL MAP](../docs/strategy/UNIVERSAL_AGENT_GOALMAP_2026-11-15.md) → [ROADMAP](../docs/strategy/UNIVERSAL_AGENT_ROADMAP_2026-11-15.md) → [SPEC](../docs/superpowers/specs/2026-11-15-universal-agent-work-environment-design.md) → [PLAN](../docs/superpowers/plans/2026-11-15-universal-agent-work-environment-implementation.md) → [UA TASKS](universal-agent-todo.md) → [NEXT SESSION](../docs/handoffs/NEXT_SESSION.md). The v2 33 FF issues below remain **OPEN/HISTORICAL implementation candidates**; no source task is automatically DONE or merged by this strategy approval. `main` is the canonical integration branch, not a pretext to bypass review or purge recovery data.
 
 
-**Status:** Draft / owner review required. **Created:** 2026-11-14. **Baseline:** `b2ad52e1bb20babed2436890841ec622cc6c4a5a`.
+**Status:** Adversarial review `CHANGES REQUESTED` / owner sign-off pending. [Review board #201](https://github.com/roronoazoroshao/FolderForge/issues/201). **Created:** 2026-11-14. **Baseline:** `b2ad52e1bb20babed2436890841ec622cc6c4a5a`.
+
+> **AI-led review authority (owner delegated 2026-11-15):** [AI Review Board Governance](../../governance/AI_REVIEW_BOARD_POLICY_2026-11-15.md) · [Decision record](../../reviews/2026-11-15-ai-board-decision.md) · [Board issue #201](https://github.com/roronoazoroshao/FolderForge/issues/201). AI specialist agents are **the primary design/spec/plan/code reviewers**. Separate verifiable agent runs and quorum are required before any AI approval; existing eight-role prose is `AI_PRE_REVIEWED`, not a real multi-agent decision. Production, host access and recovery still require real operator authority.
 
 ## Read in this order
 1. [Product North Star / 2027–2030](../docs/strategy/FOLDERFORGE_NORTH_STAR_2027_2030.md): why and what not to build.
 2. [Full v2 specification](../docs/superpowers/specs/2026-11-14-folderforge-v2-design.md): user journeys, boundaries, 14 acceptance criteria.
 3. [Executable implementation plan](../docs/superpowers/plans/2026-11-14-folderforge-v2-implementation.md): per-task file targets, dependencies, TDD, checks and rollback.
-4. [33-task checklist](todo.md): synchronized task IDs and 7 C0–C6 checkpoints.
+4. [37-task checklist](todo.md): synchronized task IDs and 7 C0–C6 checkpoints.
 5. [GitHub master roadmap #195](https://github.com/roronoazoroshao/FolderForge/issues/195), with all individual task issue links below.
 
 ## Phases
@@ -19,9 +21,10 @@
 | P01 | FF-004–FF-009 | Per-request, immutable workspace context | C1 |
 | P02 | FF-010–FF-015 | One application service / correct grants | C2 |
 | P03 | FF-016–FF-018 | CLI one-command, real connection proof | C3 |
-| P04 | FF-019–FF-025 | Folders / Sessions / Activity / Settings | C4 |
-| P05 | FF-026–FF-030 | Modular source + parity and E2E evidence | C5 |
+| P04 | FF-019–FF-025 + FF-034 | Folders / Sessions / Activity / Settings + capabilities | C4 |
+| P05 | FF-026–FF-030 + FF-035 | Modular source + local browser + parity and E2E proof | C5 |
 | P06 | FF-031–FF-033 | Optional extensions and owner-approved canary | C6 |
+| P07 | FF-036–FF-037 | Advanced Host Broker and independent review | C7 (Advanced) |
 
 ## GitHub execution issues (synchronized 2026-11-14)
 
@@ -56,6 +59,7 @@
 ### P04
 - [FF-019 — #180](https://github.com/roronoazoroshao/FolderForge/issues/180): Semantic tokens and UI primitives (P1)
 - [FF-020 — #181](https://github.com/roronoazoroshao/FolderForge/issues/181): Typed API client + hooks (P1)
+- [FF-034 — #196](https://github.com/roronoazoroshao/FolderForge/issues/196): Capability catalog + effective permission discovery
 - [FF-021 — #182](https://github.com/roronoazoroshao/FolderForge/issues/182): Navigation and legacy deep-link preservation (P1)
 - [FF-022 — #183](https://github.com/roronoazoroshao/FolderForge/issues/183): Add Folder wizard, typed permissions (P1)
 - [FF-023 — #184](https://github.com/roronoazoroshao/FolderForge/issues/184): Connect Agent + accurate health receipt (P1)
@@ -66,6 +70,7 @@
 - [FF-026 — #187](https://github.com/roronoazoroshao/FolderForge/issues/187): Extract Dashboard workspace/owner routes by domain (P2)
 - [FF-027 — #188](https://github.com/roronoazoroshao/FolderForge/issues/188): Simplify `src/main.ts` dispatch without changing options (P2)
 - [FF-028 — #189](https://github.com/roronoazoroshao/FolderForge/issues/189): Break up Fleet UI & formalize Advanced navigation (P2)
+- [FF-035 — #197](https://github.com/roronoazoroshao/FolderForge/issues/197): Local browser control E2E
 - [FF-029 — #190](https://github.com/roronoazoroshao/FolderForge/issues/190): Golden end-to-end scenario + parity proof (P0)
 - [FF-030 — #191](https://github.com/roronoazoroshao/FolderForge/issues/191): Documentation, migration, release candidate (P2)
 
@@ -83,3 +88,11 @@
 - Do not restart live processes, mutate isolation recovery, delete detached worktrees or publish npm automatically.
 - Full-workspace grants are not evidence of OS confinement. A stdio config is not a connected client.
 - Strategic and architectural decisions remain proposals until the owner explicitly approves the design.
+
+### P07
+- [FF-036 — #198](https://github.com/roronoazoroshao/FolderForge/issues/198): Owner-granted Host Operator authority broker
+- [FF-037 — #199](https://github.com/roronoazoroshao/FolderForge/issues/199): Cross-agent capability conformance
+
+**C7:** Advanced host authority proof remains gated; no production privilege grant by a roadmap issue.
+
+**Specialist sign-off:** [8-lens AI preliminary audit](../docs/reviews/2026-11-14-ffv2-adversarial-board.md) · [English expert prompts](../docs/reviews/2026-11-14-ffv2-review-prompts.md) · [Decision register](../docs/reviews/2026-11-14-ffv2-decision-register.md). `AI_SIMULATED` role critique does not grant independent approval.
