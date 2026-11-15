@@ -1,5 +1,7 @@
 # FolderForge v2 — Product & Architecture Specification
 
+> **Strategic supersession (2026-11-15):** Retain as historical draft/contracts inventory. Owner-approved new reference is [Universal Agent Work Environment Spec](2026-11-15-universal-agent-work-environment-design.md); do not infer new runtime implementation or merge approval.
+
 **North Star:** [Vision 2027–2030](../../strategy/FOLDERFORGE_NORTH_STAR_2027_2030.md) · **Plan:** [Implementation Plan](../plans/2026-11-14-folderforge-v2-implementation.md) · **Task ledger:** [33 nhiệm vụ](../../../tasks/todo.md).
 
 **Bản đề xuất để duyệt · 14/11/2026 · Ngôn ngữ: Tiếng Việt**  

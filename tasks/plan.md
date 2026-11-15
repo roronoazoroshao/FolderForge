@@ -1,4 +1,7 @@
-# FolderForge v2 — Task and rollout index
+# FolderForge v2 — Task and rollout index (historical implementation inventory)
+
+> **2026-11-15 canonical strategic baseline:** Owner approved [Universal Agent GOAL MAP](../docs/strategy/UNIVERSAL_AGENT_GOALMAP_2026-11-15.md) → [ROADMAP](../docs/strategy/UNIVERSAL_AGENT_ROADMAP_2026-11-15.md) → [SPEC](../docs/superpowers/specs/2026-11-15-universal-agent-work-environment-design.md) → [PLAN](../docs/superpowers/plans/2026-11-15-universal-agent-work-environment-implementation.md) → [UA TASKS](universal-agent-todo.md) → [NEXT SESSION](../docs/handoffs/NEXT_SESSION.md). The v2 33 FF issues below remain **OPEN/HISTORICAL implementation candidates**; no source task is automatically DONE or merged by this strategy approval. `main` is the canonical integration branch, not a pretext to bypass review or purge recovery data.
+
 
 **Status:** Draft / owner review required. **Created:** 2026-11-14. **Baseline:** `b2ad52e1bb20babed2436890841ec622cc6c4a5a`.
 
