@@ -24,6 +24,22 @@ async function waitForTerminal(
   throw new Error("runner did not reach a terminal or paused state in time");
 }
 
+/** Existing legacy manager supports manual votes; this is test setup, never AI-board approval. */
+function enterLegacyManualImplementation(manager: AgentLoopManager, id: string): void {
+  manager.start(id, owner);
+  let run = manager.submitProposal(id, {
+    expertId: 'architect', summary: 'TEST-ONLY manual approval for workflow tests',
+  }, owner);
+  const proposal = run.proposals.at(-1)!;
+  for (const expert of run.experts.slice(0, run.councilMinVotes)) {
+    run = manager.submitVote(id, {
+      expertId: expert.id, proposalId: proposal.id,
+      score: 1, approve: true, rationale: 'Legacy test-only manual vote; not an AI model invocation',
+    }, owner);
+  }
+  manager.decide(id, owner);
+}
+
 describe("AgentLoopRunner", () => {
   let root: string;
 
@@ -35,7 +51,7 @@ describe("AgentLoopRunner", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("discovers and reaches council, then fails closed without an implementation workflow", async () => {
+  it("refuses synthetic expert voting and pauses before any implementation", async () => {
     const manager = new AgentLoopManager(root);
     const calls: string[] = [];
     const runner = new AgentLoopRunner(manager, async (name) => {
@@ -59,8 +75,10 @@ describe("AgentLoopRunner", () => {
     const paused = await waitForTerminal(manager, created.id);
 
     expect(paused).toMatchObject({ state: "paused", phase: "paused" });
-    expect(paused.pauseReason).toMatch(/blocker/i);
-    expect(paused.implementation?.summary).toMatch(/implementationWorkflowId/i);
+    expect(paused.pauseReason).toMatch(/independent|reviewer|model/i);
+    expect(paused.votes).toHaveLength(0);
+    expect(paused.decision).toBeUndefined();
+    expect(paused.implementation).toBeUndefined();
     expect(calls).toContain("project_analyze");
     expect(calls).toContain("code_context");
     expect(runner.status(created.id)?.state).toBe("finished");
@@ -118,6 +136,7 @@ describe("AgentLoopRunner", () => {
       owner,
     );
 
+    enterLegacyManualImplementation(manager, created.id);
     runner.start(created.id, owner, { workflowId: "workflow_test" });
     const completed = await waitForTerminal(manager, created.id);
 
@@ -126,8 +145,6 @@ describe("AgentLoopRunner", () => {
     expect(completed.verification?.passed).toBe(true);
     expect(calls).toEqual(
       expect.arrayContaining([
-        "project_analyze",
-        "code_context",
         "workflow_run",
         "project_verify",
       ]),
@@ -166,6 +183,7 @@ describe("AgentLoopRunner", () => {
       owner,
     );
 
+    enterLegacyManualImplementation(manager, created.id);
     runner.start(created.id, owner, { workflowId: "workflow-nested-evidence" });
     const completed = await waitForTerminal(manager, created.id);
 
@@ -191,6 +209,7 @@ describe("AgentLoopRunner", () => {
       owner,
     );
 
+    enterLegacyManualImplementation(manager, created.id);
     runner.start(created.id, owner, { workflowId: "workflow-needs-approval" });
     const paused = await waitForTerminal(manager, created.id);
     expect(paused).toMatchObject({ state: "paused", phase: "paused" });
@@ -270,6 +289,7 @@ describe("AgentLoopRunner", () => {
       owner,
     );
 
+    enterLegacyManualImplementation(manager, created.id);
     runner.start(created.id, owner, { workflowId: "workflow-proof" });
     const completed = await waitForTerminal(manager, created.id);
 
