@@ -62,7 +62,7 @@ Every AC must be proven by the spec's observable oracle, not merely by assigned 
 
 Each task is DONE only when its [execution card in the plan](../docs/superpowers/plans/2026-11-15-universal-agent-work-environment-implementation.md) is satisfied: **one red test (where behavior changes), minimal green implementation, exact test output, issue/PR evidence, no unresolved security blocker, reviewed and actually merged main commit if `MERGED_MAIN` is asserted**.
 
-- [ ] **UA-001** — SOURCE_TESTED on a feature branch; **not DONE** pending exact-head PR CI, qualified review and verified merge. Artifacts: `tests/contracts/legacy-commands.test.ts`, `tests/fixtures/ua-001-cli-baseline.json`, CLI/MCP negative oracle and status evidence. Next remains UA-001 until C0 is passed.
+- [ ] **UA-001** — SOURCE_TESTED on [PR #205](https://github.com/roronoazoroshao/FolderForge/pull/205) (source-tested commit `da483dd47b7b8091d891cb591d4a212891f012dd`); **not DONE** pending exact-head PR CI, qualified review and verified merge. Artifacts: `tests/contracts/legacy-commands.test.ts`, `tests/fixtures/ua-001-cli-baseline.json`, CLI/MCP negative oracle and status evidence. Next remains UA-001 until C0 is passed.
 - [ ] **UA-002** — Workspace/grant authority and rename/stale/revoke tests; C1.
 - [ ] **UA-003** — stdio/HTTP principal-per-call binding; C1/C3.
 - [ ] **UA-004** — Verified capsule OS boundary or capability unavailable; C2.
