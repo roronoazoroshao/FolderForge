@@ -25,6 +25,8 @@ separate operational verification gate.
 | [37-task detailed plan](superpowers/plans/2026-11-14-folderforge-v2-implementation.md) | Contributor / agent | Dependency-ordered TDD steps, verification and rollback; **not yet implemented**. |
 | [Task and checkpoint index](../tasks/plan.md) | Maintainer | 37 FF tasks, phases P00–P07 and owner approval gates. |
 
+**AI-led v2 review:** [Review governance](governance/AI_REVIEW_BOARD_POLICY_2026-11-15.md) · [Decision status](reviews/2026-11-15-ai-board-decision.md) · [Board #201](https://github.com/roronoazoroshao/FolderForge/issues/201). AI reviewers decide design and technical gates **when their independent execution evidence satisfies quorum**; no fabricated approvals.
+
 ## Getting started
 
 | Document | Audience | Purpose |

@@ -78,6 +78,8 @@
 
 **Được phép tiến hành:** viết test, refactor, build fixture/local isolated runner, tạo docs, UI preview; **không được** tự coi chúng là phép cấp quyền deploy.
 
+> **AI-led review authority (owner delegated 2026-11-15):** [AI Review Board Governance](../../governance/AI_REVIEW_BOARD_POLICY_2026-11-15.md) · [Decision record](../../reviews/2026-11-15-ai-board-decision.md) · [Board issue #201](https://github.com/roronoazoroshao/FolderForge/issues/201). AI specialist agents are **the primary design/spec/plan/code reviewers**. Separate verifiable agent runs and quorum are required before any AI approval; existing eight-role prose is `AI_PRE_REVIEWED`, not a real multi-agent decision. Production, host access and recovery still require real operator authority.
+
 ## 3. Phân chia phase — lý do và kết quả
 
 | Phase | Mục tiêu dễ hiểu | Deliverable độc lập | Chỉ được qua nếu |

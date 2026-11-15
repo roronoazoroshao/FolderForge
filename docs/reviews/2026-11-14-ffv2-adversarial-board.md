@@ -4,6 +4,8 @@
 
 > **Provenance:** Đây là **một lần phân tích do ChatGPT thực hiện qua 8 lăng kính chuyên môn**. Không phải tám chuyên gia độc lập, tám model độc lập, hội đồng nhân sự được bổ nhiệm hay kiểm thử người dùng. Các vai diễn là **AI_SIMULATED**. GitHub hiện không có submitted review trên PR #200 tại lúc kiểm tra. Hai GitHub Actions run của head `a8068cc` đã `success`, nhưng CI **không phải approval**.
 
+> **AI-led review authority (owner delegated 2026-11-15):** [AI Review Board Governance](../../governance/AI_REVIEW_BOARD_POLICY_2026-11-15.md) · [Decision record](../../reviews/2026-11-15-ai-board-decision.md) · [Board issue #201](https://github.com/roronoazoroshao/FolderForge/issues/201). AI specialist agents are **the primary design/spec/plan/code reviewers**. Separate verifiable agent runs and quorum are required before any AI approval; existing eight-role prose is `AI_PRE_REVIEWED`, not a real multi-agent decision. Production, host access and recovery still require real operator authority.
+
 ## 1. Phán quyết trước khi xem chi tiết
 
 **Không khóa Spec/Plan và không merge PR #200 như một “complete foundation”** trước khi xử lý các bất nhất P0 và có người có thẩm quyền duyệt. Cho phép tiếp tục cải tiến **documentation/tests trên nhánh review**, nhưng mọi quyền host/sandbox/cutover chỉ khi gate độc lập được thông qua. Code mới trong PR là primitive chưa wired vào MCP tool dispatch.

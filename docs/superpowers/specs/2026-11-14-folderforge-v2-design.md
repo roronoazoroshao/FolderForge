@@ -10,6 +10,8 @@
 
 > **Một câu dễ nhớ:** Chọn một thư mục → cấp quyền cho AI → kết nối MCP → xem và điều khiển cùng một workspace bằng Web hoặc CLI.
 
+> **AI-led review authority (owner delegated 2026-11-15):** [AI Review Board Governance](../../governance/AI_REVIEW_BOARD_POLICY_2026-11-15.md) · [Decision record](../../reviews/2026-11-15-ai-board-decision.md) · [Board issue #201](https://github.com/roronoazoroshao/FolderForge/issues/201). AI specialist agents are **the primary design/spec/plan/code reviewers**. Separate verifiable agent runs and quorum are required before any AI approval; existing eight-role prose is `AI_PRE_REVIEWED`, not a real multi-agent decision. Production, host access and recovery still require real operator authority.
+
 ## 0. Đọc nhanh trong 2 phút
 
 ### Sản phẩm giải quyết điều gì?

@@ -2,6 +2,8 @@
 
 **Status:** Adversarial review `CHANGES REQUESTED` / owner sign-off pending. [Review board #201](https://github.com/roronoazoroshao/FolderForge/issues/201). **Created:** 2026-11-14. **Baseline:** `b2ad52e1bb20babed2436890841ec622cc6c4a5a`.
 
+> **AI-led review authority (owner delegated 2026-11-15):** [AI Review Board Governance](../../governance/AI_REVIEW_BOARD_POLICY_2026-11-15.md) · [Decision record](../../reviews/2026-11-15-ai-board-decision.md) · [Board issue #201](https://github.com/roronoazoroshao/FolderForge/issues/201). AI specialist agents are **the primary design/spec/plan/code reviewers**. Separate verifiable agent runs and quorum are required before any AI approval; existing eight-role prose is `AI_PRE_REVIEWED`, not a real multi-agent decision. Production, host access and recovery still require real operator authority.
+
 ## Read in this order
 1. [Product North Star / 2027–2030](../docs/strategy/FOLDERFORGE_NORTH_STAR_2027_2030.md): why and what not to build.
 2. [Full v2 specification](../docs/superpowers/specs/2026-11-14-folderforge-v2-design.md): user journeys, boundaries, 14 acceptance criteria.
