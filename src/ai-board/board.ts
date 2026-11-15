@@ -109,6 +109,9 @@ function verifyInput(input: BoardInput): string {
     if (input.previous && !verifyBoardReportDigest(input.previous)) {
       throw new Error('Previous approval report failed integrity verification');
     }
+    if (input.previous && input.previous.sourceSha !== input.sourceSha) {
+      throw new Error('Previous stage source SHA mismatch; re-run upstream reviews after source changes');
+    }
     const expected = STAGES[stageIndex - 1]!;
     if (input.previous?.stage !== expected || input.previous.state !== 'APPROVED') {
       throw new Error(`${input.stage} requires a verified APPROVED ${expected} review`);

@@ -110,6 +110,13 @@ describe('evidence-backed AI review board', () => {
     }
   });
 
+  it('invalidates previous stage decisions when the reviewed source SHA changes', async () => {
+    const { provider } = makeProvider();
+    const previous = await runAiReviewBoard({ stage: 'GOAL', sourceSha, evidence, provider });
+    await expect(runAiReviewBoard({ stage: 'ROADMAP', sourceSha: 'b'.repeat(40),
+      evidence, previous, provider })).rejects.toThrow(/source sha/i);
+  });
+
   it('fails closed if a provider invocation errors, without elevating to majority approval', async () => {
     const { provider } = makeProvider();
     const failing: ReviewerProvider = { review: async (request) => {

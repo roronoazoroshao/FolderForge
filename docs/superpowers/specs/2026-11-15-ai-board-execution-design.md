@@ -40,7 +40,7 @@ Mỗi reviewer thực chạy hai invocation: **BLIND** (không thấy phiếu ng
 - ≥6 verified reviewer receipts vòng CHALLENGE, bắt buộc PRODUCT/ARCH/SEC/QA; 6 phiếu tích cực. Review vòng BLIND hợp lệ là điều kiện của mỗi phiếu vòng CHALLENGE.
 - `BLOCKER` của bất kỳ chuyên gia; `HIGH` của ARCH/SEC/QA; veto của ARCH/SEC/QA → `CHANGES_REQUESTED` khi quorum đạt.
 - API timeout, missing model, duplicate/stale provider response ID, source không nhất quán, còn thiếu reviewer bắt buộc → `NOT_QUORATE`.
-- Mỗi stage phải có một report `APPROVED` từ stage trước; `PR` sau `TASK`. Không tự động merge PR, deploy hoặc cấp quyền host.
+- Mỗi stage phải có một report `APPROVED` từ stage trước **cùng source SHA**; bất kỳ commit mới nào cũng phải đánh giá lại các gate thượng nguồn; `PR` sau `TASK`. Không tự động merge PR, deploy hoặc cấp quyền host.
 - Output states: `APPROVED`, `NOT_QUORATE`, `CHANGES_REQUESTED` — đây là **AI board technical verdict**, không phải GitHub official review hay pentest/security certification.
 
 ## 4. User stories và acceptance criteria

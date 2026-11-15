@@ -35,7 +35,7 @@ npm run review:ai -- --stage GOAL --source-sha "$(git rev-parse HEAD)" \
   --artifact docs/strategy/FOLDERFORGE_NORTH_STAR_2027_2030.md \
   --out /tmp/ff-ai-goal-review.json --execute
 
-# Continue ROADMAP only if GOAL state === APPROVED; then SPEC, PLAN, TASK, PR.
+# Continue ROADMAP only if GOAL state === APPROVED on the SAME source SHA; then SPEC, PLAN, TASK, PR.
 npm run review:ai -- --stage ROADMAP --source-sha "$(git rev-parse HEAD)" \
   --artifact docs/strategy/FOLDERFORGE_NORTH_STAR_2027_2030.md \
   --previous /tmp/ff-ai-goal-review.json --out /tmp/ff-ai-roadmap-review.json --execute
