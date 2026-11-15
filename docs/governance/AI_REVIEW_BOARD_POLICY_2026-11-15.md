@@ -110,3 +110,12 @@ At delegation date, head under review `bc9d8b3046fadec094e705d1e22c05a0eafe2106`
 [Role prompts](../reviews/2026-11-14-ffv2-review-prompts.md) · [Findings](../reviews/2026-11-14-ffv2-adversarial-board.md) · [Decisions](../reviews/2026-11-14-ffv2-decision-register.md) · [Review board #201](https://github.com/roronoazoroshao/FolderForge/issues/201).
 
 No synthetic research numbers, accessibility certification, human security signature, real participant findings, agent runtime traces, tests or deployment claims.
+
+
+## 10. P0 discovered defect in current `AgentLoopRunner` — NEVER count fallback council as real reviewers
+
+**Observed, not hypothetical:** [`src/agent-loops/agent-loop-runner.ts`](https://github.com/roronoazoroshao/FolderForge/blob/main/src/agent-loops/agent-loop-runner.ts) has a deterministic `proposalForExpert()` in discovery and a `council()` loop that sets **`approve: true` for every listed expert**, with fixed `0.92 / 0.82` scores and the string `Independent <role> review`. This is a **synthetic automated vote generator**, not actual LLM expert judgment. The existing run/manager types do not record verified model execution IDs for those votes.
+
+**Blocking issue:** [#202 — Replace synthetic auto-yes council with provenance-verified LLM reviewers](https://github.com/roronoazoroshao/FolderForge/issues/202). **Policy consequence:** No output from that fallback is eligible for A-PRODUCT/A-ARCH/A-SEC/A-QA quorum or any `AI_*_APPROVED` gate. Fallback may remain as `SIMULATED_LENSES` preview **only if labeled and fail-closed for approval**.
+
+**Implementation gate:** Red test first (no configured provider → never approves; fake/duplicate/stale receipt rejected), then independently invoked provider adapter, digest and run identity verification, veto rules and exact SHA proof. Do **not** silently enable a provider or expose API keys. Until #202 evidence is attached, **`AI_PRE_REVIEWED / NOT_QUORATE` is the maximum substantiated state** for this repository's current built-in council.

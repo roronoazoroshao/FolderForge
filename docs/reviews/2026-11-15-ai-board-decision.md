@@ -24,3 +24,6 @@
 | G-PROD and destructive changes | Operator with actual permissions; AI can veto/recommend | **NOT AUTHORIZED** |
 
 **Next evidence gate:** one recorded 8-agent (or ≥6 eligible) run with separate invocation IDs, exact input SHA, full findings, machine-checkable test evidence and a re-review after resolving blocking findings. `CI success` alone does not satisfy this gate.
+
+
+**New P0 blocker — #202:** source inspection confirms the current built-in `AgentLoopRunner` council deterministically emits all-`approve: true` votes and a misleading “Independent” rationale; no independent LLM reviewer run evidence is attached. See [issue #202](https://github.com/roronoazoroshao/FolderForge/issues/202). **Board decision remains `AI_PRE_REVIEWED / NOT_QUORATE / CHANGES_REQUESTED`** until a verified multi-agent runtime and quorum are demonstrated. This is an *observed design/implementation defect*, distinct from a completed exploit test.
