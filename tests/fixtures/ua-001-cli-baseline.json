@@ -1,0 +1,46 @@
+{
+  "packageName": "@musashishao/folderforge",
+  "version": "3.2.4",
+  "helpMarkers": [
+    "Usage: folderforge [command] [options]",
+    "  doctor                 Run read-only installation and workspace diagnostics",
+    "  connect <client>       Configure cursor|vscode|claude|generic stdio clients",
+    "  control <command>      start|stop|status|open the local Mission Control plane",
+    "--stdio",
+    "--http",
+    "--require-auth",
+    "--policy <mode>",
+    "--tools-preset <id>"
+  ],
+  "rejectCases": [
+    {
+      "args": [
+        "--apiKey",
+        "placeholder"
+      ],
+      "error": "Unknown argument: --apiKey"
+    },
+    {
+      "args": [
+        "doctro",
+        "--no-dashboard"
+      ],
+      "error": "Unknown command: doctro"
+    },
+    {
+      "args": [
+        "--project",
+        "--http"
+      ],
+      "error": "Missing value for --project"
+    },
+    {
+      "args": [
+        "--policy",
+        "unexpected-mode",
+        "--stdio"
+      ],
+      "error": "Invalid --policy value: unexpected-mode"
+    }
+  ]
+}

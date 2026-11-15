@@ -1,6 +1,6 @@
 # FolderForge — Universal Agent Task Ledger (UA-001…UA-018)
 
-**Decision baseline:** [Goal Map](../docs/strategy/UNIVERSAL_AGENT_GOALMAP_2026-11-15.md) → [Roadmap](../docs/strategy/UNIVERSAL_AGENT_ROADMAP_2026-11-15.md) → [Spec](../docs/superpowers/specs/2026-11-15-universal-agent-work-environment-design.md) → [Executable plan](../docs/superpowers/plans/2026-11-15-universal-agent-work-environment-implementation.md) → this tracker → [Session handoff](../docs/handoffs/NEXT_SESSION.md). **Baseline:** 2026-11-15. **Status:** planning approved, **ALL UA source tasks unverified**. This file extends the existing 33 FF issues on `main` / draft expansion to 37 in PR #200; do not bulk-close FF issues.
+**Decision baseline:** [Goal Map](../docs/strategy/UNIVERSAL_AGENT_GOALMAP_2026-11-15.md) → [Roadmap](../docs/strategy/UNIVERSAL_AGENT_ROADMAP_2026-11-15.md) → [Spec](../docs/superpowers/specs/2026-11-15-universal-agent-work-environment-design.md) → [Executable plan](../docs/superpowers/plans/2026-11-15-universal-agent-work-environment-implementation.md) → this tracker → [Session handoff](../docs/handoffs/NEXT_SESSION.md). **Baseline:** 2026-11-15. **Status:** planning approved; **UA-001 SOURCE_TESTED on `chore/ua-001-compat-baseline-20261115` (C0 pending exact-head CI/review/merge)**; UA-002–UA-018 unverified. This file extends the existing 33 FF issues on `main` / draft expansion to 37 in PR #200; do not bulk-close FF issues.
 
 ## Status legend
 
@@ -12,7 +12,7 @@
 
 | ID / Phase | One focused deliverable | Depends on | Gate / AC | Mapping to existing FF work | State |
 | --- | --- | --- | --- | --- | --- |
-| UA-001 / M0 | Source+contract baseline, host boundary manifest | — | C0 | FF-001–003 (#162–164) | PLANNED |
+| UA-001 / M0 | Source+contract baseline, host boundary manifest | — | C0 | FF-001–003 (#162–164) | SOURCE_TESTED (C0 pending CI/review/merge) |
 | UA-002 / M1 | Immutable context + real stored owner grants | UA-001 | C1 / AC02 | FF-004–006, FF-013 (#165–167, #174) | PLANNED |
 | UA-003 / M1 | Authenticated MCP stdio/HTTP request scope | UA-002 | C1/C3 / AC01–03,05 | FF-007/008 (#168/169) | PLANNED |
 | UA-004 / M1 | OS-bounded capsule or explicit unavailable state | UA-002 | C2 / AC04,16 | FF-009 (#170) | PLANNED |
@@ -62,7 +62,7 @@ Every AC must be proven by the spec's observable oracle, not merely by assigned 
 
 Each task is DONE only when its [execution card in the plan](../docs/superpowers/plans/2026-11-15-universal-agent-work-environment-implementation.md) is satisfied: **one red test (where behavior changes), minimal green implementation, exact test output, issue/PR evidence, no unresolved security blocker, reviewed and actually merged main commit if `MERGED_MAIN` is asserted**.
 
-- [ ] **UA-001** — Real baseline and compatibility proof; C0. Target next. Artifacts: exact source SHA + auth/MCP compatibility matrix + safe negative test list.
+- [ ] **UA-001** — SOURCE_TESTED on a feature branch; **not DONE** pending exact-head PR CI, qualified review and verified merge. Artifacts: `tests/contracts/legacy-commands.test.ts`, `tests/fixtures/ua-001-cli-baseline.json`, CLI/MCP negative oracle and status evidence. Next remains UA-001 until C0 is passed.
 - [ ] **UA-002** — Workspace/grant authority and rename/stale/revoke tests; C1.
 - [ ] **UA-003** — stdio/HTTP principal-per-call binding; C1/C3.
 - [ ] **UA-004** — Verified capsule OS boundary or capability unavailable; C2.
