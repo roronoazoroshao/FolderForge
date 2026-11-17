@@ -38,6 +38,7 @@ import { SshOperatorWebSessions } from "./ssh-operator-session.js";
 import type { ToolRegistry } from "../tools/registry.js";
 import type { PolicyMode, ToolPrincipal } from "../core/types.js";
 import { adminPrincipalFromCredential } from "../core/principal.js";
+import { WorkspaceIdentityRegistry } from "../workspace/workspace-identity.js";
 import { ApprovalResolutionError } from "../policy/approvals.js";
 import { makeCloudflareClient } from "../cloudflare/api-client.js";
 import {
@@ -1760,6 +1761,9 @@ async function handle(
   const missionCapsuleMatch =
     /^\/mission-control\/capsules\/([^/]+)\/revoke$/.exec(path);
   if (method === "POST" && missionCapsuleMatch) {
+    if (!authenticatedLoopbackDashboardOwner(req, opts)) {
+      return sendJson(res, 403, { error: "owner_auth_required" });
+    }
     const id = decodeURIComponent(missionCapsuleMatch[1]!);
     const capsule = container.capsules.revoke(id, principal.id);
     if (!capsule) return sendJson(res, 404, { error: "capsule_not_found", id });
@@ -1995,6 +1999,64 @@ async function handle(
     return sendJson(res, 200, { tools, presets });
   }
 
+  // UA-002 identity issuance is a separate, credential-authenticated owner
+  // action. Legacy loopback admin identity, URL tokens and client headers do
+  // not confer authority to register a root or provision a grant.
+  if (method === "POST" && path === "/workspaces/register") {
+    if (!authenticatedLoopbackDashboardOwner(req, opts)) {
+      return sendJson(res, 403, { error: "owner_auth_required" });
+    }
+    const body = await readJsonBody(req);
+    if (typeof body?.path !== "string" || !body.path) {
+      return sendJson(res, 400, { error: "invalid_workspace" });
+    }
+    try {
+      const workspace = new WorkspaceIdentityRegistry(
+        container.config.workspace.defaultProject,
+        container.config.workspace.allowedDirectories,
+      ).register(body.path);
+      container.audit.record({
+        type: "policy_change",
+        summary: `workspace_identity_registered:${workspace.workspaceId}`,
+        detail: { actorId: principal.id, workspaceId: workspace.workspaceId },
+      });
+      return sendJson(res, 201, workspace);
+    } catch (error) {
+      return sendJson(res, 409, {
+        error: "workspace_registration_denied",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  const identityReattachMatch = /^\/workspaces\/(ws_[a-f0-9]{32})\/reattach$/.exec(path);
+  if (method === "POST" && identityReattachMatch) {
+    if (!authenticatedLoopbackDashboardOwner(req, opts)) {
+      return sendJson(res, 403, { error: "owner_auth_required" });
+    }
+    const body = await readJsonBody(req);
+    if (typeof body?.path !== "string" || !body.path) {
+      return sendJson(res, 400, { error: "invalid_workspace" });
+    }
+    try {
+      const workspace = new WorkspaceIdentityRegistry(
+        container.config.workspace.defaultProject,
+        container.config.workspace.allowedDirectories,
+      ).reattach(identityReattachMatch[1]!, body.path);
+      container.audit.record({
+        type: "policy_change",
+        summary: `workspace_identity_reattached:${workspace.workspaceId}`,
+        detail: { actorId: principal.id, workspaceId: workspace.workspaceId },
+      });
+      return sendJson(res, 200, workspace);
+    } catch (error) {
+      return sendJson(res, 409, {
+        error: "workspace_reattachment_denied",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   if (method === "GET" && path === "/workspaces") {
     const result = await runOperatorTool(
       registry,
@@ -2011,6 +2073,9 @@ async function handle(
   }
 
   if (method === "POST" && path === "/workspaces/switch") {
+    if (!authenticatedLoopbackDashboardOwner(req, opts)) {
+      return sendJson(res, 403, { error: "owner_auth_required" });
+    }
     const body = await readJsonBody(req);
     if (typeof body?.path !== "string" || body.path.length === 0) {
       return sendJson(res, 400, {
@@ -2031,6 +2096,9 @@ async function handle(
   }
 
   if (method === "POST" && path === "/workspaces/activate") {
+    if (!authenticatedLoopbackDashboardOwner(req, opts)) {
+      return sendJson(res, 403, { error: "owner_auth_required" });
+    }
     const body = await readJsonBody(req);
     if (typeof body?.path !== "string" || body.path.length === 0) {
       return sendJson(res, 400, {
@@ -2778,6 +2846,9 @@ async function handle(
   }
 
   if (method === "POST" && path === "/capsules") {
+    if (!authenticatedLoopbackDashboardOwner(req, opts)) {
+      return sendJson(res, 403, { error: "owner_auth_required" });
+    }
     const body = await readJsonBody(req);
     try {
       const capsule = container.capsules.create({
@@ -2848,6 +2919,9 @@ async function handle(
 
   const capsuleMatch = /^\/capsules\/([^/]+)\/revoke$/.exec(path);
   if (method === "POST" && capsuleMatch) {
+    if (!authenticatedLoopbackDashboardOwner(req, opts)) {
+      return sendJson(res, 403, { error: "owner_auth_required" });
+    }
     const id = decodeURIComponent(capsuleMatch[1]!);
     const capsule = container.capsules.revoke(id, principal.id);
     if (!capsule) return sendJson(res, 404, { error: "capsule_not_found", id });
