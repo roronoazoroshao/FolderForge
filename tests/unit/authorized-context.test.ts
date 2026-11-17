@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync,
+  mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -57,7 +57,7 @@ describe('UA-AC02 authoritative workspace and owner grant', () => {
     const alias = join(home, 'alias');
     symlinkSync(a, alias, process.platform === 'win32' ? 'junction' : 'dir');
     expect(registry.register(alias).workspaceId).toBe(workspace.workspaceId);
-    expect(new WorkspaceIdentityRegistry(home, [home]).resolve(workspace.workspaceId).root).toBe(a);
+    expect(new WorkspaceIdentityRegistry(home, [home]).resolve(workspace.workspaceId).root).toBe(realpathSync.native(a));
     expect(workspace.workspaceId).toMatch(/^ws_[a-f0-9]{32}$/);
     expect(workspace.workspaceId).not.toContain(a);
   });
@@ -76,7 +76,7 @@ describe('UA-AC02 authoritative workspace and owner grant', () => {
     const { a, workspace, capsule, request } = setup();
     const context = authorizeWorkspaceOperation(request);
     expect(context).toMatchObject({
-      workspaceId: workspace.workspaceId, canonicalRoot: a,
+      workspaceId: workspace.workspaceId, canonicalRoot: realpathSync.native(a),
       grantId: capsule.id, grantRevision: 1,
       principalId: 'principal:a', sessionId: 'session:a',
       operationId: 'op:1', capsuleId: capsule.id,
@@ -118,8 +118,8 @@ describe('UA-AC02 authoritative workspace and owner grant', () => {
       Promise.resolve().then(() => authorizeWorkspaceOperation(request)),
       Promise.resolve().then(() => authorizeWorkspaceOperation(other)),
     ]);
-    expect(ca.canonicalRoot).toBe(a);
-    expect(cb.canonicalRoot).toBe(b);
+    expect(ca.canonicalRoot).toBe(realpathSync.native(a));
+    expect(cb.canonicalRoot).toBe(realpathSync.native(b));
     expect(ca.principalId).not.toBe(cb.principalId);
   });
 
@@ -130,7 +130,7 @@ describe('UA-AC02 authoritative workspace and owner grant', () => {
     })).toThrow();
     const legacy = capsules.create({ workspaceRoot: a, principalId: 'principal:a', sessionId: 'session:a', profile: 'develop' });
     expect(() => authorizeWorkspaceOperation({ ...request, grantId: legacy.id })).toThrow();
-    expect(registry.resolve(request.workspaceId).root).toBe(a);
+    expect(registry.resolve(request.workspaceId).root).toBe(realpathSync.native(a));
   });
 
   it('denies expiration and revocation, including a revocation from another manager instance', () => {
@@ -162,7 +162,7 @@ describe('UA-AC02 authoritative workspace and owner grant', () => {
     expect(() => authorizeWorkspaceOperation(request)).toThrow();
     expect(() => registry.reattach(workspace.workspaceId, b)).toThrow();
     expect(registry.reattach(workspace.workspaceId, moved).workspaceId).toBe(workspace.workspaceId);
-    expect(registry.resolve(workspace.workspaceId).root).toBe(moved);
+    expect(registry.resolve(workspace.workspaceId).root).toBe(realpathSync.native(moved));
   });
 
   it('rejects a replaced directory at the old path (inode rebind)', () => {
