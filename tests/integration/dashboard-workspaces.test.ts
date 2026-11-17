@@ -10,6 +10,9 @@ import { Container } from '../../src/runtime/container.js';
 import { startDashboard } from '../../src/dashboard/server.js';
 import { buildRegistry } from '../../src/tools/index.js';
 
+const OWNER_TOKEN = 'workspace-owner-test-token';
+const ownerHeaders = { authorization: `Bearer ${OWNER_TOKEN}` };
+
 interface WorkspaceHarness {
   root: string;
   container: Container;
@@ -24,7 +27,7 @@ async function startHarness(): Promise<WorkspaceHarness> {
   config.policy.defaultMode = 'dev';
   const container = new Container(config);
   const registry = buildRegistry(container);
-  const server = startDashboard(container, registry, { host: '127.0.0.1', port: 0 });
+  const server = startDashboard(container, registry, { host: '127.0.0.1', port: 0, requireAuth: true, token: OWNER_TOKEN });
   if (!server.listening) await once(server, 'listening');
   const address = server.address() as AddressInfo;
   return { root, container, server, baseUrl: `http://127.0.0.1:${address.port}` };
@@ -54,7 +57,7 @@ describe('dashboard workspaces endpoints', () => {
     const harness = await startHarness();
     harnesses.push(harness);
 
-    const listResponse = await fetch(`${harness.baseUrl}/workspaces`);
+    const listResponse = await fetch(`${harness.baseUrl}/workspaces`, { headers: ownerHeaders });
     expect(listResponse.status).toBe(200);
     const list = (await listResponse.json()) as { workspaces?: unknown[] };
     expect(Array.isArray(list.workspaces)).toBe(true);
@@ -63,14 +66,14 @@ describe('dashboard workspaces endpoints', () => {
 
     const invalid = await fetch(`${harness.baseUrl}/workspaces/switch`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...ownerHeaders },
       body: JSON.stringify({}),
     });
     expect(invalid.status).toBe(400);
 
     const unknown = await fetch(`${harness.baseUrl}/workspaces/switch`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...ownerHeaders },
       body: JSON.stringify({ path: join(harness.root, 'never-activated') }),
     });
     expect(unknown.status).not.toBe(200);
@@ -84,7 +87,7 @@ describe('dashboard workspaces endpoints', () => {
 
     const invalid = await fetch(`${harness.baseUrl}/workspaces/activate`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...ownerHeaders },
       body: JSON.stringify({}),
     });
     expect(invalid.status).toBe(400);
@@ -93,12 +96,12 @@ describe('dashboard workspaces endpoints', () => {
     mkdirSync(folder, { recursive: true });
     const activated = await fetch(`${harness.baseUrl}/workspaces/activate`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...ownerHeaders },
       body: JSON.stringify({ path: folder }),
     });
     expect(activated.status).toBe(200);
 
-    const list = await fetch(`${harness.baseUrl}/workspaces`);
+    const list = await fetch(`${harness.baseUrl}/workspaces`, { headers: ownerHeaders });
     expect(list.status).toBe(200);
     const body = (await list.json()) as {
       workspaces?: Array<{ projectRoot?: string; path?: string }>;
