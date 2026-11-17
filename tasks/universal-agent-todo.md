@@ -1,18 +1,27 @@
 # FolderForge — Universal Agent Task Ledger (UA-001…UA-018)
 
-**Decision baseline:** [Goal Map](../docs/strategy/UNIVERSAL_AGENT_GOALMAP_2026-11-15.md) → [Roadmap](../docs/strategy/UNIVERSAL_AGENT_ROADMAP_2026-11-15.md) → [Spec](../docs/superpowers/specs/2026-11-15-universal-agent-work-environment-design.md) → [Executable plan](../docs/superpowers/plans/2026-11-15-universal-agent-work-environment-implementation.md) → this tracker → [Session handoff](../docs/handoffs/NEXT_SESSION.md). **Baseline:** 2026-11-15. **Status:** planning approved; **UA-001 SOURCE_TESTED on `chore/ua-001-compat-baseline-20261115` (7/7 PASS on inspected b04c95ce in run 43732071581; independent approval, branch policy and merge pending)**; UA-002–UA-018 unverified. This file extends the existing 33 FF issues on `main` / draft expansion to 37 in PR #200; do not bulk-close FF issues.
+**Decision baseline:** [Goal Map](../docs/strategy/UNIVERSAL_AGENT_GOALMAP_2026-11-15.md) → [Roadmap](../docs/strategy/UNIVERSAL_AGENT_ROADMAP_2026-11-15.md) → [Spec](../docs/superpowers/specs/2026-11-15-universal-agent-work-environment-design.md) → [Executable plan](../docs/superpowers/plans/2026-11-15-universal-agent-work-environment-implementation.md) → this tracker → [Session handoff](../docs/handoffs/NEXT_SESSION.md). **Baseline:** 2026-11-15. **Status (verified 2026-11-17):** UA-001 baseline **SOURCE_TESTED + MERGED_MAIN** via PR #205, main@`59b1c3d`, exact-head CI 7/7 and fresh focused 54/54 PASS. Owner-directed low-risk merge exception: **no independent APPROVED review**; operational/recovery C0 **HOLD**. UA-002–UA-018 not merged/verified as complete. This file extends the existing 33 FF issues on `main` / draft expansion to 37 in PR #200; do not bulk-close FF issues.
+
+## Verified post-merge checkpoint — 2026-11-17
+
+- PR #205 [merged](https://github.com/roronoazoroshao/FolderForge/pull/205) into `main@59b1c3d9475a082b7770d60767d7a9e88a32226c`, source head `2c3a3f5`; local fetched main ancestry verified.
+- [Exact-head PR CI](https://github.com/roronoazoroshao/FolderForge/actions/runs/43735493128): 7/7 successful jobs. Fresh local focused Vitest: 7/7 suites and 54/54 tests passed, exit 0.
+- [Post-merge main CI](https://github.com/roronoazoroshao/FolderForge/actions/runs/44043297477) was **in progress** when authored; independently fetch final status.
+- Review exception: **no qualified independent APPROVED**; merge commit expressly records owner-directed risk acceptance for docs/tests-only scope. **No C0 certification, production deployment or live OS isolation inference.**
+- Host: 65G disk available (86% used), swap ~4/4G used; 24 active registry entries, 22 unverifiable + 2 missing worktree. Recovery [#118](https://github.com/roronoazoroshao/FolderForge/issues/118) remains OPEN. Preserve all records.
+- Next conditional source target **UA-002** (identity / persisted owner grants), inspect draft #200; no upstream #200/#203 auto-merge and no C1 pass until C0 gate closure.
 
 ## Status legend
 
 - `PLANNED` = specification only, not started; `IN_PROGRESS` = work performed, no passed gate yet; `SOURCE_TESTED` = source checks on exact SHA; `E2E_VERIFIED` = actual runtime/browser/creative checks; `MERGED_MAIN` = actual merge and new `main` SHA confirmed; `LIVE_VERIFIED` = explicit operator runtime proof; `BLOCKED` = verified missing prerequisite.
 - An unchecked checkbox stays unchecked until ALL acceptance and relevant gate proof exists. `CI success` alone never certifies OS isolation, production or creative design quality.
-- **Single target next:** UA-001. All dates are plans, not evidence or deadlines.
+- **Next target:** UA-002 source/contract implementation is conditional on closing residual C0 independent security/recovery evidence; do not claim C1 passed while C0 is HOLD. All dates are plans, not evidence or deadlines.
 
 ## Target matrix and dependencies
 
 | ID / Phase | One focused deliverable | Depends on | Gate / AC | Mapping to existing FF work | State |
 | --- | --- | --- | --- | --- | --- |
-| UA-001 / M0 | Source+contract baseline, host boundary manifest | — | C0 | FF-001–003 (#162–164) | SOURCE_TESTED (b04c95ce CI 7/7 PASS; independent approval/policy/merge pending) |
+| UA-001 / M0 | Source+contract baseline, host boundary manifest | — | C0 | FF-001–003 (#162–164) | SOURCE_TESTED + MERGED_MAIN (PR #205; `59b1c3d`; C0 security/recovery HOLD) |
 | UA-002 / M1 | Immutable context + real stored owner grants | UA-001 | C1 / AC02 | FF-004–006, FF-013 (#165–167, #174) | PLANNED |
 | UA-003 / M1 | Authenticated MCP stdio/HTTP request scope | UA-002 | C1/C3 / AC01–03,05 | FF-007/008 (#168/169) | PLANNED |
 | UA-004 / M1 | OS-bounded capsule or explicit unavailable state | UA-002 | C2 / AC04,16 | FF-009 (#170) | PLANNED |
@@ -62,7 +71,7 @@ Every AC must be proven by the spec's observable oracle, not merely by assigned 
 
 Each task is DONE only when its [execution card in the plan](../docs/superpowers/plans/2026-11-15-universal-agent-work-environment-implementation.md) is satisfied: **one red test (where behavior changes), minimal green implementation, exact test output, issue/PR evidence, no unresolved security blocker, reviewed and actually merged main commit if `MERGED_MAIN` is asserted**.
 
-- [ ] **UA-001** — SOURCE_TESTED on [PR #205](https://github.com/roronoazoroshao/FolderForge/pull/205) (source-tested commit `da483dd47b7b8091d891cb591d4a212891f012dd`); **not DONE**: seven checks succeeded at historical `730cce2` (run `43722930816`) **and** at checked `e1e31d84a92facb914628bd3327229b50bef27e5` (run `43729853827`), but qualified independent review and verified merge remain outstanding; any new documentation commit requires fresh exact-head CI. Artifacts: `tests/contracts/legacy-commands.test.ts`, `tests/fixtures/ua-001-cli-baseline.json`, CLI/MCP negative oracle and status evidence. Next remains UA-001 until C0 is passed.
+- [ ] **UA-001 / C0 operational closure remains OPEN** — code baseline merged in [PR #205](https://github.com/roronoazoroshao/FolderForge/pull/205), `main@59b1c3d9475a082b7770d60767d7a9e88a32226c`. Source PASS 54 focused tests and exact-head CI 7/7; **do not mark whole C0 DONE**: independent security review, off-host recovery/restore proof, capacity and #118 boundaries still outstanding. Independent GitHub review was absent and source-only merge exception was recorded in commit. See [2026-11-17 handoff](../docs/handoffs/NEXT_SESSION.md).
 - [ ] **UA-002** — Workspace/grant authority and rename/stale/revoke tests; C1.
 - [ ] **UA-003** — stdio/HTTP principal-per-call binding; C1/C3.
 - [ ] **UA-004** — Verified capsule OS boundary or capability unavailable; C2.
