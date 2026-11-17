@@ -45,13 +45,17 @@ export class PathPolicy {
   }
 
   assertNotDenied(abs: string, projectRoot: string): void {
-    if (this.isDenied(abs, projectRoot)) {
+    // A lexical alias to an owner-controlled file is not a different
+    // authority. Check the nearest existing ancestor's realpath as well.
+    const canonical = canonicalCandidatePath(abs);
+    const canonicalRoot = canonicalCandidatePath(projectRoot);
+    if (this.isDenied(abs, projectRoot) || this.isDenied(canonical, canonicalRoot)) {
       throw new PathEscapeError(`Path is denied by policy (secret/ignored): ${abs}`);
     }
-    // Extra hard guards for sensitive home folders.
-    const lowered = abs.toLowerCase();
+    // Sensitive home folder aliases must not bypass the direct path check.
     const sensitive = ['/.ssh/', '/.aws/', '/.gnupg/', '/.config/gcloud/', '/.kube/'];
-    if (sensitive.some((s) => lowered.includes(s))) {
+    if ([abs, canonical].some((path) =>
+      sensitive.some((s) => path.toLowerCase().split('\\').join('/').includes(s)))) {
       throw new PathEscapeError(`Path touches a protected credential folder: ${abs}`);
     }
   }

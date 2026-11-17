@@ -4,6 +4,7 @@ import {
   mkdirSync,
   readFileSync,
   renameSync,
+  rmdirSync,
   writeFileSync,
 } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
@@ -34,6 +35,8 @@ export interface CapsuleLimits {
 
 export interface WorkspaceCapsule {
   id: string;
+  /** Owner-granted revision; absent in legacy records (ineligible for UA-002). */
+  grantRevision?: number;
   workspaceRoot: string;
   workspaceId: string;
   principalId: string;
@@ -165,6 +168,7 @@ function pathLikeValues(value: unknown, key = ''): string[] {
 export class WorkspaceCapsuleManager {
   private readonly capsules = new Map<string, WorkspaceCapsule>();
   private readonly persistPath: string;
+  private persistedOnce = false;
 
   constructor(
     private readonly allowedDirectories: string[],
@@ -215,6 +219,7 @@ export class WorkspaceCapsuleManager {
     const createdAt = new Date();
     const capsule: WorkspaceCapsule = {
       id: `caps_${randomUUID().replace(/-/g, '').slice(0, 20)}`,
+      grantRevision: 1,
       workspaceRoot: root,
       workspaceId: workspaceId(root),
       principalId: input.principalId.trim(),
@@ -237,9 +242,11 @@ export class WorkspaceCapsuleManager {
       usage: { calls: 0, mutations: 0 },
     };
     this.assertEvidenceDestination(capsule);
-    this.capsules.set(capsule.id, capsule);
-    this.persist();
-    return cloneCapsule(capsule);
+    return this.withWriteLock(() => {
+      this.capsules.set(capsule.id, capsule);
+      this.persist();
+      return cloneCapsule(capsule);
+    });
   }
 
   list(): WorkspaceCapsule[] {
@@ -254,14 +261,17 @@ export class WorkspaceCapsuleManager {
   }
 
   revoke(id: string, actorId: string): WorkspaceCapsule | undefined {
-    const capsule = this.capsules.get(id);
-    if (!capsule) return undefined;
-    if (!capsule.revokedAt) {
-      capsule.revokedAt = new Date().toISOString();
-      capsule.revokedBy = actorId;
-      this.persist();
-    }
-    return cloneCapsule(capsule);
+    return this.withWriteLock(() => {
+      const capsule = this.capsules.get(id);
+      if (!capsule) return undefined;
+      if (!capsule.revokedAt) {
+        capsule.revokedAt = new Date().toISOString();
+        capsule.revokedBy = actorId;
+        if (capsule.grantRevision !== undefined) capsule.grantRevision += 1;
+        this.persist();
+      }
+      return cloneCapsule(capsule);
+    });
   }
 
   matching(principal: ToolPrincipal, projectRoot: string): WorkspaceCapsule | undefined {
@@ -403,20 +413,42 @@ export class WorkspaceCapsuleManager {
     return { kind: 'allow', capsule };
   }
 
+  /**
+   * Source-only authorization path: reload persisted grants on every operation.
+   * Never use cached authority after missing/corrupt state or an I/O error.
+   */
+  checkPersisted(
+    principal: ToolPrincipal,
+    projectRoot: string,
+    call: Parameters<WorkspaceCapsuleManager['check']>[2],
+  ): CapsuleDecision {
+    try {
+      if (!existsSync(this.persistPath)) throw new Error('missing grant store');
+      this.load();
+    } catch {
+      return { kind: 'deny', reason: 'Persisted capsule grants unavailable or invalid.' };
+    }
+    return this.check(principal, projectRoot, call);
+  }
+
   reserve(id: string, mutates: boolean): WorkspaceCapsule {
-    const capsule = this.capsules.get(id);
-    if (!capsule) throw new Error(`Capsule not found: ${id}`);
-    if (capsule.usage.calls >= capsule.limits.maxCalls) {
-      throw new Error('Capsule call budget exhausted.');
-    }
-    if (mutates && capsule.usage.mutations >= capsule.limits.maxMutations) {
-      throw new Error('Capsule mutation budget exhausted.');
-    }
-    capsule.usage.calls += 1;
-    if (mutates) capsule.usage.mutations += 1;
-    capsule.usage.lastUsedAt = new Date().toISOString();
-    this.persist();
-    return cloneCapsule(capsule);
+    return this.withWriteLock(() => {
+      const capsule = this.capsules.get(id);
+      if (!capsule) throw new Error(`Capsule not found: ${id}`);
+      if (capsule.revokedAt) throw new Error('Capsule grant revoked.');
+      if (Date.parse(capsule.expiresAt) <= Date.now()) throw new Error('Capsule grant expired.');
+      if (capsule.usage.calls >= capsule.limits.maxCalls) {
+        throw new Error('Capsule call budget exhausted.');
+      }
+      if (mutates && capsule.usage.mutations >= capsule.limits.maxMutations) {
+        throw new Error('Capsule mutation budget exhausted.');
+      }
+      capsule.usage.calls += 1;
+      if (mutates) capsule.usage.mutations += 1;
+      capsule.usage.lastUsedAt = new Date().toISOString();
+      this.persist();
+      return cloneCapsule(capsule);
+    });
   }
 
   describe(): {
@@ -508,6 +540,10 @@ export class WorkspaceCapsuleManager {
     }
     const capsule = value as WorkspaceCapsule;
     if (!/^caps_[a-f0-9]{20}$/.test(capsule.id)) throw new Error('Capsule id is invalid.');
+    if (capsule.grantRevision !== undefined &&
+        (!Number.isSafeInteger(capsule.grantRevision) || capsule.grantRevision < 1)) {
+      throw new Error('Capsule grant revision is invalid.');
+    }
     if (typeof capsule.workspaceRoot !== 'string') throw new Error('Capsule workspaceRoot is invalid.');
     capsule.workspaceRoot = legacyPersistedPath(capsule.workspaceRoot);
     this.assertAllowedRoot(capsule.workspaceRoot);
@@ -567,6 +603,38 @@ export class WorkspaceCapsuleManager {
     return capsule;
   }
 
+  /**
+   * Fail-closed, cross-process exclusion for this grant store. Every writer
+   * refreshes persisted state AFTER taking the lock, before mutating it.
+   * Abandoned locks require owner inspection; old lock-ignorant writers and
+   * unprotected filesystem ACLs remain outside this source-level guarantee.
+   */
+  private withWriteLock<T>(mutate: () => T): T {
+    mkdirSync(dirname(this.persistPath), { recursive: true, mode: 0o700 });
+    const lockPath = this.persistPath + '.lock';
+    try {
+      mkdirSync(lockPath, { mode: 0o700 });
+    } catch {
+      throw new Error('CAPSULE_WRITER_BUSY');
+    }
+    try {
+      if (existsSync(this.persistPath)) this.load();
+      else if (this.persistedOnce) throw new Error('CAPSULE_STORE_UNAVAILABLE');
+      const snapshot = new Map<string, WorkspaceCapsule>(
+        [...this.capsules].map(([id, value]): [string, WorkspaceCapsule] => [id, cloneCapsule(value)]),
+      );
+      try {
+        return mutate();
+      } catch (error) {
+        this.capsules.clear();
+        for (const [id, value] of snapshot) this.capsules.set(id, value);
+        throw error;
+      }
+    } finally {
+      rmdirSync(lockPath);
+    }
+  }
+
   private load(): void {
     if (!existsSync(this.persistPath)) return;
     const parsed = JSON.parse(readFileSync(this.persistPath, 'utf8')) as CapsuleStore;
@@ -577,12 +645,16 @@ export class WorkspaceCapsuleManager {
       throw new Error('Capsule state integrity check failed.');
     }
     const seen = new Set<string>();
+    const restored = new Map<string, WorkspaceCapsule>();
     for (const value of parsed.capsules) {
       const capsule = this.validatePersistedCapsule(value);
       if (seen.has(capsule.id)) throw new Error(`Duplicate capsule id: ${capsule.id}`);
       seen.add(capsule.id);
-      this.capsules.set(capsule.id, capsule);
+      restored.set(capsule.id, capsule);
     }
+    this.capsules.clear();
+    for (const [id, capsule] of restored) this.capsules.set(id, capsule);
+    this.persistedOnce = true;
   }
 
   private persist(): void {
@@ -592,5 +664,6 @@ export class WorkspaceCapsuleManager {
     const state: CapsuleStore = { version: 1, capsules, digest: storeDigest(capsules) };
     writeFileSync(temp, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
     renameSync(temp, this.persistPath);
+    this.persistedOnce = true;
   }
 }
