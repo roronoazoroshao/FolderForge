@@ -24,6 +24,7 @@ describe('UA-002 persisted owner-authority filesystem tool denial', () => {
   it('denies registry and grant state, temp files and writer locks by default', () => {
     const { root, policy } = setup();
     const protectedPaths = [
+      '.folderforge',
       '.folderforge/workspaces.json',
       '.folderforge/workspaces.json.123.tmp',
       '.folderforge/workspaces.json.lock',
