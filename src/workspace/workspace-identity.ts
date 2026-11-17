@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { canonicalExistingPath, isPathWithin } from '../core/path-identity.js';
 
@@ -79,38 +79,65 @@ export class WorkspaceIdentityRegistry {
     renameSync(temp, this.path);
   }
 
+  /**
+   * mkdir is an atomic, cross-process writer exclusion primitive on the state
+   * filesystem. A held/abandoned lock denies writes; never auto-remove it.
+   * This does not fence older writers that ignore the lock or prove state ACLs.
+   */
+  private withWriteLock<T>(mutate: () => T): T {
+    mkdirSync(dirname(this.path), { recursive: true, mode: 0o700 });
+    const lockPath = this.path + '.lock';
+    try {
+      mkdirSync(lockPath, { mode: 0o700 });
+    } catch {
+      throw new Error('WORKSPACE_REGISTRY_WRITER_BUSY');
+    }
+    try {
+      return mutate();
+    } finally {
+      rmdirSync(lockPath);
+    }
+  }
+
   /** Owner-only registry enrollment; a client-supplied ID can never enroll itself. */
   register(path: string): Readonly<{ workspaceId: string; root: string }> {
-    const item = this.filesystemIdentity(path);
-    let records: IdentityRecord[];
-    try {
-      records = this.read();
-    } catch (error) {
-      if ((error as Error).message !== 'WORKSPACE_REGISTRY_UNAVAILABLE' ||
-          existsSync(this.path)) throw error;
-      records = [];
-    }
-    const found = records.find((r) => r.dev === item.dev && r.ino === item.ino);
-    if (found) return Object.freeze({ workspaceId: found.workspaceId, root: item.root });
-    const entry = { ...item, workspaceId: 'ws_' + randomUUID().replace(/-/g, '') };
-    this.write([...records, entry]);
-    return Object.freeze({ workspaceId: entry.workspaceId, root: entry.root });
+    return this.withWriteLock(() => {
+      const item = this.filesystemIdentity(path);
+      let records: IdentityRecord[];
+      try {
+        records = this.read();
+      } catch (error) {
+        if ((error as Error).message !== 'WORKSPACE_REGISTRY_UNAVAILABLE' ||
+            existsSync(this.path)) throw error;
+        records = [];
+      }
+      const found = records.find((r) => r.dev === item.dev && r.ino === item.ino);
+      if (found) {
+        if (found.root !== item.root) throw new Error('WORKSPACE_REATTACH_REQUIRED');
+        return Object.freeze({ workspaceId: found.workspaceId, root: item.root });
+      }
+      const entry = { ...item, workspaceId: 'ws_' + randomUUID().replace(/-/g, '') };
+      this.write([...records, entry]);
+      return Object.freeze({ workspaceId: entry.workspaceId, root: entry.root });
+    });
   }
 
   /** Reattach a moved directory only when its filesystem identity remains unchanged. */
   reattach(workspaceId: string, newPath: string): Readonly<{ workspaceId: string; root: string }> {
-    const records = this.read();
-    const index = records.findIndex((r) => r.workspaceId === workspaceId);
-    if (index < 0) throw new Error('WORKSPACE_UNKNOWN');
-    const item = this.filesystemIdentity(newPath);
-    const previous = records[index]!;
-    if (previous.dev !== item.dev || previous.ino !== item.ino ||
-        records.some((r, i) => i !== index && r.root === item.root)) {
-      throw new Error('WORKSPACE_REATTACH_IDENTITY_MISMATCH');
-    }
-    records[index] = { ...previous, root: item.root };
-    this.write(records);
-    return Object.freeze({ workspaceId, root: item.root });
+    return this.withWriteLock(() => {
+      const records = this.read();
+      const index = records.findIndex((r) => r.workspaceId === workspaceId);
+      if (index < 0) throw new Error('WORKSPACE_UNKNOWN');
+      const item = this.filesystemIdentity(newPath);
+      const previous = records[index]!;
+      if (previous.dev !== item.dev || previous.ino !== item.ino ||
+          records.some((r, i) => i !== index && r.root === item.root)) {
+        throw new Error('WORKSPACE_REATTACH_IDENTITY_MISMATCH');
+      }
+      records[index] = { ...previous, root: item.root };
+      this.write(records);
+      return Object.freeze({ workspaceId, root: item.root });
+    });
   }
 
   /** Always resolves from disk; symlink retargeting/rename/rebind fail closed. */
