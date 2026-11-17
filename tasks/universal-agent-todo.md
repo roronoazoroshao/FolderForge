@@ -11,6 +11,13 @@
 - Host: 65G disk available (86% used), swap ~4/4G used; 24 active registry entries, 22 unverifiable + 2 missing worktree. Recovery [#118](https://github.com/roronoazoroshao/FolderForge/issues/118) remains OPEN. Preserve all records.
 - Next conditional source target **UA-002** (identity / persisted owner grants), inspect draft #200; no upstream #200/#203 auto-merge and no C1 pass until C0 gate closure.
 
+## UA-002 source checkpoint — 2026-11-17 (not C1 closure)
+
+- [Draft PR #207](https://github.com/roronoazoroshao/FolderForge/pull/207) targets main; source commit `30f70d17a9a5ef52e6a8ac63db9c2d6650a4f5a8` implements registry-issued workspace identity, persisted capsule grant revision and immutable fail-closed operation context. Changes are **not merged** or enabled in MCP; security review required.
+- RED: initial absent implementation import failed; subsequent unscoped authorization test failed 1/11. GREEN: 11/11 new negative tests PASS; combined source/legacy CLI+MCP suites **10/10, 74/74 PASS**; `npm run typecheck`, lint, architecture (167, 0 violations), docs (142 before updated handoff) PASS. Final PR-head CI must be independently checked.
+- GitHub [main push CI #44044422100](https://github.com/roronoazoroshao/FolderForge/actions/runs/44044422100) on exact `599473d`: 7/7 jobs success. This resolves only the previous main-CI uncertainty.
+- C0 remains HOLD (#118, off-host restore, independent security reviewer, host swap), C1 remains HOLD (authenticated owner registry enrollment, cross-process writer fencing, MCP binding and real 2-client proof). Do not check UA-002 DONE yet. See [NEXT_SESSION](../docs/handoffs/NEXT_SESSION.md) for complete copy-ready continuation.
+
 ## Status legend
 
 - `PLANNED` = specification only, not started; `IN_PROGRESS` = work performed, no passed gate yet; `SOURCE_TESTED` = source checks on exact SHA; `E2E_VERIFIED` = actual runtime/browser/creative checks; `MERGED_MAIN` = actual merge and new `main` SHA confirmed; `LIVE_VERIFIED` = explicit operator runtime proof; `BLOCKED` = verified missing prerequisite.
@@ -22,7 +29,7 @@
 | ID / Phase | One focused deliverable | Depends on | Gate / AC | Mapping to existing FF work | State |
 | --- | --- | --- | --- | --- | --- |
 | UA-001 / M0 | Source+contract baseline, host boundary manifest | — | C0 | FF-001–003 (#162–164) | SOURCE_TESTED + MERGED_MAIN (PR #205; `59b1c3d`; C0 security/recovery HOLD) |
-| UA-002 / M1 | Immutable context + real stored owner grants | UA-001 | C1 / AC02 | FF-004–006, FF-013 (#165–167, #174) | PLANNED |
+| UA-002 / M1 | Immutable context + real stored owner grants | UA-001 | C1 / AC02 | FF-004–006, FF-013 (#165–167, #174) | SOURCE_TESTED partial (draft PR #207; C0/C1 HOLD) |
 | UA-003 / M1 | Authenticated MCP stdio/HTTP request scope | UA-002 | C1/C3 / AC01–03,05 | FF-007/008 (#168/169) | PLANNED |
 | UA-004 / M1 | OS-bounded capsule or explicit unavailable state | UA-002 | C2 / AC04,16 | FF-009 (#170) | PLANNED |
 | UA-005 / M1 | Two independent agent isolation/revoke negative suite | UA-003, UA-004 | C1/C2 / AC02–04,06 | FF-009/013 (#170/#174) | PLANNED |
