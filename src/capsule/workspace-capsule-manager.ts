@@ -620,7 +620,9 @@ export class WorkspaceCapsuleManager {
     try {
       if (existsSync(this.persistPath)) this.load();
       else if (this.persistedOnce) throw new Error('CAPSULE_STORE_UNAVAILABLE');
-      const snapshot = new Map([...this.capsules].map(([id, value]) => [id, cloneCapsule(value)]));
+      const snapshot = new Map<string, WorkspaceCapsule>(
+        [...this.capsules].map(([id, value]): [string, WorkspaceCapsule] => [id, cloneCapsule(value)]),
+      );
       try {
         return mutate();
       } catch (error) {
