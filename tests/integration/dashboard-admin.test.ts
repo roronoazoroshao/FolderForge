@@ -11,9 +11,12 @@ import { Container } from '../../src/runtime/container.js';
 import {
   LOOPBACK_DASHBOARD_ADMIN_PRINCIPAL,
   LOOPBACK_HTTP_AGENT_PRINCIPAL,
+  credentialPrincipalId,
 } from '../../src/core/principal.js';
 import { startDashboard } from '../../src/dashboard/server.js';
 import { buildRegistry } from '../../src/tools/index.js';
+
+const CAPSULE_OWNER_TOKEN = 'ua002-admin-test-credential';
 
 interface DashboardHarness {
   root: string;
@@ -22,7 +25,7 @@ interface DashboardHarness {
   baseUrl: string;
 }
 
-async function startHarness(): Promise<DashboardHarness> {
+async function startHarness(authenticatedOwner = false): Promise<DashboardHarness> {
   const root = mkdtempSync(join(tmpdir(), 'folderforge-dashboard-admin-'));
   execFileSync('git', ['init', '-b', 'main'], { cwd: root });
   execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: root });
@@ -34,7 +37,10 @@ async function startHarness(): Promise<DashboardHarness> {
   config.rateLimit.enabled = false;
   const container = new Container(config);
   const registry = buildRegistry(container);
-  const server = startDashboard(container, registry, { host: '127.0.0.1', port: 0 });
+  const server = startDashboard(container, registry, {
+    host: '127.0.0.1', port: 0,
+    ...(authenticatedOwner ? { requireAuth: true, token: CAPSULE_OWNER_TOKEN } : {}),
+  });
   if (!server.listening) await once(server, 'listening');
   const address = server.address() as AddressInfo;
   return {
@@ -177,13 +183,13 @@ describe('dashboard admin authorization plane', () => {
     expect(policyEvents).toHaveLength(1);
     expect(policyEvents[0]?.detail?.actorId).toBe(LOOPBACK_DASHBOARD_ADMIN_PRINCIPAL.id);
   });
-  it('creates, lists, and revokes Workspace Capsules through the admin plane', async () => {
-    const harness = await startHarness();
+  it('creates, lists, and revokes Workspace Capsules through the authenticated owner plane', async () => {
+    const harness = await startHarness(true);
     harnesses.push(harness);
 
     const createdResponse = await fetch(`${harness.baseUrl}/capsules`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${CAPSULE_OWNER_TOKEN}` },
       body: JSON.stringify({
         principalId: 'credential:agent-a',
         sessionId: 'session:a',
@@ -195,7 +201,9 @@ describe('dashboard admin authorization plane', () => {
     const created = (await createdResponse.json()) as { capsule: { id: string; profile: string } };
     expect(created.capsule.profile).toBe('develop');
 
-    const listResponse = await fetch(`${harness.baseUrl}/capsules`);
+    const listResponse = await fetch(`${harness.baseUrl}/capsules`, {
+      headers: { authorization: `Bearer ${CAPSULE_OWNER_TOKEN}` },
+    });
     expect(listResponse.status).toBe(200);
     const list = (await listResponse.json()) as { active: number; capsules: Array<{ id: string }> };
     expect(list.active).toBe(1);
@@ -203,11 +211,11 @@ describe('dashboard admin authorization plane', () => {
 
     const revokedResponse = await fetch(
       `${harness.baseUrl}/capsules/${created.capsule.id}/revoke`,
-      { method: 'POST' },
+      { method: 'POST', headers: { authorization: `Bearer ${CAPSULE_OWNER_TOKEN}` } },
     );
     expect(revokedResponse.status).toBe(200);
     const revoked = (await revokedResponse.json()) as { capsule: { revokedBy: string } };
-    expect(revoked.capsule.revokedBy).toBe(LOOPBACK_DASHBOARD_ADMIN_PRINCIPAL.id);
+    expect(revoked.capsule.revokedBy).toBe(credentialPrincipalId(CAPSULE_OWNER_TOKEN));
 
     const policyEvents = harness.container.audit
       .recent(20)
