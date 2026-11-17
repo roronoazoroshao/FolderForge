@@ -34,6 +34,8 @@ export interface CapsuleLimits {
 
 export interface WorkspaceCapsule {
   id: string;
+  /** Owner-granted revision; absent in legacy records (ineligible for UA-002). */
+  grantRevision?: number;
   workspaceRoot: string;
   workspaceId: string;
   principalId: string;
@@ -215,6 +217,7 @@ export class WorkspaceCapsuleManager {
     const createdAt = new Date();
     const capsule: WorkspaceCapsule = {
       id: `caps_${randomUUID().replace(/-/g, '').slice(0, 20)}`,
+      grantRevision: 1,
       workspaceRoot: root,
       workspaceId: workspaceId(root),
       principalId: input.principalId.trim(),
@@ -259,6 +262,7 @@ export class WorkspaceCapsuleManager {
     if (!capsule.revokedAt) {
       capsule.revokedAt = new Date().toISOString();
       capsule.revokedBy = actorId;
+      if (capsule.grantRevision !== undefined) capsule.grantRevision += 1;
       this.persist();
     }
     return cloneCapsule(capsule);
@@ -403,6 +407,24 @@ export class WorkspaceCapsuleManager {
     return { kind: 'allow', capsule };
   }
 
+  /**
+   * Source-only authorization path: reload persisted grants on every operation.
+   * Never use cached authority after missing/corrupt state or an I/O error.
+   */
+  checkPersisted(
+    principal: ToolPrincipal,
+    projectRoot: string,
+    call: Parameters<WorkspaceCapsuleManager['check']>[2],
+  ): CapsuleDecision {
+    try {
+      if (!existsSync(this.persistPath)) throw new Error('missing grant store');
+      this.load();
+    } catch {
+      return { kind: 'deny', reason: 'Persisted capsule grants unavailable or invalid.' };
+    }
+    return this.check(principal, projectRoot, call);
+  }
+
   reserve(id: string, mutates: boolean): WorkspaceCapsule {
     const capsule = this.capsules.get(id);
     if (!capsule) throw new Error(`Capsule not found: ${id}`);
@@ -508,6 +530,10 @@ export class WorkspaceCapsuleManager {
     }
     const capsule = value as WorkspaceCapsule;
     if (!/^caps_[a-f0-9]{20}$/.test(capsule.id)) throw new Error('Capsule id is invalid.');
+    if (capsule.grantRevision !== undefined &&
+        (!Number.isSafeInteger(capsule.grantRevision) || capsule.grantRevision < 1)) {
+      throw new Error('Capsule grant revision is invalid.');
+    }
     if (typeof capsule.workspaceRoot !== 'string') throw new Error('Capsule workspaceRoot is invalid.');
     capsule.workspaceRoot = legacyPersistedPath(capsule.workspaceRoot);
     this.assertAllowedRoot(capsule.workspaceRoot);
@@ -577,12 +603,15 @@ export class WorkspaceCapsuleManager {
       throw new Error('Capsule state integrity check failed.');
     }
     const seen = new Set<string>();
+    const restored = new Map<string, WorkspaceCapsule>();
     for (const value of parsed.capsules) {
       const capsule = this.validatePersistedCapsule(value);
       if (seen.has(capsule.id)) throw new Error(`Duplicate capsule id: ${capsule.id}`);
       seen.add(capsule.id);
-      this.capsules.set(capsule.id, capsule);
+      restored.set(capsule.id, capsule);
     }
+    this.capsules.clear();
+    for (const [id, capsule] of restored) this.capsules.set(id, capsule);
   }
 
   private persist(): void {
