@@ -180,6 +180,8 @@ const DEFAULT_DENIED_GLOBS = [
   '**/.git/folderforge/rollbacks/**',
   // Owner-issued identity and grants: agent file tools must never edit data,
   // atomic-replace temps or cooperative locks (including symlink aliases).
+  // Deny the owner state directory itself to prevent file_move renaming it.
+  '**/.folderforge',
   '**/.folderforge/workspaces.json',
   '**/.folderforge/workspaces.json.*.tmp',
   '**/.folderforge/workspaces.json.lock',
