@@ -23,3 +23,7 @@ Maintain compatibility with existing Node/TypeScript/MCP/CLI/React stack. Use in
 One trusted principal+grant+workspace+capsule for every tool action; no trust in prompt-supplied identity. An arbitrary shell with the same host UID does not provide OS isolation. OpenHands-class coding must be proven by real live Web UI/trace/assertions; design-class work by editable source+preview+revision. Host/root authority requires a separate owner-granted broker, independent OS/security evidence and release gate, never by default.
 
 Preserve owner safety: issue #118 isolation writer fencing and any detached recovery worktrees remain gated; do not restart/provision/force-clean the live host or do broad `git clean` to free space. Fail closed on missing audit, ownership, sandbox or capacity evidence. Use CI/ephemeral isolated workers for resource-heavy tests.
+
+## Stable recursive session continuation (2026-11-23)
+
+Use [`docs/continuation/MASTER_PROMPT.md`](docs/continuation/MASTER_PROMPT.md) (stable `PROMPT_ID: FF-RECURSIVE-01`) and [`docs/continuation/CURRENT_CONTEXT.md`](docs/continuation/CURRENT_CONTEXT.md) as the compact next-session entrypoint. Future scoped reviewed sessions **overwrite these same two files**, not append dated prompt histories. Preserve the Goal Map, task ledger, existing UA-002 handoff and all actual CI/review/owner safety gates. Target merge to `main` plus safe deletion of only the merged branch; `BLOCKED` is mandatory when gates or a safe deletion action are absent. A prompt does not schedule background work.
