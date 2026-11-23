@@ -1,25 +1,23 @@
-# FolderForge — Recursive Session Master Prompt
+# FolderForge — Recursive Roadmap Execution Master Prompt
 
 **PROMPT_ID:** `FF-RECURSIVE-01` (stable)  
-**REVISION:** 2 · **UPDATED:** 2026-11-23 Asia/Ho_Chi_Minh  
+**REVISION:** 3 · **UPDATED:** 2026-11-23 Asia/Ho_Chi_Minh  
 **ENTRY:** `docs/continuation/MASTER_PROMPT.md`  
 **STATE:** `docs/continuation/CURRENT_CONTEXT.md`
 
-Work in the **real** repository `roronoazoroshao/FolderForge` under its existing owner/governance permissions. North Star: separately authorized agents **Observe → Act → Verify → Repair** real work. Never infer live readiness from docs, source tests or CI alone.
+You are working on the **real** `roronoazoroshao/FolderForge` repo toward the owner-governed Universal Agent roadmap: **Observe → Act → Verify → Repair**. Complete **one smallest safe, measurable roadmap increment per session**, aiming for **merged `main` + verified branch deletion**, never success theatre.
 
-## Start from evidence
-1. Read `AGENTS.md`, this file, `CURRENT_CONTEXT.md`, relevant Goal Map/Roadmap/spec, task ledger and canonical UA-002 handoff. Their explicit safety/owner policies take precedence.
-2. Refresh live `main`, PR/ref SHAs and diffs, exact-HEAD CI/check runs, actual reviewer identities/threads, rules/protection, open issues and recovery state with connected trusted tools. Label inaccessible live host/worktrees `UNKNOWN`, not healthy.
-3. Choose **one** unblocked short-term goal: state `DONE WHEN`, exact evidence, risk, dependency and authorized scope (≤5 changed files by default).
+## Mandatory startup
+1. Activate/use available **Superpowers** (using-superpowers, brainstorming/planning as needed, TDD, code review, verification, branch finishing), **agent-skills** (context, source-driven, security, documentation, Git/CI, shipping), **andrej-karpathy-skills** (simple, explicit, surgical changes), **FolderForge** (workspace/capsule/policy/status, code/verification, approved operations), and **GitHub** (PR, reviews, CI, main refs). Discover and invoke actual installed skills/tools; names alone prove no capability or security guarantee.
+2. Read `AGENTS.md`, this prompt and `CURRENT_CONTEXT.md`. Then inspect canonical [Goal Map](../strategy/UNIVERSAL_AGENT_GOALMAP_2026-11-15.md), [Roadmap](../strategy/UNIVERSAL_AGENT_ROADMAP_2026-11-15.md), [Spec](../superpowers/specs/2026-11-15-universal-agent-work-environment-design.md), [Implementation Plan](../superpowers/plans/2026-11-15-universal-agent-work-environment-implementation.md), [Task Ledger](../../tasks/universal-agent-todo.md), [UA-002 Handoff](../handoffs/NEXT_SESSION.md), relevant issues/ADRs. Precedence: canonical policy and task owners over rolling snapshots.
+3. **Refetch reality**: `main` SHA, open PRs, compare/diffs, final branch HEAD, exact-head CI, authentic reviewer identities/threads, branch policy, workspace/worktrees, capsule and recovery (#118), synthetic review provenance (#202). Mark inaccessible facts `UNKNOWN`.
 
-## Work and integration gates
-4. Use a bounded feature branch/PR targeting `main`; no routine direct-to-main edits. Behavior changes require failing test → smallest fix → fresh verification. Documentation edits require scoped diff, valid links and applicable docs CI.
-5. Before merge, fetch **final PR HEAD** and verify exact-head CI, genuine eligible **non-author** approval, unresolved threads, branch protections and applicable security/owner gates. A green check, author comment, synthetic reviewer, empty rulesets, inaccessible protection API or `mergeable=true` is **not** review authorization. Do not invent a reviewer account; if none is known, record a scoped request and stay blocked.
-6. After any handoff edit/commit, **prior CI is stale**: recheck CI against the new HEAD. Merge only with verified authorization. Then independently check resulting `main` SHA/ancestry before attempting to delete **only** the incorporated feature branch. Ref update is not deletion. If the supported deletion tool is unavailable, preserve the branch and report `BLOCKED_CLEANUP`, not DONE.
-7. **Every session overwrite in place** the same two files: `docs/continuation/CURRENT_CONTEXT.md` and `docs/continuation/MASTER_PROMPT.md` on a scoped reviewed branch. Replace obsolete snapshot, never append dated prompt chains. Preserve `PROMPT_ID=FF-RECURSIVE-01`; increment REVISION only for meaningful prompt edits. Aim context ≤500 and prompt ≤550 words. Do not alter `docs/handoffs/NEXT_SESSION.md` or UA-002 ledger outside task scope.
-8. Do not manipulate live host privileges, isolation registries, recovery worktrees, C0 status or other PRs to force completion. `DONE` requires **MERGED_MAIN + VERIFIED_BRANCH_DELETION**; missing gate → report exact `BLOCKED` reason and preserve unique work. Never imply background execution.
+## Execution to DONE
+4. Prefer integrating an already eligible PR; otherwise pick **one unblocked UA-### or prerequisite** mapped to exact acceptance criteria, dependency gate, user-observable outcome and `DONE WHEN`. Limit scope to ≤5 files by default. Resolve review, isolation and test feasibility **before** starting unmergeable work.
+5. Work on bounded branch and PR → `main`. Use RED→GREEN→REFACTOR for behavior changes; docs require correct links, focused diff and docs checks. Independently challenge assumptions and verify real system boundaries; no fake provider, browser, security or independent-review claims.
+6. **Merge gate:** fresh checks on **final HEAD**, genuine required non-author approval (or a documented explicit, narrow, policy-permitted owner exception), no unresolved blockers, applicable security/recovery authorization. `mergeable=true` or admin rights are not permission. Never mutate production, host isolation registry or recovery worktrees to force green.
+7. After authorized merge, fetch and verify actual `main` SHA and ancestry. Delete **only** the integrated remote branch with a supported safe delete operation; never confuse moving a ref with deleting it. Verify branch absence. No deleting active PRs, unique commits or user worktrees.
+8. **Overwrite in place** `CURRENT_CONTEXT.md` and `MASTER_PROMPT.md` in the same scoped reviewed work (stable `FF-RECURSIVE-01`; no dated chains). Context ≤500 words; master ≤550. After editing, prior CI is stale. If blocked, preserve PR/branch and record exact evidence + next unblocker, `STATUS=BLOCKED`, not `DONE`. No asynchronous execution.
 
-## End-of-session contract
-Report `GOAL | STATUS | BASE_MAIN_SHA | FINAL_PR_HEAD | CI | REVIEW | MERGE_MAIN_SHA | BRANCH_CLEANUP | NEXT_GOAL | PROMPT_ID | PROMPT_PATH`. Cite verifiable GitHub URLs and distinguish checks performed **before** vs **after** the final documentation commit.
-
-The next session starts with the same ID `FF-RECURSIVE-01` and path `docs/continuation/MASTER_PROMPT.md`. If PR #212 remains unmerged, load both continuation files from `docs/stable-session-loop-20261123`, not `main`.
+## End-of-session evidence
+Report `GOAL | STATUS | BASE_MAIN_SHA | FINAL_PR_HEAD | CI | REVIEW | MERGE_MAIN_SHA | BRANCH_DELETION | NEXT_UNBLOCKER | PROMPT_ID | PROMPT_PATH`; include URLs and distinguish historical from final-head checks. **DONE** only means `MERGED_MAIN + VERIFIED_BRANCH_DELETION`. Next fresh chat receives only this stable prompt ID/path, not a new dated prompt.

@@ -1,23 +1,21 @@
 # FolderForge — Rolling Session Context
 
 **CONTEXT_ID:** `FF-RECURSIVE-01/STATE`  
-**CHECKED:** 2026-11-23, Asia/Ho_Chi_Minh (GitHub only; refetch live state)  
+**CHECKED:** 2026-11-23 Asia/Ho_Chi_Minh; GitHub + FolderForge reads before this edit  
 **GOAL:** `DOC-212-SAFE-INTEGRATION`  
-**STATUS:** `BLOCKED_REVIEW` — not `MERGED_MAIN`; C0 security/recovery `HOLD`  
+**STATUS:** `BLOCKED_REVIEW` (no `MERGED_MAIN`); C0 security/recovery `HOLD`  
 **MASTER:** [MASTER_PROMPT.md](MASTER_PROMPT.md)
 
-## Verified before this handoff edit
-- `main@599473dec46bddcabda618223d5ec7636261b5ef`.
-- [PR #212](https://github.com/roronoazoroshao/FolderForge/pull/212) OPEN, unmerged, base `main`; branch `docs/stable-session-loop-20261123` at **pre-handoff** `243e5ae9490b44629bb6a4218aa362b188e12802`. Ahead 1/behind 0; only `AGENTS.md` and the two stable continuation files.
-- [Exact-head CI #45154128499](https://github.com/roronoazoroshao/FolderForge/actions/runs/45154128499) completed SUCCESS, 7/7 jobs, **for pre-handoff head only**. This edit advances the branch HEAD: new exact-head CI must be independently rechecked.
-- PR #212: 0 submitted reviews, 0 review threads, 0 comments at check. Authenticated `roronoazoroshao369` is also author; no legitimate independent APPROVED. `mergeable=true` is insufficient. Repository rulesets response `[]`, branch protection read `403`: **no proven policy waiver**.
-- [PR #211](https://github.com/roronoazoroshao/FolderForge/pull/211) remains OPEN at `37616fbecd7abffa66e288684028a56db2c23ce4`; 0 submitted reviews, proposed ADR-0013 unapproved. Historical CI success does not certify browser egress security.
-- [#118](https://github.com/roronoazoroshao/FolderForge/issues/118) host writer-epoch/recovery and [#202](https://github.com/roronoazoroshao/FolderForge/issues/202) synthetic reviewer provenance remain OPEN. Do not infer C0 PASS.
+## Verified pre-edit evidence
+- GitHub `main@599473dec46bddcabda618223d5ec7636261b5ef`; branch `docs/stable-session-loop-20261123` PR [#212](https://github.com/roronoazoroshao/FolderForge/pull/212) OPEN, unmerged, base `main`, **pre-edit HEAD `b7226710e62e516da002681e2285c5f77b59357f`**. Docs-only, three changed files.
+- [CI #45155738895](https://github.com/roronoazoroshao/FolderForge/actions/runs/45155738895) for **that pre-edit SHA**: completed SUCCESS, 7/7 check runs SUCCESS. This session edits `AGENTS.md` and overwrites both continuation files, **so CI must be rechecked on the new HEAD**.
+- PR #212: 0 submitted reviews, 0 review threads, `mergeable=true`; no independent APPROVED. Authenticated `roronoazoroshao369` is the PR author. [Review requested publicly](https://github.com/roronoazoroshao/FolderForge/pull/212#issuecomment-7097913893) but no nominated eligible reviewer. GitHub `main` reports `protected=false`, rulesets `[]`; branch protection detail API previously 403. These facts do **not** waive documented review requirements.
+- [PR #211](https://github.com/roronoazoroshao/FolderForge/pull/211) OPEN/unreviewed, proposal ADR-0013 not adopted; host security [#118](https://github.com/roronoazoroshao/FolderForge/issues/118) OPEN; synthetic-review provenance [#202](https://github.com/roronoazoroshao/FolderForge/issues/202) OPEN.
+- FolderForge workspace `/home/devops/FolderForge` active with `danger` policy, no active capsule (enforcement `optional`), local branch `feat/ua002-trusted-context-20261117` clean. **Danger mode is not independent security approval.** No worktree/registry modification or host cleanup.
 
-## Safety and next actions
-- Host capacity, live isolation state and local UA-002 worktree were **NOT RECHECKED** this session. No host/recovery operations, broad cleanup, fake reviews or deployment.
-- For PR #212: fetch final HEAD and new CI; obtain genuine qualified nonauthor review and verify applicable policy. Merge to main **only after gates**, then verify `main` SHA and ancestry.
-- Safe remote branch **deletion action is not exposed by the current GitHub connector**; `update_ref` moves a ref but cannot delete it. If no verified safe deletion capability is available, **preserve branch and report `BLOCKED_CLEANUP`**, not DONE.
-- Then separately review PR #211; keep BR-002 and UA-002 operational progression conditional on their real security/recovery gates.
+## Next small unblocker
+1. Re-read current PR #212 HEAD, CI and review/threads after this commit. Secure genuine eligible independent reviewer, or explicit narrowly scoped owner exception **only if policy permits**. Do not forge approvals or assume a command can waive gates.
+2. If all gates satisfied: merge PR #212 to `main`, verify SHA/ancestry, safely delete only the merged remote branch (e.g. verified `git push origin --delete` if tool/policy allow), verify absence. Otherwise keep PR/branch and report `BLOCKED`.
+3. Then separately review PR #211 and choose smallest roadmap task. UA-002/C1 and browser BR-002 cannot claim full security/recovery C0 PASS.
 
-**Precedence:** [AGENTS.md](../../AGENTS.md), [Goal Map](../strategy/UNIVERSAL_AGENT_GOALMAP_2026-11-15.md), [Roadmap](../strategy/UNIVERSAL_AGENT_ROADMAP_2026-11-15.md), [task ledger](../../tasks/universal-agent-todo.md), [UA-002 handoff](../handoffs/NEXT_SESSION.md). This snapshot is evidence, not authority.
+**Precedence:** [AGENTS.md](../../AGENTS.md), [Goal Map](../strategy/UNIVERSAL_AGENT_GOALMAP_2026-11-15.md), [Roadmap](../strategy/UNIVERSAL_AGENT_ROADMAP_2026-11-15.md), [Task Ledger](../../tasks/universal-agent-todo.md), [UA-002 Handoff](../handoffs/NEXT_SESSION.md). Refresh, do not extrapolate.
