@@ -14,6 +14,7 @@
 - FolderForge workspace `/home/devops/FolderForge` active with `danger` policy, no active capsule (enforcement `optional`), local branch `feat/ua002-trusted-context-20261117` clean. **Danger mode is not independent security approval.** No worktree/registry modification or host cleanup.
 
 ## Next small unblocker
+- Until PR #212 merges, start from `docs/stable-session-loop-20261123` for these two files; do not read nonexistent `main` copies.
 1. Re-read current PR #212 HEAD, CI and review/threads after this commit. Secure genuine eligible independent reviewer, or explicit narrowly scoped owner exception **only if policy permits**. Do not forge approvals or assume a command can waive gates.
 2. If all gates satisfied: merge PR #212 to `main`, verify SHA/ancestry, safely delete only the merged remote branch (e.g. verified `git push origin --delete` if tool/policy allow), verify absence. Otherwise keep PR/branch and report `BLOCKED`.
 3. Then separately review PR #211 and choose smallest roadmap task. UA-002/C1 and browser BR-002 cannot claim full security/recovery C0 PASS.
