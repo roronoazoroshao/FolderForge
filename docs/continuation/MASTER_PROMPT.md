@@ -1,25 +1,25 @@
 # FolderForge — Recursive Session Master Prompt
 
 **PROMPT_ID:** `FF-RECURSIVE-01` (stable)  
-**REVISION:** 1 · **UPDATED:** 2026-11-23 Asia/Ho_Chi_Minh  
+**REVISION:** 2 · **UPDATED:** 2026-11-23 Asia/Ho_Chi_Minh  
 **ENTRY:** `docs/continuation/MASTER_PROMPT.md`  
 **STATE:** `docs/continuation/CURRENT_CONTEXT.md`
 
-You are an authorized engineer working in the **real** repository `roronoazoroshao/FolderForge`. The North Star is an owner-governed environment where independently authorized AI agents **Observe → Act → Verify → Repair** real work. No assertion of live readiness without actual evidence.
+Work in the **real** repository `roronoazoroshao/FolderForge` under its existing owner/governance permissions. North Star: separately authorized agents **Observe → Act → Verify → Repair** real work. Never infer live readiness from docs, source tests or CI alone.
 
-## At session start
-1. Read `AGENTS.md`, this prompt, `CURRENT_CONTEXT.md`, relevant Goal Map/Roadmap/spec and task ledger. Existing canonical policy and task owners prevail over this rolling handoff.
-2. Refresh `main`, worktree, PR branches/commits/diffs, review authors and exact-head provenance, CI, issues, capacity and recovery state through trusted tools. Old context is **not** proof; label unverified facts `UNKNOWN` or `NOT_RUN`.
-3. Pick **one** unblocked short-term goal and specify `DONE WHEN`, evidence oracles, ≤5 changed files by default, dependencies, risk and authorization.
+## Start from evidence
+1. Read `AGENTS.md`, this file, `CURRENT_CONTEXT.md`, relevant Goal Map/Roadmap/spec, task ledger and canonical UA-002 handoff. Their explicit safety/owner policies take precedence.
+2. Refresh live `main`, PR/ref SHAs and diffs, exact-HEAD CI/check runs, actual reviewer identities/threads, rules/protection, open issues and recovery state with connected trusted tools. Label inaccessible live host/worktrees `UNKNOWN`, not healthy.
+3. Choose **one** unblocked short-term goal: state `DONE WHEN`, exact evidence, risk, dependency and authorized scope (≤5 changed files by default).
 
-## Execute, merge, clean up
-4. Create a bounded branch and PR to `main`; don't edit live `main` by default. For behavior changes: failing test → minimal implementation → full relevant verification. For docs: correct links, scoped diff, docs CI. No invented CI, independent reviews, provider or browser proof.
-5. Before merge, fetch the **final HEAD** and verify CI, actual independent reviewer identity, blocking threads, branch policy and any security/owner gates. `mergeable=true`, admin rights, author comments and synthetic AI reviewers do not waive requirements. An exception must be genuine, explicit, narrow and permitted.
-6. Merge only when authorized; independently verify the resulting `main` SHA/ancestry. Delete **only the now-merged feature branch** through an actual safe remote deletion action. Updating a Git ref is NOT deleting it. Preserve unique commits, live PRs, host recovery worktrees and isolation state.
-7. **Overwrite in place each session:** prepare fresh `docs/continuation/CURRENT_CONTEXT.md` and `docs/continuation/MASTER_PROMPT.md` in the same scoped reviewed PR when applicable. Replace obsolete context, never append historical prompts. Keep `PROMPT_ID=FF-RECURSIVE-01`; only increment REVISION when prompt content changes. Aim for context ≤500 words, prompt ≤550. Mark post-merge details `PENDING_VERIFICATION` until actually observed; re-check on next startup. Do not overwrite canonical UA-002 `docs/handoffs/NEXT_SESSION.md` outside its scope.
-8. Goal-complete means **MERGED_MAIN + VERIFIED_BRANCH_DELETION**. If any necessary review, policy, safety gate or deletion tool is missing, stop safely as `BLOCKED` with exact evidence and keep PR/branch. This is preferable to false success. Do not claim background execution.
+## Work and integration gates
+4. Use a bounded feature branch/PR targeting `main`; no routine direct-to-main edits. Behavior changes require failing test → smallest fix → fresh verification. Documentation edits require scoped diff, valid links and applicable docs CI.
+5. Before merge, fetch **final PR HEAD** and verify exact-head CI, genuine eligible **non-author** approval, unresolved threads, branch protections and applicable security/owner gates. A green check, author comment, synthetic reviewer, empty rulesets, inaccessible protection API or `mergeable=true` is **not** review authorization. Do not invent a reviewer account; if none is known, record a scoped request and stay blocked.
+6. After any handoff edit/commit, **prior CI is stale**: recheck CI against the new HEAD. Merge only with verified authorization. Then independently check resulting `main` SHA/ancestry before attempting to delete **only** the incorporated feature branch. Ref update is not deletion. If the supported deletion tool is unavailable, preserve the branch and report `BLOCKED_CLEANUP`, not DONE.
+7. **Every session overwrite in place** the same two files: `docs/continuation/CURRENT_CONTEXT.md` and `docs/continuation/MASTER_PROMPT.md` on a scoped reviewed branch. Replace obsolete snapshot, never append dated prompt chains. Preserve `PROMPT_ID=FF-RECURSIVE-01`; increment REVISION only for meaningful prompt edits. Aim context ≤500 and prompt ≤550 words. Do not alter `docs/handoffs/NEXT_SESSION.md` or UA-002 ledger outside task scope.
+8. Do not manipulate live host privileges, isolation registries, recovery worktrees, C0 status or other PRs to force completion. `DONE` requires **MERGED_MAIN + VERIFIED_BRANCH_DELETION**; missing gate → report exact `BLOCKED` reason and preserve unique work. Never imply background execution.
 
-## Report at end
-`GOAL | STATUS | BASE_MAIN_SHA | FINAL_PR_HEAD | CI | REVIEW | MERGE_MAIN_SHA | BRANCH_CLEANUP | NEXT_GOAL | PROMPT_ID | PROMPT_PATH`.
+## End-of-session contract
+Report `GOAL | STATUS | BASE_MAIN_SHA | FINAL_PR_HEAD | CI | REVIEW | MERGE_MAIN_SHA | BRANCH_CLEANUP | NEXT_GOAL | PROMPT_ID | PROMPT_PATH`. Cite verifiable GitHub URLs and distinguish checks performed **before** vs **after** the final documentation commit.
 
-Give the next session **PROMPT_ID `FF-RECURSIVE-01`** and the **same** master prompt path, not an ever-growing new dated file. If this protocol itself remains only in a PR, cite that PR/ref and reconcile before assuming it is on `main`.
+The next session starts with the same ID `FF-RECURSIVE-01` and path `docs/continuation/MASTER_PROMPT.md`. If PR #212 remains unmerged, load both continuation files from `docs/stable-session-loop-20261123`, not `main`.
