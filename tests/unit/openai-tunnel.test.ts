@@ -4,6 +4,7 @@ import {
   mkdtempSync,
   mkdirSync,
   readFileSync,
+  rmSync,
   statSync,
   symlinkSync,
   writeFileSync,
@@ -551,6 +552,55 @@ describe("OpenAI Secure MCP Tunnel CLI", () => {
     expect(result.exitCode).toBe(0);
     expect(result.output).toContain("0.0.10");
   });
+
+  it.each([false, true])(
+    "explains missing client discovery (autoInstall=%s) without revealing PATH or secrets",
+    async (autoInstall) => {
+      const root = mkdtempSync(join(tmpdir(), "folderforge-openai-discovery-"));
+      try {
+        const project = join(root, "project");
+        mkdirSync(project);
+        let fetchCalls = 0;
+        const result = await executeOpenAiTunnelCli(
+          [
+            "connect", "--openai-tunnel", "--project", project, "--install-only",
+            ...(autoInstall ? [] : ["--no-install"]),
+          ],
+          {
+            env: {
+              PATH: join(root, "private-path-marker"),
+              CONTROL_PLANE_API_KEY: "fixture-secret-marker",
+            },
+            homeDir: root,
+            stdoutIsTty: false,
+            fetchImpl: async () => {
+              fetchCalls++;
+              return new Response(null, { status: 503 });
+            },
+          },
+        );
+
+        expect(result.exitCode).toBe(1);
+        // Fleet retains only the first 240 characters of the fatal reason.
+        const fatal = result.output.split("\n").find((line) => line.startsWith("✗ "));
+        const visible = fatal?.slice(2, 239) ?? "";
+        expect(visible).toContain("PATH");
+        expect(visible).toContain("saved receipt");
+        expect(visible).toContain("~/.folderforge/bin/");
+        expect(visible).toContain("--tunnel-client <absolute-path>");
+        expect(visible).toContain("FOLDERFORGE_TUNNEL_CLIENT");
+        expect(visible).toContain("--install-only --no-install");
+        expect(result.output).not.toContain("private-path-marker");
+        expect(result.output).not.toContain("fixture-secret-marker");
+        expect(fetchCalls).toBe(autoInstall ? 1 : 0);
+        if (autoInstall) {
+          expect(result.output).toContain("GitHub release lookup returned HTTP 503");
+        }
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
 
   it("rejects an incompatible tunnel-client before launch", async () => {
     const root = mkdtempSync(

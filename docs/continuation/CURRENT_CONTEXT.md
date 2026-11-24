@@ -1,15 +1,15 @@
 # FolderForge — Rolling Session Context
 
-**CONTEXT_ID:** FF-RECURSIVE-01/STATE  
-**CHECKED:** 2026-11-24 Asia/Ho_Chi_Minh (pre-commit)  
-**GOAL:** UA-001 / M0 / C0 disposable process interruption fixture  
-**STATUS:** IN_PROGRESS; proposed test awaiting exact-head execution and review. Operational C0 HOLD.
+**CONTEXT_ID:** `FF-RECURSIVE-01/STATE`
+**CHECKED:** 2026-11-24 Asia/Ho_Chi_Minh (before proposed reconciliation commit)
+**GOAL:** UA-001 / M0 / C0 disposable interrupted-writer test
+**STATUS:** SOURCE_TESTED fixture; final-head CI/review/integration pending; operational C0 HOLD.
+**MASTER:** [MASTER_PROMPT.md](MASTER_PROMPT.md)
 
-- Canonical main before this change: `567ce3f4974a011e90625693793d23a82347d447`, PR #212 merged; exact main check runs 7/7 SUCCESS. Previous BLOCKED_REVIEW snapshot is historical.
-- PR #214 governance draft `9948a0b0ace892cdf72b061a69fbedc68629f703`, CI observed 3/7 success, 4 running, zero reviews. Not adopted. Proposal omits G8 from stated goal preservation; retain G1–G8.
-- PR #213 `2584e62db66092eae65244bdd0e676a6e318efe8` and #211 `37616fbecd7abffa66e288684028a56db2c23ce4`: 7/7 exact-head checks, zero reviews; preserve both HEADs. Reconcile overlapping continuation text only through reviewed integration. No reuse of #212 exception.
-- #118 (host writer fencing/recovery) and #202 (synthetic reviewers) remain OPEN. FolderForge MCP Session terminated; workspace, local refs/stashes, capsule, effective policy, host capacity and recovery UNKNOWN. GitHub rulesets []; protection detail 403. No production change.
-- Fixture scope: `tests/unit/worktree-manager.test.ts` plus stable handoff files. Real child kills itself at beforeUntrackedCopy after tracked apply and durable applying journal; restart must refuse rollback while lock remains and preserve journal, patch, bytes and refs. Linux/macOS only. No production registry/lock removal. Local synthetic Node harness verified SIGKILL and exclusive lock EEXIST; actual FolderForge test not run locally (no checkout/network). Test-only, no product behavior change; RED/GREEN unverified. Obtain exact-head CI and focused output before claims.
-- Audit: UA-001 baseline source integrated/tested historically, full C0 not passed; UA-002–018 unproven as complete; no new AC or milestone PASS. Main master revision remains 4 until reviewed integration.
+- Canonical pre-commit main `5ab250af5ac1cae09d101658aeaae89328430a55` includes #213 docs correction and #217 DX-002A (`3d1123622ce4f7fc0003fd2683bd79f600cdca2c`). Their remote branches were verified absent. Separate owner exceptions recorded in [#213](https://github.com/roronoazoroshao/FolderForge/pull/213#issuecomment-7123212150) and [#217](https://github.com/roronoazoroshao/FolderForge/pull/217#issuecomment-7123087715); no independent APPROVED or reusable waiver. #217 post-merge CI 45334310016 7/7 SUCCESS; #213 main CI 45335174233 pending at inspection.
+- #215 original head `4d17eb3a8ff0498565930ca77f4acdf8ad033380` CI 45308148546 7/7 SUCCESS, Windows killed-writer fixture skipped. In disposable Linux checkout merged with current main, focused actual killed-writer test passed (1/1, 68 filtered out); test unchanged. Child SIGKILL, applying journal, rollback digest, lock, bytes and refs preserved; restarted rollback refused. No live metadata touched. New commit invalidates old CI; verify exact head again.
+- #216 proposed head `2c939f794e3cae2ff937c65c1f2f20a06c52c2e5` includes surgical Vite 6.4.5 lock patch and CI matrix source setup; [Linux receipt](https://github.com/roronoazoroshao/FolderForge/pull/216#issuecomment-7123212865); new CI pending. DX-002B–E and DX-003 remain backlog.
+- #214 `a3fae27` (governance) and #211 `37616fb` (browser architecture) remain proposed/unmerged; independent review required. #200/#203 CLOSED UNMERGED; #118/#202 OPEN. No independent reviewer verified. Host historical recovery, effective confinement and off-host restoration UNKNOWN; preserve live services, grants and metadata. Current local host main may lag remote; refetch without restarting services.
+- UA-001 baseline integrated; no new UA/AC/milestone/gate promotion. R11/R16 source/fixture tests do not establish effective production writer-epoch fencing. UA-002 trusted persisted grants and C1 remain conditional; closed #200 DTO is not an authority. Preserve G1–G8, M0–M5, UA-001–018, AC01–18, C0–C8 and DX-001–003.
 
-**Next:** prefer eligible #214 governance review/integration; otherwise finish the disposable fixture on its own draft PR (CI, review, authorized merge and safe branch deletion). Then reconcile #213/#211 without rewriting their green HEADs. UA-002 persisted owner grant and C1 depend on applicable gates; no live authority. Rollback by reviewed revert if integrated, otherwise preserve draft. No unattended execution.
+**Next:** verify main CI and #215/#216 exact-head runs; complete eligible scoped integration and verify branch deletion. Reconcile remaining ledger overlap after integration. Obtain genuine governance/security/architecture review for #214/#211 and independent #118 recovery evidence. No production change or synthetic approval. Refetch reality; rollback via reviewed revert.

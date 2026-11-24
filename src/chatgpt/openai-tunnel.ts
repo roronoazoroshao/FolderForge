@@ -1190,10 +1190,11 @@ async function resolveTunnelClient(
     sink.line(`✓ Managed tunnel-client detected (${inspected.version})`);
     return inspected;
   }
+  const missingClient =
+    `tunnel-client not found (PATH, saved receipt, ~/.folderforge/bin/${executableName(hooks.platform)}). ` +
+    "Use --tunnel-client <absolute-path> or set FOLDERFORGE_TUNNEL_CLIENT; verify with --install-only --no-install.";
   if (!options.autoInstall) {
-    throw new Error(
-      `tunnel-client is not installed. Download it from ${TUNNELS_URL} or remove --no-install`,
-    );
+    throw new Error(`${missingClient} Remove --no-install to install automatically.`);
   }
   const installed = await installOfficialTunnelClient(
     managed,
@@ -1201,7 +1202,12 @@ async function resolveTunnelClient(
     hooks.platform,
     hooks.arch,
     sink,
-  );
+  ).catch((error: unknown) => {
+    throw new Error(
+      `${missingClient} Automatic install failed: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    );
+  });
   return inspectTunnelClient(installed.path);
 }
 
