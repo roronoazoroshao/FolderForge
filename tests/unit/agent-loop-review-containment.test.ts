@@ -90,6 +90,17 @@ describe('ARB-001 unverified council containment', () => {
     expect(restarted.get(run.id, author).state).not.toBe('completed');
   });
 
+  it('pauses direct resume and preserves historical approval without granting authority', () => {
+    const manager = new AgentLoopManager(root);
+    const run = submitUnverifiedVotes(manager, createLoop(manager).id);
+    legacyState(root, run, 'implementation');
+    const paused = manager.start(run.id, author);
+    expect(paused.state).toBe('paused');
+    expect(paused.decision).toBeDefined();
+    expect(manager.view(paused)).toMatchObject({ reviewAuthority: 'NOT_QUORATE', goalGate: { satisfied: false } });
+    expect(manager.start(run.id, author).state).toBe('paused');
+  });
+
   it('does not run an implementation workflow from a persisted legacy decision', async () => {
     const manager = new AgentLoopManager(root);
     const run = submitUnverifiedVotes(manager, createLoop(manager).id);

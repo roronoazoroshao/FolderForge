@@ -116,4 +116,25 @@ describe('dashboard agent-loop bindings', () => {
     });
     expect(conflicting.status).toBe(409);
   });
+  it('denies a council decision through HTTP despite caller-asserted votes', async () => {
+    const harness = await startHarness();
+    harnesses.push(harness);
+    const post = (path: string, body: object = {}) => fetch(harness.baseUrl + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const created = await post('/agent-loops', { title: 'Review gate', goal: 'Deny self approval', acceptanceCriteria: ['No authorization'] });
+    expect(created.status).toBe(201);
+    const { loop } = await created.json() as { loop: { id: string; experts: Array<{ id: string }> } };
+    const path = '/agent-loops/' + loop.id;
+    expect((await post(path + '/start')).status).toBe(200);
+    const proposed = await post(path + '/proposals', { expertId: loop.experts[0]!.id, summary: 'Advisory only' });
+    expect(proposed.status).toBe(200);
+    const proposalId = (await proposed.json() as { loop: { currentIterationProposals: Array<{ id: string }> } }).loop.currentIterationProposals[0]!.id;
+    for (const expert of loop.experts) {
+      expect((await post(path + '/votes', { expertId: expert.id, proposalId, score: 1, approve: true })).status).toBe(200);
+    }
+    const denied = await post(path + '/decide');
+    expect(denied.status).toBe(409);
+    expect(await denied.text()).toContain('BLOCKED_REVIEW');
+    const current = await fetch(harness.baseUrl + path);
+    expect((await current.json() as { loop: unknown }).loop).toMatchObject({ phase: 'council', reviewAuthority: 'NOT_QUORATE', goalGate: { satisfied: false } });
+  });
 });

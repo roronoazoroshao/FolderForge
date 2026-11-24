@@ -1,4 +1,4 @@
-import { BrainCircuit, CheckCircle2, CirclePause, Play, Plus, Rocket, Scale, ShieldCheck, Square } from 'lucide-react';
+import { BrainCircuit, CirclePause, Play, Plus, Rocket, ShieldCheck, Square } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { api } from '../api';
 import { useAction, useApi } from '../hooks';
@@ -67,7 +67,7 @@ export function AgentLoopsScreen() {
 
   return (
     <div className="grid gap-6">
-      <PageHeader title="Agent loops" subtitle="Discovery → expert council → implementation → verification. The loop only completes when the goal gate passes." />
+      <PageHeader title="Agent loops" subtitle="Advisory discovery only. Implementation is blocked until independent reviewer authority is verified." />
       <Card title="Create a governed loop" hint="remote workers can submit proposals and evidence through the same API">
         <div className="grid gap-3 md:grid-cols-2">
           <Field label="Title"><Input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Ship the new feature" /></Field>
@@ -87,9 +87,9 @@ export function AgentLoopsScreen() {
           <div className="grid content-start gap-2">
             {list.map((loop) => (
               <button key={loop.id} type="button" onClick={() => setSelected(loop.id)} className={`rounded-xl border p-3 text-left transition-colors ${selectedLoop?.id === loop.id ? 'border-[#297956] bg-[#10261d]' : 'border-border bg-card hover:border-[#344360]'}`}>
-                <div className="flex items-start justify-between gap-3"><strong className="text-sm">{loop.title}</strong><StatePill value={loop.state} /></div>
+                <div className="flex items-start justify-between gap-3"><strong className="text-sm">{loop.title}</strong><StatePill value={loop.state === 'completed' ? 'historical' : loop.state} /></div>
                 <div className="mt-1 text-xs text-muted">iteration {loop.iteration}/{loop.maxIterations} · {loop.phase}</div>
-                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#202936]"><div className="h-full rounded-full bg-accent" style={{ width: `${loop.goalGate.totalCriteria ? Math.round(loop.goalGate.passedCriteria / loop.goalGate.totalCriteria * 100) : 0}%` }} /></div>
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#202936]"><div className="h-full rounded-full bg-muted" style={{ width: `${loop.goalGate.totalCriteria ? Math.round(loop.goalGate.passedCriteria / loop.goalGate.totalCriteria * 100) : 0}%` }} /></div>
               </button>
             ))}
           </div>
@@ -108,15 +108,14 @@ function LoopDetail(props: { loop: Loop; busy: boolean; error: string | null; on
         <p className="m-0 text-sm leading-relaxed">{loop.goal}</p>
         <div className="grid gap-2 sm:grid-cols-3">
           <Metric label="Phase" value={loop.phase} />
-          <Metric label="Council" value={`${loop.currentIterationVotes.length}/${loop.councilMinVotes} votes`} />
-          <Metric label="Goal gate" value={`${loop.goalGate.passedCriteria}/${loop.goalGate.totalCriteria} criteria`} good={loop.goalGate.satisfied} />
+          <Metric label="Review authority" value="NOT_QUORATE" />
+          <Metric label="Historical checks" value={`${loop.goalGate.passedCriteria}/${loop.goalGate.totalCriteria} criteria`} />
         </div>
         <div className="flex flex-wrap gap-2">
           {loop.state === 'created' || loop.state === 'paused' ? <Button size="sm" variant="primary" disabled={props.busy} onClick={() => void props.onRun(loop.id, 'run')}><Rocket size={13} aria-hidden /> Run autonomous loop</Button> : null}
           {loop.state === 'created' || loop.state === 'paused' ? <Button size="sm" variant="ghost" disabled={props.busy} onClick={() => void props.onRun(loop.id, 'start')}><Play size={13} aria-hidden /> Start / resume</Button> : null}
           {loop.state === 'running' ? <Button size="sm" variant="ghost" disabled={props.busy} onClick={() => void props.onRun(loop.id, 'pause')}><CirclePause size={13} aria-hidden /> Pause</Button> : null}
           {!['completed', 'failed', 'cancelled'].includes(loop.state) ? <Button size="sm" variant="danger" disabled={props.busy} onClick={() => void props.onRun(loop.id, 'cancel')}><Square size={13} aria-hidden /> Cancel</Button> : null}
-          {loop.phase === 'council' && loop.state === 'running' ? <Button size="sm" variant="ghost" disabled={props.busy} onClick={() => void props.onRun(loop.id, 'decide')}><Scale size={13} aria-hidden /> Decide council</Button> : null}
         </div>
         <ErrorNote message={props.error} />
         <div className="grid gap-3 md:grid-cols-2">
@@ -124,7 +123,7 @@ function LoopDetail(props: { loop: Loop; busy: boolean; error: string | null; on
           <section><h3 className="m-0 mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Experts</h3><ul className="m-0 grid gap-1 pl-5 text-xs">{loop.experts.map((expert) => <li key={expert.id}><Code>{expert.id}</Code> — {expert.role}</li>)}</ul></section>
         </div>
         <section><h3 className="m-0 mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Current proposals</h3>{loop.currentIterationProposals.length === 0 ? <p className="m-0 text-xs text-muted">Waiting for discovery agents to submit proposals through the API.</p> : <div className="grid gap-2">{loop.currentIterationProposals.map((proposal) => <div key={proposal.id} className="rounded-lg border border-border-soft p-2.5 text-xs"><div className="flex items-center gap-2"><BrainCircuit size={13} className="text-accent" aria-hidden /><Code>{proposal.expertId}</Code><span className="text-muted">{proposal.id}</span></div><p className="mt-1 mb-0">{proposal.summary}</p></div>)}</div>}</section>
-        {loop.decision ? <div className="flex items-center gap-2 rounded-lg border border-[#297956] bg-[#10261d] px-3 py-2 text-xs"><CheckCircle2 size={14} className="text-accent" aria-hidden /> Council selected <Code>{loop.decision.proposalId}</Code> with {Math.round(loop.decision.consensus * 100)}% consensus.</div> : null}
+        {loop.decision ? <div className="rounded-lg border border-[#6b571d] px-3 py-2 text-xs text-warn">Historical unverified decision: <Code>{loop.decision.proposalId}</Code>. Not authorization.</div> : null}
         {loop.pauseReason ? <div className="rounded-lg border border-[#6b571d] bg-[#30270d]/40 px-3 py-2 text-xs text-warn">{loop.pauseReason}</div> : null}
         {loop.failure ? <div className="rounded-lg border border-[#6b3535] bg-[#2b1414]/60 px-3 py-2 text-xs text-danger">{loop.failure}</div> : null}
         <div className="flex items-center gap-2 text-[11px] text-muted"><ShieldCheck size={13} aria-hidden /> Remote API: <Code>/agent-loops/{loop.id}</Code></div>

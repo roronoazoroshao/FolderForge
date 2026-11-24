@@ -55,15 +55,15 @@ export function agentLoopTools(): ToolDefinition[] {
       handler: async (args, ctx) => { try { return ok({ loop: ctx.container.agentLoops.view(ctx.container.agentLoops.cancel(runId(args), principal(ctx), typeof args.reason === 'string' ? args.reason : undefined)) }); } catch (error) { return fail(error); } },
     }),
     defineTool({
-      name: 'agent_loop_propose', description: 'Submit an independent expert discovery or council proposal to a running loop.', group: 'agent-loop', mutates: true, risk: 'MEDIUM', inputSchema: { type: 'object', properties: { id: { type: 'string' }, expertId: { type: 'string' }, phase: { type: 'string', enum: ['discovery', 'council'] }, summary: { type: 'string' }, plan: { type: 'array', items: { type: 'string' } }, risks: { type: 'array', items: { type: 'string' } }, evidence: { type: 'array', items: { type: 'string' } } }, required: ['id', 'expertId', 'summary'] },
+      name: 'agent_loop_propose', description: 'Submit an advisory discovery or council proposal; expert ID is not verified reviewer identity.', group: 'agent-loop', mutates: true, risk: 'MEDIUM', inputSchema: { type: 'object', properties: { id: { type: 'string' }, expertId: { type: 'string' }, phase: { type: 'string', enum: ['discovery', 'council'] }, summary: { type: 'string' }, plan: { type: 'array', items: { type: 'string' } }, risks: { type: 'array', items: { type: 'string' } }, evidence: { type: 'array', items: { type: 'string' } } }, required: ['id', 'expertId', 'summary'] },
       handler: async (args, ctx) => { try { return ok({ loop: ctx.container.agentLoops.view(ctx.container.agentLoops.submitProposal(runId(args), { expertId: String(args.expertId), ...(args.phase === 'discovery' || args.phase === 'council' ? { phase: args.phase } : {}), summary: String(args.summary), ...(Array.isArray(args.plan) ? { plan: args.plan.map(String) } : {}), ...(Array.isArray(args.risks) ? { risks: args.risks.map(String) } : {}), ...(Array.isArray(args.evidence) ? { evidence: args.evidence.map(String) } : {}) }, principal(ctx))) }); } catch (error) { return fail(error); } },
     }),
     defineTool({
-      name: 'agent_loop_vote', description: 'Cast or replace one expert vote for a current iteration proposal.', group: 'agent-loop', mutates: true, risk: 'MEDIUM', inputSchema: { type: 'object', properties: { id: { type: 'string' }, expertId: { type: 'string' }, proposalId: { type: 'string' }, score: { type: 'number', minimum: 0, maximum: 1 }, approve: { type: 'boolean' }, rationale: { type: 'string' } }, required: ['id', 'expertId', 'proposalId', 'score', 'approve'] },
+      name: 'agent_loop_vote', description: 'Record an unverified advisory vote; it cannot authorize implementation.', group: 'agent-loop', mutates: true, risk: 'MEDIUM', inputSchema: { type: 'object', properties: { id: { type: 'string' }, expertId: { type: 'string' }, proposalId: { type: 'string' }, score: { type: 'number', minimum: 0, maximum: 1 }, approve: { type: 'boolean' }, rationale: { type: 'string' } }, required: ['id', 'expertId', 'proposalId', 'score', 'approve'] },
       handler: async (args, ctx) => { try { return ok({ loop: ctx.container.agentLoops.view(ctx.container.agentLoops.submitVote(runId(args), { expertId: String(args.expertId), proposalId: String(args.proposalId), score: Number(args.score), approve: args.approve === true, ...(args.rationale !== undefined ? { rationale: String(args.rationale) } : {}) }, principal(ctx))) }); } catch (error) { return fail(error); } },
     }),
     defineTool({
-      name: 'agent_loop_decide', description: 'Run the weighted council quorum and select the highest-consensus proposal.', group: 'agent-loop', mutates: true, risk: 'MEDIUM', inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+      name: 'agent_loop_decide', description: 'Request a council decision; blocked until independent reviewer authority is verified (#202).', group: 'agent-loop', mutates: true, risk: 'MEDIUM', inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
       handler: async (args, ctx) => { try { return ok({ loop: ctx.container.agentLoops.view(ctx.container.agentLoops.decide(runId(args), principal(ctx))) }); } catch (error) { return fail(error); } },
     }),
     defineTool({
@@ -80,7 +80,7 @@ export function agentLoopTools(): ToolDefinition[] {
     }),
     defineTool({
       name: 'agent_loop_run',
-      description: 'Start an autonomous discovery, expert council, governed implementation workflow and verification loop in the background. It persists progress and stops only at the goal gate, max-iteration failure, approval pause or an explicit blocker.', group: 'agent-loop', mutates: true, risk: 'MEDIUM', inputSchema: { type: 'object', properties: { id: { type: 'string' }, implementationWorkflowId: { type: 'string' }, verificationTimeoutMs: { type: 'number' }, idempotencyKey: { type: 'string', maxLength: 256 } }, required: ['id'], additionalProperties: false },
+      description: 'Start a durable advisory discovery loop. Implementation and verification are blocked until independent reviewer authority is verified (#202).', group: 'agent-loop', mutates: true, risk: 'MEDIUM', inputSchema: { type: 'object', properties: { id: { type: 'string' }, implementationWorkflowId: { type: 'string' }, verificationTimeoutMs: { type: 'number' }, idempotencyKey: { type: 'string', maxLength: 256 } }, required: ['id'], additionalProperties: false },
       handler: async (args, ctx) => { try {
         const id = runId(args);
         const actor = principal(ctx);
@@ -92,7 +92,7 @@ export function agentLoopTools(): ToolDefinition[] {
     }),
     defineTool({
       name: 'agent_loop_report', description: 'Return a bounded report for a loop suitable for a remote Codex worker or Mission Control.', group: 'agent-loop', mutates: false, risk: 'LOW', inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
-      handler: async (args, ctx) => { try { const id = runId(args); const loop = ctx.container.agentLoops.view(ctx.container.agentLoops.get(id, principal(ctx))); return ok({ id: loop.id, title: loop.title, state: loop.state, phase: loop.phase, iteration: loop.iteration, maxIterations: loop.maxIterations, goal: loop.goal, acceptanceCriteria: loop.acceptanceCriteria, goalGate: loop.goalGate, proposals: loop.currentIterationProposals, votes: loop.currentIterationVotes, decision: loop.decision, implementation: loop.implementation, verification: loop.verification, runner: ctx.container.agentLoopRunner.status(id) }); } catch (error) { return fail(error); } },
+      handler: async (args, ctx) => { try { const id = runId(args); const loop = ctx.container.agentLoops.view(ctx.container.agentLoops.get(id, principal(ctx))); return ok({ id: loop.id, title: loop.title, state: loop.state, phase: loop.phase, iteration: loop.iteration, maxIterations: loop.maxIterations, goal: loop.goal, acceptanceCriteria: loop.acceptanceCriteria, goalGate: loop.goalGate, reviewAuthority: loop.reviewAuthority, proposals: loop.currentIterationProposals, votes: loop.currentIterationVotes, decision: loop.decision, implementation: loop.implementation, verification: loop.verification, runner: ctx.container.agentLoopRunner.status(id) }); } catch (error) { return fail(error); } },
     }),
   ];
 }

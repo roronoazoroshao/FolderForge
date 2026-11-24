@@ -34,9 +34,8 @@ export interface AgentLoopRunnerStatus {
  * The runner deliberately keeps model selection outside the state manager. A
  * Codex/Responses client can create proposals through the public tools, while
  * this built-in driver provides a safe deterministic fallback: project
- * analysis, bounded code context, weighted council voting, an optional
- * workflow-backed implementation, and verification until the goal gate passes
- * or the configured iteration limit is reached.
+ * analysis and bounded code context as advisory previews. Council execution is
+ * blocked until independently verified reviewer authority is available (#202).
  */
 export class AgentLoopRunner {
   private readonly active = new Map<string, AgentLoopRunnerStatus>();
@@ -136,10 +135,12 @@ export class AgentLoopRunner {
       if (run.phase === "discovery") {
         run = await this.discovery(run, principal, runnerControl);
       } else if (run.phase === "council") {
-        run = await this.council(run, principal, runnerControl);
+        run = this.manager.pause(run.id, principal, "BLOCKED_REVIEW: independent reviewer authority is unavailable (#202).");
       } else if (run.phase === "implementation") {
+        this.manager.assertReviewAuthority();
         run = await this.implementation(run, principal, options, runnerControl);
       } else if (run.phase === "verification") {
+        this.manager.assertReviewAuthority();
         run = await this.verification(run, principal, options, runnerControl);
       } else {
         break;
@@ -180,40 +181,6 @@ export class AgentLoopRunner {
       run = this.manager.submitProposal(run.id, proposal, principal);
     }
     return run;
-  }
-
-  private async council(
-    run: AgentLoopRun,
-    principal: ToolPrincipal,
-    control: ToolCallControl,
-  ): Promise<AgentLoopRun> {
-    const proposals = run.proposals.filter(
-      (proposal) => proposal.iteration === run.iteration,
-    );
-    if (!proposals.length)
-      throw new Error("Council cannot run without discovery proposals.");
-    const winner = proposals
-      .slice()
-      .sort(
-        (left, right) =>
-          proposalAffinity(right, run) - proposalAffinity(left, run),
-      )[0]!;
-    for (const expert of run.experts) {
-      const score = expert.id === winner.expertId ? 0.92 : 0.82;
-      run = this.manager.submitVote(
-        run.id,
-        {
-          expertId: expert.id,
-          proposalId: winner.id,
-          score,
-          approve: true,
-          rationale: `Independent ${expert.role} review selected the proposal with the strongest evidence and lowest unresolved risk.`,
-        },
-        principal,
-      );
-    }
-    await this.progress(control, run);
-    return this.manager.decide(run.id, principal);
   }
 
   private async implementation(
@@ -427,7 +394,7 @@ function proposalForExpert(
   return {
     expertId: expert.id,
     phase: "discovery" as const,
-    summary: `${expert.role} proposal for: ${run.goal}`,
+    summary: `SIMULATED_LENSES (advisory only): ${expert.role} proposal for: ${run.goal}`,
     plan: [
       `Inspect the repository and relevant tests for ${run.goal}.`,
       "Implement through a bounded workflow in the managed workspace.",
@@ -436,23 +403,6 @@ function proposalForExpert(
     risks: risk,
     evidence,
   };
-}
-
-function proposalAffinity(
-  proposal: {
-    expertId: string;
-    plan: string[];
-    risks: string[];
-    evidence: string[];
-  },
-  run: AgentLoopRun,
-): number {
-  return (
-    proposal.evidence.length * 2 +
-    proposal.plan.length -
-    proposal.risks.length +
-    (run.experts.find((e) => e.id === proposal.expertId)?.weight ?? 1)
-  );
 }
 
 function summarizeResult(name: string, result: ToolResult): string {

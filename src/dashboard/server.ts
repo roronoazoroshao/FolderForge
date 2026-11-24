@@ -1541,6 +1541,7 @@ async function handle(
             goal: loop.goal,
             acceptanceCriteria: loop.acceptanceCriteria,
             goalGate: loop.goalGate,
+            reviewAuthority: loop.reviewAuthority,
             proposals: loop.currentIterationProposals,
             votes: loop.currentIterationVotes,
             decision: loop.decision,

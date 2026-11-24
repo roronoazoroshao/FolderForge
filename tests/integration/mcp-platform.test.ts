@@ -229,6 +229,22 @@ describe('MCP platform protocol', () => {
       expect(eventsPayload.data?.events?.length).toBeGreaterThan(0);
       expect(eventsPayload.data?.events?.every((event) => event.data?.taskId === 'codex-task')).toBe(true);
 
+      const start = await client.callTool({ name: 'agent_loop_start', arguments: { id: loopId } });
+      expect(start.isError).not.toBe(true);
+      const proposed = await client.callTool({ name: 'agent_loop_propose', arguments: { id: loopId, expertId: 'architect', summary: 'Advisory only' } });
+      expect(proposed.isError).not.toBe(true);
+      const proposedText = proposed.content.find(entry => entry.type === 'text');
+      const proposalPayload = JSON.parse(proposedText?.type === 'text' ? proposedText.text : '{}') as { data?: { loop?: { currentIterationProposals: Array<{ id: string }> } } };
+      const proposalId = proposalPayload.data?.loop?.currentIterationProposals[0]?.id;
+      if (!proposalId) throw new Error('Missing advisory proposal ID');
+      for (const expertId of ['architect', 'security', 'qa']) {
+        const vote = await client.callTool({ name: 'agent_loop_vote', arguments: { id: loopId, expertId, proposalId, score: 1, approve: true } });
+        expect(vote.isError).not.toBe(true);
+      }
+      const deniedDecision = await client.callTool({ name: 'agent_loop_decide', arguments: { id: loopId } });
+      expect(deniedDecision.isError).toBe(true);
+      expect(JSON.stringify(deniedDecision.content)).toContain('BLOCKED_REVIEW');
+
       const firstRun = await client.callTool({
         name: 'agent_loop_run',
         arguments: { id: loopId, idempotencyKey: 'mcp-run-1' },

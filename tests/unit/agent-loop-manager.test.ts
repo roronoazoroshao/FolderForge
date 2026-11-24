@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 const owner: ToolPrincipal = { id: 'agent:test-owner', role: 'agent' };
 const other: ToolPrincipal = { id: 'agent:other', role: 'agent' };
 
-function advanceToVerification(manager: AgentLoopManager, id: string, changedPaths = ['src/example.ts']) {
+function submitAdvisoryVotes(manager: AgentLoopManager, id: string) {
   let run = manager.start(id, owner);
   for (const expert of run.experts) {
     run = manager.submitProposal(id, {
@@ -32,12 +32,6 @@ function advanceToVerification(manager: AgentLoopManager, id: string, changedPat
       rationale: 'Strong evidence and bounded plan.',
     }, owner);
   }
-  run = manager.decide(id, owner);
-  run = manager.recordImplementation(id, {
-    status: 'completed',
-    summary: 'Implementation completed through the governed workflow.',
-    changedPaths,
-  }, owner);
   return run;
 }
 
@@ -115,58 +109,28 @@ describe('AgentLoopManager', () => {
     expect(manager.get(created.id, bound).events[0]?.data).toMatchObject({ taskId: 'task-a' });
   });
 
-  it('runs discovery, reaches council consensus, and completes the goal gate', () => {
+  it('retains advisory votes without authorizing implementation', () => {
     const manager = new AgentLoopManager(root);
     const created = manager.create({
-      title: 'Complete loop',
-      goal: 'Complete the implementation.',
-      acceptanceCriteria: ['Typecheck passes', 'Tests pass'],
-      maxIterations: 2,
+      title: 'Blocked loop',
+      goal: 'Require verified review.',
+      acceptanceCriteria: ['Tests pass'],
       councilMinVotes: 2,
     }, owner);
-
-    const implementation = advanceToVerification(manager, created.id);
-    expect(implementation.phase).toBe('verification');
-    expect(implementation.decision?.voteCount).toBe(2);
-
-    const completed = manager.recordVerification(created.id, {
-      passed: true,
-      criteria: [
-        { name: 'Typecheck passes', passed: true, evidence: 'tsc exited 0' },
-        { name: 'Tests pass', passed: true, evidence: 'vitest exited 0' },
-      ],
-      checks: ['typecheck', 'test'],
-    }, owner);
-
-    expect(completed).toMatchObject({ state: 'completed', phase: 'completed' });
-    expect(manager.view(completed).goalGate).toEqual({ satisfied: true, passedCriteria: 2, totalCriteria: 2 });
+    const advisory = submitAdvisoryVotes(manager, created.id);
+    expect(advisory.votes).toHaveLength(2);
+    expect(() => manager.decide(created.id, owner)).toThrow(/BLOCKED_REVIEW/);
+    const current = manager.get(created.id, owner);
+    expect(current.phase).toBe('council');
+    expect(current.decision).toBeUndefined();
+    expect(manager.view(current)).toMatchObject({ reviewAuthority: 'NOT_QUORATE', goalGate: { satisfied: false } });
   });
 
-  it('starts a new iteration after a failed goal gate and fails at the limit', () => {
+  it('does not permit an admin to bypass reviewer authority', () => {
     const manager = new AgentLoopManager(root);
-    const created = manager.create({
-      title: 'Retry loop',
-      goal: 'Pass verification eventually.',
-      acceptanceCriteria: ['Tests pass'],
-      maxIterations: 2,
-      councilMinVotes: 2,
-    }, owner);
-
-    advanceToVerification(manager, created.id);
-    const retry = manager.recordVerification(created.id, {
-      passed: false,
-      criteria: [{ name: 'Tests pass', passed: false, evidence: 'test failed' }],
-      checks: ['test'],
-    }, owner);
-    expect(retry).toMatchObject({ state: 'running', phase: 'discovery', iteration: 2 });
-
-    const secondVerification = advanceToVerification(manager, created.id);
-    expect(secondVerification.iteration).toBe(2);
-    const failed = manager.recordVerification(created.id, {
-      passed: false,
-      criteria: [{ name: 'Tests pass', passed: false }],
-    }, owner);
-    expect(failed).toMatchObject({ state: 'failed', phase: 'failed' });
+    const created = manager.create({ title: 'Admin denial', goal: 'No override', acceptanceCriteria: ['Review'] }, owner);
+    submitAdvisoryVotes(manager, created.id);
+    expect(() => manager.decide(created.id, { id: 'admin:test', role: 'admin' })).toThrow(/BLOCKED_REVIEW/);
   });
 
   it('persists lifecycle events and supports bounded sequence polling', () => {
@@ -196,33 +160,16 @@ describe('AgentLoopManager', () => {
     expect(() => manager.eventsSince(created.id, 0, 10, other)).toThrow(/access denied/i);
     });
 
-    it('records proposal, vote, decision, implementation, and verification events', () => {
+    it('records advisory events without inventing decision or verification events', () => {
       const manager = new AgentLoopManager(root);
-      const created = manager.create({
-        title: 'Phase events',
-        goal: 'Capture every orchestration phase.',
-        acceptanceCriteria: ['All phase events exist'],
-      }, owner);
-
-      const verification = advanceToVerification(manager, created.id);
-      const completed = manager.recordVerification(created.id, {
-        passed: true,
-        criteria: [{ name: 'All phase events exist', passed: true }],
-        checks: ['event-history'],
-      }, owner);
-      const types = completed.events.map((event) => event.type);
-      expect(types).toEqual(expect.arrayContaining([
-        'created',
-        'started',
-        'proposal.submitted',
-        'vote.submitted',
-        'council.decided',
-        'implementation.updated',
-        'verification.passed',
-      ]));
-      expect(verification.events.find((event) => event.type === 'council.decided')?.data).toMatchObject({
-        proposalId: verification.decision?.proposalId,
-      });
+      const created = manager.create({ title: 'Phase events', goal: 'Capture advisory phases.', acceptanceCriteria: ['Review'] }, owner);
+      submitAdvisoryVotes(manager, created.id);
+      expect(() => manager.decide(created.id, owner)).toThrow(/BLOCKED_REVIEW/);
+      const types = manager.get(created.id, owner).events.map(event => event.type);
+      expect(types).toEqual(expect.arrayContaining(['created', 'started', 'proposal.submitted', 'vote.submitted']));
+      expect(types).not.toContain('council.decided');
+      expect(types).not.toContain('implementation.updated');
+      expect(types).not.toContain('verification.passed');
     });
 
     it('bounds event history, payloads, and loads legacy runs without events', () => {
@@ -244,13 +191,10 @@ describe('AgentLoopManager', () => {
       expect(page.events).toHaveLength(200);
       expect(page.hasMore).toBe(true);
 
-      const changedPaths = Array.from({ length: 200 }, (_, index) => `src/${'x'.repeat(100)}-${index}.ts`);
-      const bounded = advanceToVerification(manager, created.id, changedPaths);
-      const implementationEvent = bounded.events.find((event) => event.type === 'implementation.updated')!;
-      expect(implementationEvent.data).toMatchObject({ truncated: true });
-      expect(implementationEvent.type).toBe('implementation.updated');
-      expect(JSON.stringify(implementationEvent.data ?? {}).length).toBeLessThanOrEqual(4_000);
-      expect(bounded.phase).toBe('verification');
+      const longTaskOwner = { ...owner, taskId: 'x'.repeat(5000) };
+      const large = manager.create({ title: 'Bound payload', goal: 'Bound event data', acceptanceCriteria: ['Bounded'] }, longTaskOwner);
+      expect(large.events[0]!.data).toMatchObject({ truncated: true });
+      expect(JSON.stringify(large.events[0]!.data).length).toBeLessThanOrEqual(4_000);
 
       const path = join(root, '.folderforge', 'agent-loops', 'runs', `${created.id}.json`);
       const legacy = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;

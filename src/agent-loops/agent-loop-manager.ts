@@ -108,6 +108,8 @@ export interface AgentLoopRun {
 }
 
 export interface AgentLoopView extends Omit<AgentLoopRun, 'integritySha256'> {
+  /** Historical votes and decisions are advisory, never verified authority (#202). */
+  reviewAuthority: 'NOT_QUORATE';
   integritySha256?: never;
   currentIterationProposals: AgentLoopProposal[];
   currentIterationVotes: AgentLoopVote[];
@@ -262,10 +264,11 @@ export class AgentLoopManager {
     const criteria = run.verification?.criteria ?? [];
     return {
       ...clone(unsigned(run)),
+      reviewAuthority: 'NOT_QUORATE',
       currentIterationProposals: run.proposals.filter((proposal) => proposal.iteration === run.iteration),
       currentIterationVotes: run.votes.filter((vote) => vote.iteration === run.iteration),
       goalGate: {
-        satisfied: Boolean(run.verification?.passed && criteria.length > 0 && criteria.every((item) => item.passed)),
+        satisfied: false, // Legacy verification is historical, not independently authorized.
         passedCriteria: criteria.filter((item) => item.passed).length,
         totalCriteria: criteria.length || run.acceptanceCriteria.length,
       },
@@ -316,6 +319,9 @@ export class AgentLoopManager {
   start(id: string, principal: ToolPrincipal): AgentLoopRun {
     const run = this.get(id, principal);
     if (isTerminal(run)) throw new Error(`Agent loop ${id} is terminal (${run.state}).`);
+    if (run.phase === 'implementation' || run.phase === 'verification' || run.decision) {
+      return this.pause(id, principal, 'BLOCKED_REVIEW: independent reviewer authority is unavailable; legacy decision retained as history.');
+    }
     const wasPaused = run.state === 'paused';
     run.state = 'running';
     run.phase = run.phase === 'paused' ? 'discovery' : run.phase;
@@ -407,45 +413,26 @@ export class AgentLoopManager {
       rationale: String(input.rationale ?? '').trim().slice(0, MAX_TEXT),
       createdAt: Date.now(),
     });
-    this.appendEvent(run, 'vote.submitted', `Vote submitted by ${input.expertId}.`, { expertId: input.expertId, proposalId: proposal.id, score, approve: Boolean(input.approve) });
+    this.appendEvent(run, 'vote.submitted', `Unverified advisory vote submitted for ${input.expertId}.`, { expertId: input.expertId, proposalId: proposal.id, score, approve: Boolean(input.approve) });
     return this.save(run);
   }
 
   decide(id: string, principal: ToolPrincipal): AgentLoopRun {
     const run = this.get(id, principal);
     if (run.state !== 'running' || run.phase !== 'council') throw new Error('Council decision requires the running council phase.');
-    const proposals = run.proposals.filter((proposal) => proposal.iteration === run.iteration);
-    const votes = run.votes.filter((vote) => vote.iteration === run.iteration);
-    if (proposals.length === 0) throw new Error('Council cannot decide without proposals.');
-    if (votes.length < run.councilMinVotes) throw new Error(`Council quorum not reached: ${votes.length}/${run.councilMinVotes} votes.`);
-    const ranked = proposals.map((proposal) => {
-      const proposalVotes = votes.filter((vote) => vote.proposalId === proposal.id);
-      const weighted = proposalVotes.reduce((total, vote) => {
-        const expert = run.experts.find((item) => item.id === vote.expertId);
-        return total + vote.score * (expert?.weight ?? 1);
-      }, 0);
-      const weight = proposalVotes.reduce((total, vote) => total + (run.experts.find((item) => item.id === vote.expertId)?.weight ?? 1), 0);
-      const approvals = proposalVotes.filter((vote) => vote.approve).length;
-      return {
-        proposalId: proposal.id,
-        consensus: weight ? weighted / weight : 0,
-        approvalRate: proposalVotes.length ? approvals / proposalVotes.length : 0,
-        voteCount: proposalVotes.length,
-      };
-    }).sort((a, b) => b.consensus - a.consensus || b.approvalRate - a.approvalRate || b.voteCount - a.voteCount);
-    const winner = ranked[0]!;
-    if (winner.consensus < run.councilThreshold || winner.approvalRate < 0.5) {
-      throw new Error(`No consensus reached: winner=${winner.consensus.toFixed(2)}, approval=${winner.approvalRate.toFixed(2)}, threshold=${run.councilThreshold.toFixed(2)}.`);
-    }
-    run.decision = { ...winner, decidedAt: Date.now(), ranked };
-    run.phase = 'implementation';
-    this.appendEvent(run, 'council.decided', `Council selected proposal ${winner.proposalId}.`, { proposalId: winner.proposalId, consensus: winner.consensus, approvalRate: winner.approvalRate, voteCount: winner.voteCount });
-    return this.save(run);
+    this.assertReviewAuthority();
+    return run;
+  }
+
+  /** Deny all council authority until #202 has a trusted provenance verifier. */
+  assertReviewAuthority(): void {
+    throw new Error('BLOCKED_REVIEW: independent reviewer authority is unavailable (#202).');
   }
 
   recordImplementation(id: string, input: { status: 'running' | 'completed' | 'blocked'; summary: string; changedPaths?: string[] }, principal: ToolPrincipal): AgentLoopRun {
     const run = this.get(id, principal);
     if (run.state !== 'running' || run.phase !== 'implementation') throw new Error('Implementation update requires the running implementation phase.');
+    this.assertReviewAuthority();
     run.implementation = {
       status: input.status,
       summary: String(input.summary ?? '').trim().slice(0, MAX_TEXT),
@@ -461,6 +448,7 @@ export class AgentLoopManager {
   recordVerification(id: string, input: { passed: boolean; criteria: Array<{ name: string; passed: boolean; evidence?: string }>; checks?: string[]; notes?: string; proofPack?: { id: string; manifestSha256: string; verified: boolean } }, principal: ToolPrincipal): AgentLoopRun {
     const run = this.get(id, principal);
     if (run.state !== 'running' || run.phase !== 'verification') throw new Error('Verification requires the running verification phase.');
+    this.assertReviewAuthority();
     const criteria = (Array.isArray(input.criteria) ? input.criteria : []).map((item) => ({ name: String(item.name).trim().slice(0, 500), passed: Boolean(item.passed), ...(item.evidence ? { evidence: String(item.evidence).slice(0, 2_000) } : {}) })).filter((item) => item.name);
     const passed = Boolean(input.passed) && criteria.length >= run.acceptanceCriteria.length && criteria.every((item) => item.passed);
     run.verification = { passed, criteria, checks: cleanItems(input.checks, 100), ...(input.notes ? { notes: String(input.notes).slice(0, MAX_TEXT) } : {}), ...(input.proofPack ? { proofPack: input.proofPack } : {}), recordedAt: Date.now() };

@@ -1,12 +1,15 @@
 # FolderForge — Rolling Session Context
 
 **CONTEXT_ID:** `FF-RECURSIVE-01/STATE`  
-**CHECKED:** 2026-11-23 Asia/Ho_Chi_Minh; GitHub and authorized FolderForge reads  
-**GOAL:** `C0-GATE-RECONCILIATION` (docs-only prerequisite)  
-**STATUS:** `BLOCKED_SECURITY_REVIEW` for C0; this documentation change requires PR review. PR #212's historical `BLOCKED_REVIEW` is superseded.  
+**CHECKED:** 2026-11-24 Asia/Ho_Chi_Minh; GitHub and authorized FolderForge reads  
+**GOAL:** `ARB-001` (P0 reviewer containment)  
+**STATUS:** `BLOCKED_REVIEW` for ARB-001; C0 remains `BLOCKED_SECURITY_REVIEW`.  
 **MASTER:** [MASTER_PROMPT.md](MASTER_PROMPT.md)
 
-## Verified checkpoint at source baseline
+## Current ARB-001 checkpoint
+**ARB-001 / #202 — BLOCKED_REVIEW:** [PR #218](https://github.com/roronoazoroshao/FolderForge/pull/218), branch `fix/202-disable-synthetic-approval`, base `5ab250af5ac1cae09d101658aeaae89328430a55`. [RED run](https://github.com/roronoazoroshao/FolderForge/actions/runs/45364528617) at `209085572e5fc65f03d6f54357332a08a53548d7`: five regression assertions failed as intended (Ubuntu Node 22, exit 1). Containment candidate disables synthetic voting, blocks caller votes and legacy transitions; final-head GREEN/CI and qualified independent review must be fetched before merge. No provider or independent approval, no live host/registry mutation. #202 and #118 stay OPEN; C0 HOLD. Next: verify exact PR HEAD and review before ARB-002; no self-approval or old exception.
+
+## Historical checkpoint at source baseline
 - GitHub `main@567ce3f4974a011e90625693793d23a82347d447` contains [PR #212](https://github.com/roronoazoroshao/FolderForge/pull/212), merged on 2026-11-23 from head `a959fd777d1b84a3c9fc3a89dae6bdec314bcd16`. Post-merge [Actions #45204690187](https://github.com/roronoazoroshao/FolderForge/actions/runs/45204690187): **7/7 jobs SUCCESS** on that main SHA. Prior `BLOCKED_REVIEW` described the **pre-merge** state.
 - PR #212 had one author-connected `COMMENTED` review, **zero independent APPROVED reviews**, and a recorded **one-time docs-only owner exception**. It does not authorize this or another PR.
 - [PR #211](https://github.com/roronoazoroshao/FolderForge/pull/211) OPEN/unmerged; ADR-0013 remains proposed. Its head `37616fb` has 7/7 successful check runs, but **zero submitted reviews or review threads**. [PR #200](https://github.com/roronoazoroshao/FolderForge/pull/200) and [#203](https://github.com/roronoazoroshao/FolderForge/pull/203) are CLOSED without merge; prototype code is not main.

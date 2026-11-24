@@ -35,7 +35,7 @@ describe("AgentLoopRunner", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("discovers and reaches council, then fails closed without an implementation workflow", async () => {
+  it("discovers and pauses at the unverified council boundary", async () => {
     const manager = new AgentLoopManager(root);
     const calls: string[] = [];
     const runner = new AgentLoopRunner(manager, async (name) => {
@@ -59,8 +59,10 @@ describe("AgentLoopRunner", () => {
     const paused = await waitForTerminal(manager, created.id);
 
     expect(paused).toMatchObject({ state: "paused", phase: "paused" });
-    expect(paused.pauseReason).toMatch(/blocker/i);
-    expect(paused.implementation?.summary).toMatch(/implementationWorkflowId/i);
+    expect(paused.pauseReason).toMatch(/BLOCKED_REVIEW/);
+    expect(paused.votes).toHaveLength(0);
+    expect(paused.decision).toBeUndefined();
+    expect(paused.implementation).toBeUndefined();
     expect(calls).toContain("project_analyze");
     expect(calls).toContain("code_context");
     expect(runner.status(created.id)?.state).toBe("finished");
@@ -92,109 +94,19 @@ describe("AgentLoopRunner", () => {
     });
   });
 
-  it("runs governed implementation and verification to completion", async () => {
+  it("does not dispatch even a configured implementation workflow", async () => {
     const manager = new AgentLoopManager(root);
     const calls: string[] = [];
-    const runner = new AgentLoopRunner(manager, async (name) => {
+    const runner = new AgentLoopRunner(manager, async name => {
       calls.push(name);
-      if (name === "project_analyze") return ok({ projectRoot: root });
-      if (name === "code_context") return ok({ results: [] });
-      if (name === "workflow_run")
-        return ok({ state: "completed", files: [{ path: "src/example.ts" }] });
-      if (name === "project_verify")
-        return ok({
-          overall: "passed",
-          passed: true,
-          results: [{ check: "test", status: "passed" }],
-        });
-      throw new Error(`unexpected tool call: ${name}`);
+      return ok({});
     });
-    const created = manager.create(
-      {
-        title: "Complete runner",
-        goal: "Implement and verify the change.",
-        acceptanceCriteria: ["All checks pass"],
-      },
-      owner,
-    );
-
+    const created = manager.create({ title: "Blocked runner", goal: "Require review", acceptanceCriteria: ["No writes"] }, owner);
     runner.start(created.id, owner, { workflowId: "workflow_test" });
-    const completed = await waitForTerminal(manager, created.id);
-
-    expect(completed).toMatchObject({ state: "completed", phase: "completed" });
-    expect(completed.implementation?.changedPaths).toEqual(["src/example.ts"]);
-    expect(completed.verification?.passed).toBe(true);
-    expect(calls).toEqual(
-      expect.arrayContaining([
-        "project_analyze",
-        "code_context",
-        "workflow_run",
-        "project_verify",
-      ]),
-    );
-  });
-
-  it("extracts changed paths from nested workflow step evidence", async () => {
-    const manager = new AgentLoopManager(root);
-    const runner = new AgentLoopRunner(manager, async (name) => {
-      if (name === "project_analyze") return ok({ projectRoot: root });
-      if (name === "code_context") return ok({ results: [] });
-      if (name === "workflow_run")
-        return ok({
-          state: "completed",
-          steps: [
-            {
-              id: "implement",
-              evidence: {
-                data: {
-                  files: [{ path: "src/nested-change.ts" }],
-                },
-              },
-            },
-          ],
-        });
-      if (name === "project_verify")
-        return ok({ overall: "passed", passed: true, results: [] });
-      throw new Error(`unexpected tool call: ${name}`);
-    });
-    const created = manager.create(
-      {
-        title: "Nested evidence runner",
-        goal: "Read changed paths from governed workflow evidence.",
-        acceptanceCriteria: ["Nested changes are recognized"],
-      },
-      owner,
-    );
-
-    runner.start(created.id, owner, { workflowId: "workflow-nested-evidence" });
-    const completed = await waitForTerminal(manager, created.id);
-
-    expect(completed).toMatchObject({ state: "completed", phase: "completed" });
-    expect(completed.implementation?.changedPaths).toEqual(["src/nested-change.ts"]);
-  });
-
-  it("pauses when the implementation workflow is awaiting approval", async () => {
-    const manager = new AgentLoopManager(root);
-    const runner = new AgentLoopRunner(manager, async (name) => {
-      if (name === "project_analyze") return ok({ projectRoot: root });
-      if (name === "code_context") return ok({ results: [] });
-      if (name === "workflow_run")
-        return ok({ state: "paused", reason: "approval required" });
-      throw new Error(`unexpected tool call: ${name}`);
-    });
-    const created = manager.create(
-      {
-        title: "Approval pause",
-        goal: "Wait for implementation approval.",
-        acceptanceCriteria: ["Approval is preserved"],
-      },
-      owner,
-    );
-
-    runner.start(created.id, owner, { workflowId: "workflow-needs-approval" });
     const paused = await waitForTerminal(manager, created.id);
-    expect(paused).toMatchObject({ state: "paused", phase: "paused" });
-    expect(paused.implementation?.summary).toMatch(/awaiting approval/i);
+    expect(paused.pauseReason).toMatch(/BLOCKED_REVIEW/);
+    expect(paused.implementation).toBeUndefined();
+    expect(calls).toEqual(["project_analyze", "code_context"]);
   });
 
   it("pauses before work when the runner signal is already cancelled", async () => {
@@ -243,44 +155,15 @@ describe("AgentLoopRunner", () => {
     expect(calls.filter((name) => name === "project_analyze")).toHaveLength(1);
   });
 
-  it("attaches and verifies a Proof Pack after successful verification", async () => {
+  it("does not produce a proof pack from unverified council approval", async () => {
     const manager = new AgentLoopManager(root);
     const calls: string[] = [];
-    const runner = new AgentLoopRunner(manager, async (name) => {
-      calls.push(name);
-      if (name === "project_analyze") return ok({ projectRoot: root });
-      if (name === "code_context") return ok({ results: [] });
-      if (name === "workflow_run")
-        return ok({ state: "completed", files: [{ path: "src/example.ts" }] });
-      if (name === "project_verify")
-        return ok({ overall: "passed", passed: true, results: [] });
-      if (name === "workflow_proof_pack")
-        return ok({
-          proofPack: { id: "proof_123", manifestSha256: "a".repeat(64) },
-        });
-      if (name === "workflow_proof_verify") return ok({ verified: true });
-      throw new Error(`unexpected tool call: ${name}`);
-    });
-    const created = manager.create(
-      {
-        title: "Proof-backed runner",
-        goal: "Verify and preserve evidence.",
-        acceptanceCriteria: ["Evidence is preserved"],
-      },
-      owner,
-    );
-
+    const runner = new AgentLoopRunner(manager, async name => { calls.push(name); return ok({}); });
+    const created = manager.create({ title: "Proof gate", goal: "No fabricated proof", acceptanceCriteria: ["Verified authority"] }, owner);
     runner.start(created.id, owner, { workflowId: "workflow-proof" });
-    const completed = await waitForTerminal(manager, created.id);
-
-    expect(completed.state).toBe("completed");
-    expect(completed.verification?.proofPack).toEqual({
-      id: "proof_123",
-      manifestSha256: "a".repeat(64),
-      verified: true,
-    });
-    expect(calls).toEqual(
-      expect.arrayContaining(["workflow_proof_pack", "workflow_proof_verify"]),
-    );
+    const paused = await waitForTerminal(manager, created.id);
+    expect(paused.verification).toBeUndefined();
+    expect(calls).not.toContain("workflow_proof_pack");
+    expect(calls).not.toContain("project_verify");
   });
 });

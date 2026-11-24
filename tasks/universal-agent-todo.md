@@ -2,6 +2,12 @@
 
 **Decision baseline:** [Goal Map](../docs/strategy/UNIVERSAL_AGENT_GOALMAP_2026-11-15.md) → [Roadmap](../docs/strategy/UNIVERSAL_AGENT_ROADMAP_2026-11-15.md) → [Spec](../docs/superpowers/specs/2026-11-15-universal-agent-work-environment-design.md) → [Executable plan](../docs/superpowers/plans/2026-11-15-universal-agent-work-environment-implementation.md) → this tracker → [Session handoff](../docs/handoffs/NEXT_SESSION.md). **Baseline:** 2026-11-15. **Status (verified 2026-11-17):** UA-001 baseline **SOURCE_TESTED + MERGED_MAIN** via PR #205, main@`59b1c3d`, exact-head CI 7/7 and fresh focused 54/54 PASS. Owner-directed low-risk merge exception: **no independent APPROVED review**; operational/recovery C0 **HOLD**. UA-002–UA-018 not merged/verified as complete. This file extends the existing 33 FF issues on `main` / draft expansion to 37 in PR #200; do not bulk-close FF issues.
 
+## Governance containment checkpoint — 2026-11-24
+
+**ARB-001 / #202 — BLOCKED_REVIEW:** [PR #218](https://github.com/roronoazoroshao/FolderForge/pull/218), branch `fix/202-disable-synthetic-approval`, base `5ab250af5ac1cae09d101658aeaae89328430a55`. [RED run](https://github.com/roronoazoroshao/FolderForge/actions/runs/45364528617) at `209085572e5fc65f03d6f54357332a08a53548d7`: five regression assertions failed as intended (Ubuntu Node 22, exit 1). Containment candidate disables synthetic voting, blocks caller votes and legacy transitions; final-head GREEN/CI and qualified independent review must be fetched before merge. No provider or independent approval, no live host/registry mutation. #202 and #118 stay OPEN; C0 HOLD. Next: verify exact PR HEAD and review before ARB-002; no self-approval or old exception.
+
+- [ ] ARB-001 — RED verified; containment candidate awaiting final-head GREEN and qualified review. No UA acceptance or C0 promotion.
+
 ## Verified post-merge checkpoint — 2026-11-17
 
 - PR #205 [merged](https://github.com/roronoazoroshao/FolderForge/pull/205) into `main@59b1c3d9475a082b7770d60767d7a9e88a32226c`, source head `2c3a3f5`; local fetched main ancestry verified.
