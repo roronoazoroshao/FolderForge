@@ -65,7 +65,8 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
 
-      - name: Clean source setup (CLI and Mission Control)
+      # Preserve the documented Windows CI step name; setup:source also builds and verifies entry assets.
+      - name: Install dependencies without lifecycle downloads
         run: npm run setup:source
 
       - name: Typecheck
