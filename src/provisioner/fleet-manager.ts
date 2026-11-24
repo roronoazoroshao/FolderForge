@@ -19,16 +19,18 @@
  * plaintext lives solely in the per-instance config file (mode 0600). OpenAI
  * control-plane API keys are referenced by environment-variable name; an
  * operator-pasted key may also be stored on the tunnel record (fleet state is
- * written 0600) and is injected into the supervised child's environment —
- * never into its command line.
+ * written 0600) and is delivered through a private key file — never as a
+ * plaintext command-line argument.
  */
 
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import {
   chmodSync,
+  closeSync,
   existsSync,
   lstatSync,
   mkdirSync,
+  openSync,
   readFileSync,
   renameSync,
   statSync,
@@ -41,6 +43,9 @@ import type { TrustedHostConsentService } from '../operator/trusted-host-consent
 import type { FleetProfileTuple } from '../operator/trusted-host-scope.js';
 import { fileURLToPath } from 'node:url';
 import { processCommandLine, terminatePidTree } from '../core/process-tree.js';
+import { assertOpenAiRuntimeKey, normalizeOpenAiRuntimeFileKey } from '../core/openai-runtime-key.js';
+import { redactSensitiveText } from '../chatgpt/lifecycle.js';
+import { SecretPolicy } from '../policy/secret-policy.js';
 
 export type FleetInstanceState = 'stopped' | 'starting' | 'running' | 'stopping' | 'failed';
 export type FleetAuthMode = 'none' | 'token' | 'api-key' | 'oauth';
@@ -82,6 +87,8 @@ export interface FleetOpenAiTunnel {
   leaseId?: string;
   updatedAt: string;
   lastError?: string;
+  /** Bounded, redacted last crash output. Excluded from list/status responses. */
+  lastOutput?: string;
 }
 
 export interface FleetInstance {
@@ -238,18 +245,19 @@ function cloneInstance(instance: FleetInstance): FleetInstance {
 
 /**
  * Instance shape safe to return from ANY API surface: identical to the record
- * except the pasted OpenAI key and the per-instance 0600 key-file path are
- * stripped (they stay in the 0600 fleet state only).
+ * except the pasted OpenAI key, per-instance 0600 key-file path, and private
+ * last-crash log are stripped (they stay in the 0600 fleet state only).
  */
 export function publicFleetInstance(instance: FleetInstance): FleetInstance {
   const publicInstance = { ...instance };
   delete publicInstance.allowCriticalInDanger;
-  if (!instance.openAiTunnel?.apiKey && !instance.openAiTunnel?.apiKeyFile) {
+  if (!instance.openAiTunnel) {
     return publicInstance;
   }
   const publicTunnel = { ...instance.openAiTunnel };
   delete publicTunnel.apiKey;
   delete publicTunnel.apiKeyFile;
+  delete publicTunnel.lastOutput;
   return { ...publicInstance, openAiTunnel: publicTunnel };
 }
 
@@ -1055,8 +1063,16 @@ export class FleetManager {
     // A key pasted in Mission Control (stored on the record; fleet.json is
     // written 0600) satisfies the check when the env var itself was not
     // exported. Pasting again replaces the stored copy.
-    const apiKey = input.apiKey?.trim() || record.openAiTunnel?.apiKey;
-    if (!process.env[apiKeyEnv] && !apiKey) {
+    const pastedKey = input.apiKey?.trim();
+    const savedKey = record.openAiTunnel?.apiKey;
+    const apiKey = pastedKey || (savedKey ? normalizeOpenAiRuntimeFileKey(savedKey) : undefined);
+    const envKey = process.env[apiKeyEnv];
+    // Validate before changing persisted state or spawning a child. Never
+    // silently replace a working saved key with a malformed pasted value.
+    if (pastedKey) assertOpenAiRuntimeKey(pastedKey);
+    if (envKey) assertOpenAiRuntimeKey(envKey);
+    else if (apiKey) assertOpenAiRuntimeKey(apiKey);
+    if (!envKey && !apiKey) {
       throw new Error(
         `Environment variable ${apiKeyEnv} is not set in the Mission Control process and no key is saved. Restart control with that variable exported, or paste the key in the OpenAI tunnel dialog.`,
       );
@@ -1173,9 +1189,10 @@ export class FleetManager {
 
   openAiTunnelLogs(id: string): string {
     const record = this.mutable(id);
-    const sessionId = record.openAiTunnel?.sessionId;
-    if (!sessionId || !this.readFn) return '';
-    return this.readFn(sessionId);
+    const tunnel = record.openAiTunnel;
+    if (!tunnel) return '';
+    if (!tunnel.sessionId) return this.safeTunnelOutput(tunnel, tunnel.lastOutput || tunnel.lastError || '');
+    return this.safeTunnelOutput(tunnel, this.readExitOutput(tunnel.sessionId));
   }
 
   destroy(id: string): { destroyed: string } {
@@ -1344,11 +1361,12 @@ export class FleetManager {
     if (leaseId !== undefined && record.leaseId !== leaseId) return;
     if (record.state !== 'running') return;
     record.state = 'failed';
-    const portBusy = this.exitLogMatches(sessionId, EADDRINUSE_RE);
+    const output = this.readExitOutput(sessionId);
+    const portBusy = EADDRINUSE_RE.test(output);
     if (portBusy) {
       record.lastError = `Port ${record.port} is already in use by a process this control plane does not manage. Free the port (or assign another) and start again.`;
     } else {
-      const fatalReason = this.exitFatalReason(sessionId);
+      const fatalReason = this.exitFatalReason(output);
       record.lastError = fatalReason
         ? `Process exited unexpectedly: ${fatalReason}`
         : 'Process exited unexpectedly.';
@@ -1380,8 +1398,15 @@ export class FleetManager {
     if (leaseId !== undefined && tunnel.leaseId !== leaseId) return;
     if (tunnel.state !== 'running') return;
     tunnel.state = 'failed';
-    const portBusy = this.exitLogMatches(sessionId, EADDRINUSE_RE);
-    const fatalReason = portBusy ? undefined : this.exitFatalReason(sessionId);
+    // Read once: a reader may be cursor-based, and a second read would lose
+    // the fatal reason. Keep the last bounded, redacted snapshot after exit.
+    const output = this.safeTunnelOutput(tunnel, this.readExitOutput(sessionId));
+    tunnel.lastOutput = output;
+    const portBusy = EADDRINUSE_RE.test(output);
+    const malformed = output.includes('control plane API key is malformed');
+    const fatalReason = portBusy ? undefined : malformed
+      ? 'control plane API key is malformed. Check the configured runtime key file/environment.'
+      : this.exitFatalReason(output);
     tunnel.lastError = portBusy
       ? `Port ${record.port} is already in use by a process this control plane does not manage. Free the port (or assign another) and start the tunnel again.`
       : fatalReason
@@ -1395,14 +1420,19 @@ export class FleetManager {
     this.persist();
   }
 
-  /** True when the session's buffered output matches the pattern (EADDRINUSE). */
-  private exitLogMatches(sessionId: string, pattern: RegExp): boolean {
-    if (!this.readFn) return false;
+  private readExitOutput(sessionId: string): string {
     try {
-      return pattern.test(this.readFn(sessionId));
+      return this.readFn?.(sessionId) ?? '';
     } catch {
-      return false;
+      return '';
     }
+  }
+
+  private safeTunnelOutput(tunnel: FleetOpenAiTunnel, output: string): string {
+    for (const key of [tunnel.apiKey, process.env[tunnel.apiKeyEnv]]) {
+      if (key) output = output.split(key).join('[REDACTED]');
+    }
+    return new SecretPolicy().redact(redactSensitiveText(output)).slice(-16_000);
   }
 
   /**
@@ -1410,14 +1440,7 @@ export class FleetManager {
    * dashboard shows the real cause (e.g. the unauthenticated-tunnel refusal)
    * instead of a bare "Process exited unexpectedly.".
    */
-  private exitFatalReason(sessionId: string): string | undefined {
-    if (!this.readFn) return undefined;
-    let output: string;
-    try {
-      output = this.readFn(sessionId);
-    } catch {
-      return undefined;
-    }
+  private exitFatalReason(output: string): string | undefined {
     const lines = output.split('\n');
     for (let index = lines.length - 1; index >= 0; index -= 1) {
       const line = lines[index]!.trim();
@@ -1658,8 +1681,23 @@ export class FleetManager {
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     }
-    writeFileSync(file, apiKey, 'utf8');
-    chmodSync(file, 0o600);
+    // Write a fresh private inode and atomically replace the previous file.
+    // A concurrent reader can see the old or new complete key, never a
+    // partially truncated credential; existing hard links are not modified.
+    assertOpenAiRuntimeKey(apiKey);
+    const temporary = `${file}.${randomUUID()}.tmp`;
+    const fd = openSync(temporary, 'wx', 0o600);
+    try {
+      try {
+        writeFileSync(fd, apiKey, 'utf8');
+      } finally {
+        closeSync(fd);
+      }
+      chmodSync(temporary, 0o600);
+      renameSync(temporary, file);
+    } finally {
+      if (existsSync(temporary)) unlinkSync(temporary);
+    }
     return file;
   }
 

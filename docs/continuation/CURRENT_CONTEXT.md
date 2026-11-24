@@ -1,12 +1,18 @@
 # FolderForge — Rolling Session Context
 
-**CONTEXT_ID:** `FF-RECURSIVE-01/STATE`  
-**CHECKED:** 2026-11-23 Asia/Ho_Chi_Minh; GitHub and authorized FolderForge reads  
-**GOAL:** `C0-GATE-RECONCILIATION` (docs-only prerequisite)  
-**STATUS:** `BLOCKED_SECURITY_REVIEW` for C0; this documentation change requires PR review. PR #212's historical `BLOCKED_REVIEW` is superseded.  
+**CONTEXT_ID:** `FF-RECURSIVE-01/STATE`
+**CHECKED:** 2026-11-24 Asia/Ho_Chi_Minh; GitHub and authorized FolderForge reads
+**GOAL:** `DX-002-FLEET-STARTUP-DIAGNOSTICS` (owner-requested independent DX fix; C0 gates unchanged)
+**STATUS:** `SOURCE_TESTED`; exact-head CI and independent PR review pending. C0 remains `BLOCKED_SECURITY_REVIEW`.
 **MASTER:** [MASTER_PROMPT.md](MASTER_PROMPT.md)
 
-## Verified checkpoint at source baseline
+## Current DX checkpoint
+- Base main `5ab250af5ac1cae09d101658aeaae89328430a55` contains DX-002A discovery improvement (#217) and docs-only reconciliation (#213). Current branch `fix/fleet-tunnel-startup-20261124` is a separate owner-requested DX fix.
+- User runtime: initial key file transport failed with malformed credential; later both env and file transport reached readiness. Original key/tunnel confirmed; initial malformed byte cause not proven. Source fixes validate actual credential before spawn, atomically replace managed key files, retain bounded redacted crash output without consuming process cursor, and distinguish local/tunnel logs. No live restart or production deployment.
+- RED: four focused regression cases failed before fix; GREEN: 7 focused unit/integration files, 89/89 tests pass; backend and SPA TypeScript, focused ESLint, architecture and diff checks passed. Full matrix and independent review required. Readiness-based state transition and automatic recovery remain separate work.
+- Next: verify exact PR-head CI and genuine independent review; merge only if authorized/gates satisfied. Do not claim main updated until verified.
+
+## Historical C0 checkpoint (not a current live-host claim)
 - GitHub `main@567ce3f4974a011e90625693793d23a82347d447` contains [PR #212](https://github.com/roronoazoroshao/FolderForge/pull/212), merged on 2026-11-23 from head `a959fd777d1b84a3c9fc3a89dae6bdec314bcd16`. Post-merge [Actions #45204690187](https://github.com/roronoazoroshao/FolderForge/actions/runs/45204690187): **7/7 jobs SUCCESS** on that main SHA. Prior `BLOCKED_REVIEW` described the **pre-merge** state.
 - PR #212 had one author-connected `COMMENTED` review, **zero independent APPROVED reviews**, and a recorded **one-time docs-only owner exception**. It does not authorize this or another PR.
 - [PR #211](https://github.com/roronoazoroshao/FolderForge/pull/211) OPEN/unmerged; ADR-0013 remains proposed. Its head `37616fb` has 7/7 successful check runs, but **zero submitted reviews or review threads**. [PR #200](https://github.com/roronoazoroshao/FolderForge/pull/200) and [#203](https://github.com/roronoazoroshao/FolderForge/pull/203) are CLOSED without merge; prototype code is not main.
@@ -18,6 +24,6 @@
 1. Obtain independent qualified #118 review and owner-authorized effective host writer-epoch fencing, cross-process crash/restart/rollback and off-host restore proof. **C0 operational HOLD** until evidence exists.
 2. Separately implement a **disposable-only** stale-writer/rollback fault negative fixture in a small RED→GREEN PR; never exercise live metadata.
 3. Only conditionally progress **UA-002 / M1 / C1 / UA-AC02** with persisted trusted grants and forged/stale/revoked identity denial. Draft #200's frozen DTO lacks authoritative `grantId` and registry-issued identity; do not adopt it as an authorization mechanism.
-4. This docs-only increment still requires exact-final-HEAD CI and authentic independent review; without them **preserve PR/branch and report BLOCKED**, never reuse #212's exception.
+4. Preserve independent DX and C0 changes; this source increment requires exact-final-HEAD CI and authentic independent review. Without them preserve the PR and report BLOCKED; no docs-only exception reuse.
 
 **Precedence:** [AGENTS.md](../../AGENTS.md), [Goal Map](../strategy/UNIVERSAL_AGENT_GOALMAP_2026-11-15.md), [Roadmap](../strategy/UNIVERSAL_AGENT_ROADMAP_2026-11-15.md), [Task Ledger](../../tasks/universal-agent-todo.md), [UA-002 Handoff](../handoffs/NEXT_SESSION.md). Refetch; do not extrapolate.

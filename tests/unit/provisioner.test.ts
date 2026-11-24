@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -414,6 +414,68 @@ describe('FleetManager', () => {
       if (previous === undefined) delete process.env.FOLDERFORGE_TEST_CONTROL_KEY;
       else process.env.FOLDERFORGE_TEST_CONTROL_KEY = previous;
     }
+  });
+
+  it('rejects a malformed replacement without spawning or replacing the saved credential', () => {
+    const { root, project } = fixture();
+    const calls: string[] = [];
+    const fleet = new FleetManager(root, { mainJs: HERE, spawn: stubSpawner(calls), stopSession: () => undefined });
+    const { instance } = fleet.create({ projectPath: project });
+    const options = { tunnelId: 'tunnel_0123456789abcdef0123456789abcdef', apiKeyEnv: 'FF_TEST_ABSENT_RUNTIME_KEY' };
+    fleet.startOpenAiTunnel(instance.id, { ...options, apiKey: 'fixture-runtime-key' });
+    fleet.stopOpenAiTunnel(instance.id);
+    expect(() => fleet.startOpenAiTunnel(instance.id, { ...options, apiKey: 'invalid.key' }))
+      .toThrow(/OPENAI_RUNTIME_KEY_MALFORMED/);
+    expect(calls).toHaveLength(1);
+    expect(fleet.get(instance.id).openAiTunnel?.apiKey).toBe('fixture-runtime-key');
+  });
+
+  it('preserves a redacted last-crash log even when the session reader is consumptive', () => {
+    const { root, project } = fixture();
+    let exit: (() => void) | undefined;
+    let output = '';
+    const fleet = new FleetManager(root, {
+      mainJs: HERE,
+      spawn: stubSpawner([]),
+      readSession: () => { const value = output; output = ''; return value; },
+      onExit: (_id, listener) => { exit = listener; return () => undefined; },
+    });
+    const { instance } = fleet.create({ projectPath: project });
+    fleet.startOpenAiTunnel(instance.id, {
+      tunnelId: 'tunnel_0123456789abcdef0123456789abcdef',
+      apiKeyEnv: 'FF_TEST_ABSENT_RUNTIME_KEY',
+      apiKey: 'fixture-runtime-key',
+    });
+    output = 'configure tunnel-client: control plane API key is malformed\nfixture-runtime-key\n✗ tunnel-client exited before readiness (exit 1)\n';
+    exit?.();
+    expect(fleet.get(instance.id).openAiTunnel?.lastError).toContain('control plane API key is malformed');
+    expect(fleet.openAiTunnelLogs(instance.id)).toContain('exited before readiness');
+    expect(fleet.openAiTunnelLogs(instance.id)).not.toContain('fixture-runtime-key');
+    expect(publicFleetInstance(fleet.get(instance.id)).openAiTunnel?.lastOutput).toBeUndefined();
+    expect(new FleetManager(root).openAiTunnelLogs(instance.id)).toContain('exited before readiness');
+  });
+
+  it('normalizes a legacy saved key and atomically replaces the stale key file', () => {
+    if (process.platform === 'win32') return;
+    const { root, project } = fixture();
+    const fleet = new FleetManager(root, { mainJs: HERE, spawn: stubSpawner([]), stopSession: () => undefined });
+    const { instance } = fleet.create({ projectPath: project });
+    const options = { tunnelId: 'tunnel_0123456789abcdef0123456789abcdef', apiKeyEnv: 'FF_TEST_ABSENT_RUNTIME_KEY' };
+    fleet.startOpenAiTunnel(instance.id, { ...options, apiKey: 'fixture-runtime-key' });
+    fleet.stopOpenAiTunnel(instance.id);
+    const keyPath = join(root, '.folderforge', 'fleet', `${instance.id}.openai-key`);
+    const oldLink = join(root, 'old-key-inode');
+    writeFileSync(keyPath, 'stale-invalid.key');
+    linkSync(keyPath, oldLink);
+    const statePath = join(root, '.folderforge', 'fleet.json');
+    const state = JSON.parse(readFileSync(statePath, 'utf8')) as { instances: Array<{ openAiTunnel: { apiKey: string } }> };
+    state.instances[0]!.openAiTunnel.apiKey = 'fixture-runtime-key\n';
+    writeFileSync(statePath, JSON.stringify(state));
+    const reloaded = new FleetManager(root, { mainJs: HERE, spawn: stubSpawner([]) });
+    reloaded.startOpenAiTunnel(instance.id, options);
+    expect(readFileSync(keyPath, 'utf8')).toBe('fixture-runtime-key');
+    expect(readFileSync(oldLink, 'utf8')).toBe('stale-invalid.key');
+    expect(statSync(keyPath).mode & 0o777).toBe(0o600);
   });
 
   it('fails closed when an OpenAI tunnel API-key environment reference is missing', () => {

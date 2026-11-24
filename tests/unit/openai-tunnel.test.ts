@@ -602,6 +602,59 @@ describe("OpenAI Secure MCP Tunnel CLI", () => {
     },
   );
 
+  it.each(["file", "env"])("rejects malformed runtime keys from %s before starting MCP", async (source) => {
+    const root = mkdtempSync(join(tmpdir(), "folderforge-openai-key-validation-"));
+    try {
+      const project = join(root, "project");
+      mkdirSync(project);
+      const client = fakeTunnelClient(root);
+      const keyPath = join(root, "runtime.key");
+      const malformed = "fixture.invalid.runtime.key";
+      writeFileSync(keyPath, malformed, { mode: 0o600 });
+      const result = await executeOpenAiTunnelCli(
+        [
+          "connect", "--openai-tunnel", "--project", project,
+          "--tunnel-id", TUNNEL_ID, "--tunnel-client", client,
+          "--dry-run", "--no-open",
+          ...(source === "file" ? ["--api-key-file", keyPath] : ["--api-key-env", "FF_TEST_RUNTIME_KEY"]),
+        ],
+        { env: { PATH: "", FF_TEST_RUNTIME_KEY: malformed }, homeDir: root, stdoutIsTty: false },
+      );
+      expect(result.exitCode).toBe(1);
+      expect(result.output).toContain("OPENAI_RUNTIME_KEY_MALFORMED");
+      expect(result.output).not.toContain(malformed);
+      expect(result.output).not.toContain("launch plan is valid");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each(["file", "env"])("matches the official file/env whitespace contract (%s)", async (source) => {
+    const root = mkdtempSync(join(tmpdir(), "folderforge-openai-key-whitespace-"));
+    try {
+      const project = join(root, "project");
+      mkdirSync(project);
+      const client = fakeTunnelClient(root);
+      const keyPath = join(root, "runtime.key");
+      const value = "fixture-runtime-key\n";
+      writeFileSync(keyPath, value, { mode: 0o600 });
+      const result = await executeOpenAiTunnelCli(
+        [
+          "connect", "--openai-tunnel", "--project", project,
+          "--tunnel-id", TUNNEL_ID, "--tunnel-client", client,
+          "--dry-run", "--no-open",
+          ...(source === "file" ? ["--api-key-file", keyPath] : ["--api-key-env", "FF_TEST_RUNTIME_KEY"]),
+        ],
+        { env: { PATH: "", FF_TEST_RUNTIME_KEY: value }, homeDir: root, stdoutIsTty: false },
+      );
+      expect(result.exitCode).toBe(source === "file" ? 0 : 1);
+      expect(result.output).toContain(source === "file" ? "launch plan is valid" : "OPENAI_RUNTIME_KEY_MALFORMED");
+      expect(result.output).not.toContain("fixture-runtime-key");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("rejects an incompatible tunnel-client before launch", async () => {
     const root = mkdtempSync(
       join(tmpdir(), "folderforge-openai-incompatible-"),

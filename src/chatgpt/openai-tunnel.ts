@@ -33,6 +33,7 @@ import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 import * as tar from "tar";
 import { redactSensitiveText } from "./lifecycle.js";
+import { assertOpenAiRuntimeKey, normalizeOpenAiRuntimeFileKey } from "../core/openai-runtime-key.js";
 import {
   executeChatGptCli,
   type ChatGptCliResult,
@@ -835,6 +836,7 @@ function resolveApiKeyRef(
         `Environment variable ${options.apiKeyEnv} is empty or unset`,
       );
     }
+    assertOpenAiRuntimeKey(env[options.apiKeyEnv]!);
     return `env:${options.apiKeyEnv}`;
   }
   if (options.apiKeyFile) {
@@ -848,14 +850,17 @@ function resolveApiKeyRef(
         `API key file permissions are too broad; run chmod 600 ${path}`,
       );
     }
+    assertOpenAiRuntimeKey(normalizeOpenAiRuntimeFileKey(readFileSync(path, "utf8")));
     return `file:${path}`;
   }
 
   if (previous?.apiKeyRef) {
     if (previous.apiKeyRef.startsWith("env:")) {
       const name = previous.apiKeyRef.slice(4);
-      if (ENV_NAME_PATTERN.test(name) && env[name]?.trim())
+      if (ENV_NAME_PATTERN.test(name) && env[name]?.trim()) {
+        assertOpenAiRuntimeKey(env[name]!);
         return previous.apiKeyRef;
+      }
     } else if (previous.apiKeyRef.startsWith("file:")) {
       const path = previous.apiKeyRef.slice(5);
       if (existsSync(path)) {
@@ -865,14 +870,19 @@ function resolveApiKeyRef(
           stat.size > 0 &&
           (platform === "win32" || (stat.mode & 0o077) === 0)
         ) {
+          assertOpenAiRuntimeKey(normalizeOpenAiRuntimeFileKey(readFileSync(path, "utf8")));
           return previous.apiKeyRef;
         }
       }
     }
   }
 
-  if (env.CONTROL_PLANE_API_KEY?.trim()) return "env:CONTROL_PLANE_API_KEY";
-  if (env.OPENAI_API_KEY?.trim()) return "env:OPENAI_API_KEY";
+  for (const name of ["CONTROL_PLANE_API_KEY", "OPENAI_API_KEY"]) {
+    if (env[name]?.trim()) {
+      assertOpenAiRuntimeKey(env[name]!);
+      return `env:${name}`;
+    }
+  }
   throw new Error(
     `No runtime API key found. Export CONTROL_PLANE_API_KEY or use --api-key-file. Create one at ${RUNTIME_KEYS_URL}`,
   );

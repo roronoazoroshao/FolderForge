@@ -1292,10 +1292,13 @@ function OpenAiTunnelModal(props: { instance: FleetInstance; onClose: () => void
 function LogsModal(props: { instance: FleetInstance; onClose: () => void }) {
   const [logs, setLogs] = useState<{ status?: string; output?: string } | null>(null);
   const [openAiLogs, setOpenAiLogs] = useState<{ output?: string } | null>(null);
+  const [source, setSource] = useState<'local' | 'tunnel'>(() =>
+    props.instance.openAiTunnel && props.instance.state !== 'running' && props.instance.state !== 'starting'
+      ? 'tunnel' : 'local');
   const [error, setError] = useState<string | null>(null);
   const load = useCallback(async () => {
     try {
-      if (props.instance.openAiTunnel?.state === 'running' || props.instance.openAiTunnel?.state === 'starting') {
+      if (source === 'tunnel') {
         setOpenAiLogs(await api<{ output?: string }>(`/fleet/${encodeURIComponent(props.instance.id)}/openai-tunnel/logs`));
         setLogs(null);
       } else {
@@ -1308,14 +1311,20 @@ function LogsModal(props: { instance: FleetInstance; onClose: () => void }) {
       setOpenAiLogs(null);
       setError(caught instanceof Error ? caught.message : String(caught));
     }
-  }, [props.instance.id, props.instance.openAiTunnel?.state]);
+  }, [props.instance.id, source]);
   useEffect(() => { void load(); }, [load]);
-  const output = openAiLogs?.output ?? logs?.output ?? '';
+  const output = (source === 'tunnel' ? openAiLogs?.output : logs?.output) ?? '';
   return (
     <Modal open title={`Logs — ${props.instance.id}`} onClose={props.onClose}>
       <div className="grid gap-3">
         <ErrorNote message={error} />
-        <div className="text-xs text-muted">source: {openAiLogs ? 'OpenAI tunnel supervisor' : 'local Fleet process'}</div>
+        {props.instance.openAiTunnel ? (
+          <div className="flex gap-2">
+            <Button size="sm" variant={source === 'local' ? 'primary' : 'ghost'} onClick={() => setSource('local')}>Local Fleet</Button>
+            <Button size="sm" variant={source === 'tunnel' ? 'primary' : 'ghost'} onClick={() => setSource('tunnel')}>OpenAI Tunnel</Button>
+          </div>
+        ) : null}
+        <div className="text-xs text-muted">source: {source === 'tunnel' ? 'OpenAI tunnel supervisor' : 'local Fleet process'}</div>
         <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-border-soft bg-[#0b1119] p-3 font-mono text-[11px] leading-relaxed">{output.trim() ? output : 'No output captured yet.'}</pre>
         <div className="flex justify-end gap-2"><Button variant="ghost" onClick={() => void load()}>Refresh</Button><Button variant="primary" onClick={props.onClose}>Close</Button></div>
       </div>

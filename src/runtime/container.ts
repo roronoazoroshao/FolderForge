@@ -131,7 +131,8 @@ export class Container {
       resolveTrustedHostConsent: () => this.trustedHostConsentService(),
       spawn: (command, cwd, env) => this.processes.start(command, cwd, config.terminal.shell, env),
       stopSession: (sessionId) => this.processes.stop(sessionId),
-      readSession: (sessionId) => this.processes.read(sessionId).output,
+      // Fleet log readers must not advance the process streaming cursor.
+      readSession: (sessionId) => this.processes.peek(sessionId, 1_000_000).output,
       onExit: (sessionId, listener) => this.processes.onExit(sessionId, listener),
     });
     // Quick tunnels spawn through ProcessManager as well, so the same process
