@@ -465,13 +465,23 @@ checks.
 ## From source
 
 ```bash
-git clone https://github.com/roronoazoroshao369/FolderForge.git
+git clone --branch main --single-branch https://github.com/roronoazoroshao/FolderForge.git
 cd FolderForge
-npm ci --ignore-scripts
-npm run build
-npm test
+npm run setup:source
 node dist/main.js --version
 ```
+
+The full source setup installs both locked dependency trees, builds the CLI and
+Mission Control, and fails if their required entry assets are missing, empty or
+the packaged SPA entry does not match its built source. It uses Node.js 22/24
+and npm as build tools, but does not install the published FolderForge package.
+It does not start or restart any services. For an existing clean source checkout,
+run `git pull --ff-only origin main` followed by `npm run setup:source`.
+The existing `npm run build` remains suitable for minimal CLI development; it
+may skip the SPA when frontend dependencies are absent.
+
+Run `npm test` separately to execute the source suite. A successful setup is
+not production attestation or proof of OS isolation.
 
 During development:
 

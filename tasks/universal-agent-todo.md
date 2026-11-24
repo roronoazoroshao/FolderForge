@@ -42,6 +42,18 @@
 
 **Deliberate parallel work:** UA-011/012 may run concurrently with UA-007–010 once UA-003/004 are qualified. UA-013 Web UX does **not** wait for Photoshop/Figma integration; creative pane can show `unavailable` until UA-012 is real. UA-015 is Advanced and **does not block** safe default agent-local coding beta; it blocks host-control claims.
 
+## Owner-confirmed developer experience backlog (2026-11-24)
+
+The owner reconfirmed G1–G8, M0–M5 and UA-001–018 in the 2026-11-24 conversation and accepted the following independent DX track. This does not change the canonical UA dependency order, waive reviews, or promote an AC/gate.
+
+| ID | Priority | Deliverable and acceptance | State |
+| --- | --- | --- | --- |
+| DX-001 | P1 | One full source setup command: locked root and frontend dependencies, CLI and SPA build, missing/empty/mismatched entry assets fail closed; preserve minimal build. Verify clean-checkout installation on supported OS and exact-head CI. | IN_PROGRESS — proposed setup command and fixture tests; integration pending |
+| DX-002 | P1 | Actionable Control Plane diagnostics for occupied ports, selected project root and owner-auth setup; never stop an unknown process or disclose credentials. | PLANNED |
+| DX-003 | P2 | npm-independent end-user distribution: bundled runtime, signed/checksummed platform artifacts, versioned updates, rollback and release evidence. Evaluate Linux/macOS/Windows separately; no production release without C8. | PLANNED |
+
+DX work is scoped to onboarding and distribution (G1/G8, M0 prerequisite; AC01/AC08 related, not satisfied by setup alone). Owner reported source build skipping the Mission Control SPA and subsequently restored Dashboard access. Connector host state remains UNKNOWN. Preserve existing review-gated PRs #211/#213/#214/#215; reconcile continuation files only through reviewed integration.
+
 ## Exact acceptance criteria → task traceability
 
 | Spec AC | Owner task(s) |

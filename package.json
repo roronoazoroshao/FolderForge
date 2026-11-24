@@ -70,6 +70,7 @@
   },
   "scripts": {
     "dev": "tsx src/main.ts",
+    "setup:source": "npm ci --ignore-scripts && npm --prefix packages/mission-control ci --ignore-scripts && npm run build && node scripts/verify-source-build.mjs",
     "build:adapter-godot": "tsc -p packages/adapter-godot/tsconfig.json",
     "build:mission-control": "node scripts/build-mission-control.mjs",
     "build": "npm run build:adapter-godot && node scripts/build-mission-control.mjs && tsc -p tsconfig.json && node scripts/copy-static-assets.mjs && node scripts/ensure-bin-mode.mjs",
