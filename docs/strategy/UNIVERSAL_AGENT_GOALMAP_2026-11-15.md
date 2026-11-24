@@ -65,3 +65,7 @@
 [Historical North Star 2027–2030](FOLDERFORGE_NORTH_STAR_2027_2030.md) used *trusted workspace runtime* / folder-first as its principal framing. **Retain** workspace, permission, audit and local-first commitments. **Broaden** ultimate value to observation, interaction with running applications, editable creative artifacts and whole-workflow testing. A folder is the simplest entry point, not the ceiling on capabilities. Do not interpret this document as permission to claim current product supports all Goals.
 
 **Further authority:** [Roadmap](UNIVERSAL_AGENT_ROADMAP_2026-11-15.md) · [Spec](../superpowers/specs/2026-11-15-universal-agent-work-environment-design.md) · [Implementation plan](../superpowers/plans/2026-11-15-universal-agent-work-environment-implementation.md) · [Task tracker](../../tasks/universal-agent-todo.md) · [Baseline status](../status/UNIVERSAL_AGENT_STATUS_2026-11-15.md) · [Master prompt](../prompts/MASTER_IMPLEMENTATION_RECURSIVE_HANDOFF.md).
+
+## Development delivery objective (proposed)
+
+Preserve G1–G7 and all acceptance criteria. Add a cross-cutting delivery objective: each interactive session produces one small verifiable increment, records actual integration and audits the entire roadmap. Separate disposable dev/source proof from live operational certification; park scoped blockers and select an independent eligible outcome. See [Autonomous Development Execution Plan](AUTONOMOUS_DEVELOPMENT_EXECUTION_PLAN.md). This is a proposal, not a completed goal or permission to waive existing controls.

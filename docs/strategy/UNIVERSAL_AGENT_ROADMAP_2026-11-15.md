@@ -54,3 +54,7 @@ All windows are hypotheses and subject to effort, compatibility, host resources,
 ## 5. Existing roadmap reconciliation
 
 The v2 33 FF issues on `main` and the draft 37-task plan on PR #200 remain as linked historical/implementation work: **do not bulk-close** or rewrite completion statuses. Use [universal-agent task matrix](../../tasks/universal-agent-todo.md) to relate each new proof milestone to FF issue ranges. Review #200/#203 separately as source changes; documentation approval alone does not authorize merging their code.
+
+## Proposed execution overlay — continuous development
+
+See [Autonomous Development Execution Plan](AUTONOMOUS_DEVELOPMENT_EXECUTION_PLAN.md) for the prioritized increment queue, risk tiers, verification, rollback and session audit. Retain M0–M5, C0–C8 and original dependencies. Operational C0 HOLD does not itself prove that every isolated fixture or unrelated source task is unsafe; select genuinely independent eligible work under the applicable approved rules. Never promote dev previews to production evidence. This overlay is proposed pending authorized governance adoption.
