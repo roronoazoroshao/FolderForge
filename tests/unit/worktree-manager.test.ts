@@ -412,6 +412,62 @@ describe("WorktreeManager", () => {
     expect(refreshed.get(other.id)?.branch).toBe(other.branch);
   });
 
+  it.skipIf(process.platform === "win32")(
+    "G01: a killed applying writer preserves its journal and blocks restart mutations",
+    () => {
+      const root = repository();
+      const initial = new WorktreeManager([root], root);
+      const isolation = initial.create("interrupted-apply");
+      writeFileSync(join(isolation.worktreeRoot, "tracked.txt"), "task change\n");
+      writeFileSync(join(isolation.worktreeRoot, "untracked.txt"), "task output\n");
+      const sourceModule = pathToFileURL(
+        join(process.cwd(), "src/isolation/worktree-manager.ts"),
+      ).href;
+      const script = [
+        'import { WorktreeManager } from "' + sourceModule + '";',
+        "const [root, id] = process.argv.slice(1);",
+        'const manager = new WorktreeManager([root], root, { beforeUntrackedCopy: () => process.kill(process.pid, "SIGKILL") });',
+        "manager.apply(id);",
+      ].join("\n");
+      const child = spawnSync(
+        process.execPath,
+        ["--import", "tsx", "--input-type=module", "-e", script, root, isolation.id],
+        { cwd: process.cwd(), encoding: "utf8", timeout: 15000 },
+      );
+      expect(child.error).toBeUndefined();
+      expect(child.signal, child.stderr).toBe("SIGKILL");
+      expect(child.status).toBeNull();
+
+      const registryPath = join(root, ".git", "folderforge", "isolations.json");
+      const lockPath = registryPath + ".lock";
+      const patchPath = join(root, ".git", "folderforge", "rollbacks", isolation.id + ".patch");
+      const registryBefore = readFileSync(registryPath);
+      const patchBefore = readFileSync(patchPath);
+      const lockBefore = readFileSync(lockPath);
+      const refsBefore = git(root, "show-ref");
+      const worktreesBefore = git(root, "worktree", "list", "--porcelain");
+      const restarted = new WorktreeManager([root], root);
+      expect(restarted.get(isolation.id)).toMatchObject({
+        state: "applying",
+        rollbackPatchSha256: createHash("sha256").update(patchBefore).digest("hex"),
+      });
+      expect(readFileSync(join(root, "tracked.txt"), "utf8")).toBe("task change\n");
+      expect(existsSync(join(root, "untracked.txt"))).toBe(false);
+
+      // No automatic lock retirement: the disposable restart must fail closed.
+      expect(() => restarted.rollback(isolation.id)).toThrow(/EEXIST/);
+      expect(readFileSync(registryPath)).toEqual(registryBefore);
+      expect(readFileSync(patchPath)).toEqual(patchBefore);
+      expect(readFileSync(lockPath)).toEqual(lockBefore);
+      expect(readFileSync(join(root, "tracked.txt"), "utf8")).toBe("task change\n");
+      expect(existsSync(join(root, "untracked.txt"))).toBe(false);
+      expect(git(root, "show-ref")).toBe(refsBefore);
+      expect(git(root, "worktree", "list", "--porcelain")).toBe(worktreesBefore);
+      expect(readFileSync(join(isolation.worktreeRoot, "untracked.txt"), "utf8")).toBe("task output\n");
+      // The existing fixture afterEach owns and removes only this temporary repository.
+    },
+  );
+
   it("G01: stale apply refuses before source mutation and a fresh manager can recover", () => {
     const root = repository();
     const initial = new WorktreeManager([root], root);

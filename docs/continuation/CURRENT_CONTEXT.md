@@ -1,22 +1,15 @@
 # FolderForge — Rolling Session Context
 
-**CONTEXT_ID:** `FF-RECURSIVE-01/STATE`  
-**CHECKED:** 2026-11-23 Asia/Ho_Chi_Minh; GitHub + FolderForge reads before this edit  
-**GOAL:** `DOC-212-SAFE-INTEGRATION`  
-**STATUS:** `BLOCKED_REVIEW` (no `MERGED_MAIN`); C0 security/recovery `HOLD`  
-**MASTER:** [MASTER_PROMPT.md](MASTER_PROMPT.md)
+**CONTEXT_ID:** FF-RECURSIVE-01/STATE  
+**CHECKED:** 2026-11-24 Asia/Ho_Chi_Minh (pre-commit)  
+**GOAL:** UA-001 / M0 / C0 disposable process interruption fixture  
+**STATUS:** IN_PROGRESS; proposed test awaiting exact-head execution and review. Operational C0 HOLD.
 
-## Verified pre-edit evidence
-- GitHub `main@599473dec46bddcabda618223d5ec7636261b5ef`; branch `docs/stable-session-loop-20261123` PR [#212](https://github.com/roronoazoroshao/FolderForge/pull/212) OPEN, unmerged, base `main`, **pre-edit HEAD `b7226710e62e516da002681e2285c5f77b59357f`**. Docs-only, three changed files.
-- [CI #45155738895](https://github.com/roronoazoroshao/FolderForge/actions/runs/45155738895) for **that pre-edit SHA**: completed SUCCESS, 7/7 check runs SUCCESS. This session edits `AGENTS.md` and overwrites both continuation files, **so CI must be rechecked on the new HEAD**.
-- PR #212: 0 submitted reviews, 0 review threads, `mergeable=true`; no independent APPROVED. Authenticated `roronoazoroshao369` is the PR author. [Review requested publicly](https://github.com/roronoazoroshao/FolderForge/pull/212#issuecomment-7097913893) but no nominated eligible reviewer. GitHub `main` reports `protected=false`, rulesets `[]`; branch protection detail API previously 403. These facts do **not** waive documented review requirements.
-- [PR #211](https://github.com/roronoazoroshao/FolderForge/pull/211) OPEN/unreviewed, proposal ADR-0013 not adopted; host security [#118](https://github.com/roronoazoroshao/FolderForge/issues/118) OPEN; synthetic-review provenance [#202](https://github.com/roronoazoroshao/FolderForge/issues/202) OPEN.
-- FolderForge workspace `/home/devops/FolderForge` active with `danger` policy, no active capsule (enforcement `optional`), local branch `feat/ua002-trusted-context-20261117` clean. **Danger mode is not independent security approval.** No worktree/registry modification or host cleanup.
+- Canonical main before this change: `567ce3f4974a011e90625693793d23a82347d447`, PR #212 merged; exact main check runs 7/7 SUCCESS. Previous BLOCKED_REVIEW snapshot is historical.
+- PR #214 governance draft `9948a0b0ace892cdf72b061a69fbedc68629f703`, CI observed 3/7 success, 4 running, zero reviews. Not adopted. Proposal omits G8 from stated goal preservation; retain G1–G8.
+- PR #213 `2584e62db66092eae65244bdd0e676a6e318efe8` and #211 `37616fbecd7abffa66e288684028a56db2c23ce4`: 7/7 exact-head checks, zero reviews; preserve both HEADs. Reconcile overlapping continuation text only through reviewed integration. No reuse of #212 exception.
+- #118 (host writer fencing/recovery) and #202 (synthetic reviewers) remain OPEN. FolderForge MCP Session terminated; workspace, local refs/stashes, capsule, effective policy, host capacity and recovery UNKNOWN. GitHub rulesets []; protection detail 403. No production change.
+- Fixture scope: `tests/unit/worktree-manager.test.ts` plus stable handoff files. Real child kills itself at beforeUntrackedCopy after tracked apply and durable applying journal; restart must refuse rollback while lock remains and preserve journal, patch, bytes and refs. Linux/macOS only. No production registry/lock removal. Local synthetic Node harness verified SIGKILL and exclusive lock EEXIST; actual FolderForge test not run locally (no checkout/network). Test-only, no product behavior change; RED/GREEN unverified. Obtain exact-head CI and focused output before claims.
+- Audit: UA-001 baseline source integrated/tested historically, full C0 not passed; UA-002–018 unproven as complete; no new AC or milestone PASS. Main master revision remains 4 until reviewed integration.
 
-## Next small unblocker
-- Until PR #212 merges, start from `docs/stable-session-loop-20261123` for these two files; do not read nonexistent `main` copies.
-1. Re-read current PR #212 HEAD, CI and review/threads after this commit. Secure genuine eligible independent reviewer, or explicit narrowly scoped owner exception **only if policy permits**. Do not forge approvals or assume a command can waive gates.
-2. If all gates satisfied: merge PR #212 to `main`, verify SHA/ancestry, safely delete only the merged remote branch (e.g. verified `git push origin --delete` if tool/policy allow), verify absence. Otherwise keep PR/branch and report `BLOCKED`.
-3. Then separately review PR #211 and choose smallest roadmap task. UA-002/C1 and browser BR-002 cannot claim full security/recovery C0 PASS.
-
-**Precedence:** [AGENTS.md](../../AGENTS.md), [Goal Map](../strategy/UNIVERSAL_AGENT_GOALMAP_2026-11-15.md), [Roadmap](../strategy/UNIVERSAL_AGENT_ROADMAP_2026-11-15.md), [Task Ledger](../../tasks/universal-agent-todo.md), [UA-002 Handoff](../handoffs/NEXT_SESSION.md). Refresh, do not extrapolate.
+**Next:** prefer eligible #214 governance review/integration; otherwise finish the disposable fixture on its own draft PR (CI, review, authorized merge and safe branch deletion). Then reconcile #213/#211 without rewriting their green HEADs. UA-002 persisted owner grant and C1 depend on applicable gates; no live authority. Rollback by reviewed revert if integrated, otherwise preserve draft. No unattended execution.

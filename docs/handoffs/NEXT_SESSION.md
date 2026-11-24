@@ -1,5 +1,7 @@
 # NEXT SESSION — FolderForge Universal Agent | UA-002 conditional launch
 
+**Current development checkpoint (pre-commit, 2026-11-24):** main `567ce3f4974a011e90625693793d23a82347d447` includes #212, 7/7 exact-main checks. #214 is proposed governance, not adopted; #213/#211 remain open with green HEADs and zero reviews. UA-001/M0/C0 disposable process interruption fixture proposed in `tests/unit/worktree-manager.test.ts`; test kills its own child after journaling/applying tracked bytes and asserts restarted mutation refusal plus preserved recovery evidence. Exact new-head tests/review pending; synthetic Node harness only was exercised locally. No UA/AC/gate promoted. #118/#202 OPEN; host/capsule/worktree status UNKNOWN (MCP Session terminated). Preserve all existing branches and recovery state. See [rolling context](../continuation/CURRENT_CONTEXT.md) and [master prompt](../continuation/MASTER_PROMPT.md).
+
 **Handoff recorded:** 2026-11-17 (Asia/Ho_Chi_Minh). **Evidence baseline:** GitHub `main@59b1c3d9475a082b7770d60767d7a9e88a32226c` after PR #205. GitHub main and local `origin/main` ancestry checked, `2c3a3f5` is a parent of the merge commit. A post-merge `main` CI run [#44043297477](https://github.com/roronoazoroshao/FolderForge/actions/runs/44043297477) was **in progress when the handoff was prepared**; check its *terminal* result independently before claiming success.
 
 ## Canonical outcome (separate code integration from operational certification)

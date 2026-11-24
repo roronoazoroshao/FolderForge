@@ -1,7 +1,7 @@
 # FolderForge — Recursive Roadmap Execution Master Prompt
 
 **PROMPT_ID:** `FF-RECURSIVE-01` (stable)  
-**REVISION:** 4 · **UPDATED:** 2026-11-23 Asia/Ho_Chi_Minh  
+**REVISION:** 5 · **UPDATED:** 2026-11-24 Asia/Ho_Chi_Minh  
 **ENTRY:** `docs/continuation/MASTER_PROMPT.md`  
 **STATE:** `docs/continuation/CURRENT_CONTEXT.md`
 
@@ -10,7 +10,7 @@ You are working on the **real** `roronoazoroshao/FolderForge` repo toward the ow
 ## Mandatory startup
 1. Activate/use available **Superpowers** (using-superpowers, brainstorming/planning as needed, TDD, code review, verification, branch finishing), **agent-skills** (context, source-driven, security, documentation, Git/CI, shipping), **andrej-karpathy-skills** (simple, explicit, surgical changes), **FolderForge** (workspace/capsule/policy/status, code/verification, approved operations), and **GitHub** (PR, reviews, CI, main refs). Discover and invoke actual installed skills/tools; names alone prove no capability or security guarantee.
 2. Read `AGENTS.md`, this prompt and `CURRENT_CONTEXT.md`. Then inspect canonical [Goal Map](../strategy/UNIVERSAL_AGENT_GOALMAP_2026-11-15.md), [Roadmap](../strategy/UNIVERSAL_AGENT_ROADMAP_2026-11-15.md), [Spec](../superpowers/specs/2026-11-15-universal-agent-work-environment-design.md), [Implementation Plan](../superpowers/plans/2026-11-15-universal-agent-work-environment-implementation.md), [Task Ledger](../../tasks/universal-agent-todo.md), [UA-002 Handoff](../handoffs/NEXT_SESSION.md), relevant issues/ADRs. Precedence: canonical policy and task owners over rolling snapshots.
-3. If these continuation files are absent from `main`, fetch both from the currently open [PR #212](https://github.com/roronoazoroshao/FolderForge/pull/212) head branch `docs/stable-session-loop-20261123` first; verify its actual HEAD and never claim it is merged. **Refetch reality**: `main` SHA, open PRs, compare/diffs, final branch HEAD, exact-head CI, authentic reviewer identities/threads, branch policy, workspace/worktrees, capsule and recovery (#118), synthetic review provenance (#202). Mark inaccessible facts `UNKNOWN`.
+3. PR #212 is merged; both files exist on main. Read the execution plan only after legitimate adoption; #214 remains a proposal. **Refetch reality**: `main` SHA, open PRs, compare/diffs, final branch HEAD, exact-head CI, authentic reviewer identities/threads, branch policy, workspace/worktrees, capsule and recovery (#118), synthetic review provenance (#202). Mark inaccessible facts `UNKNOWN`.
 
 ## Execution to DONE
 4. Prefer integrating an already eligible PR; otherwise pick **one unblocked UA-### or prerequisite** mapped to exact acceptance criteria, dependency gate, user-observable outcome and `DONE WHEN`. Limit scope to ≤5 files by default. Resolve review, isolation and test feasibility **before** starting unmergeable work.

@@ -1,5 +1,7 @@
 # FolderForge — Universal Agent Task Ledger (UA-001…UA-018)
 
+**Current development checkpoint (pre-commit, 2026-11-24):** UA-001/M0/C0 test-only process interruption fixture proposed; exact-head CI and review pending. Main `567ce3f4974a011e90625693793d23a82347d447` (PR #212) has 7/7 exact-main checks. No new UA, AC, milestone or gate completion; operational C0 HOLD, #118/#202 OPEN. See [rolling context](../docs/continuation/CURRENT_CONTEXT.md). #214 governance proposal not adopted; preserve #213/#211 green HEADs. Host state UNKNOWN.
+
 **Decision baseline:** [Goal Map](../docs/strategy/UNIVERSAL_AGENT_GOALMAP_2026-11-15.md) → [Roadmap](../docs/strategy/UNIVERSAL_AGENT_ROADMAP_2026-11-15.md) → [Spec](../docs/superpowers/specs/2026-11-15-universal-agent-work-environment-design.md) → [Executable plan](../docs/superpowers/plans/2026-11-15-universal-agent-work-environment-implementation.md) → this tracker → [Session handoff](../docs/handoffs/NEXT_SESSION.md). **Baseline:** 2026-11-15. **Status (verified 2026-11-17):** UA-001 baseline **SOURCE_TESTED + MERGED_MAIN** via PR #205, main@`59b1c3d`, exact-head CI 7/7 and fresh focused 54/54 PASS. Owner-directed low-risk merge exception: **no independent APPROVED review**; operational/recovery C0 **HOLD**. UA-002–UA-018 not merged/verified as complete. This file extends the existing 33 FF issues on `main` / draft expansion to 37 in PR #200; do not bulk-close FF issues.
 
 ## Verified post-merge checkpoint — 2026-11-17
