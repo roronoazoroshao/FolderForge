@@ -68,4 +68,4 @@
 
 ## Development delivery objective (proposed)
 
-Preserve G1–G7 and all acceptance criteria. Add a cross-cutting delivery objective: each interactive session produces one small verifiable increment, records actual integration and audits the entire roadmap. Separate disposable dev/source proof from live operational certification; park scoped blockers and select an independent eligible outcome. See [Autonomous Development Execution Plan](AUTONOMOUS_DEVELOPMENT_EXECUTION_PLAN.md). This is a proposal, not a completed goal or permission to waive existing controls.
+Preserve G1–G8 and all acceptance criteria. Add a cross-cutting delivery objective: each interactive session produces one small verifiable increment, records actual integration and audits the entire roadmap. Separate disposable dev/source proof from live operational certification; park scoped blockers and select an independent eligible outcome. See [Autonomous Development Execution Plan](AUTONOMOUS_DEVELOPMENT_EXECUTION_PLAN.md). This is a proposal, not a completed goal or permission to waive existing controls.

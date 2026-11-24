@@ -4,7 +4,7 @@ Status: PROPOSED governance change; not an authorization or production certifica
 
 ## Outcome and scope
 
-Keep the Universal Agent North Star, G1–G7, UA-AC01–18 and milestone M0–M5. Optimize for one observable, reversible, mergeable slice per interactive session, with cumulative project audit. Separate source integration, disposable dev preview, and operational certification. Keep main canonical; short-lived branches only. Do not equate dev publication with public credentials/data or deployment.
+Keep the Universal Agent North Star, G1–G8, UA-AC01–18 and milestone M0–M5. Optimize for one observable, reversible, mergeable slice per interactive session, with cumulative project audit. Separate source integration, disposable dev preview, and operational certification. Keep main canonical; short-lived branches only. Do not equate dev publication with public credentials/data or deployment.
 
 Options: (A) retain a global stop on all C0 gaps (too much idle time); (B) permanent develop branch (integration debt); (C) risk-tiered main integration, disabled/unavailable capabilities and owned fixtures (recommended). Existing security boundaries stay fail-closed. Do not create a second grant authority or weaken tests to pass.
 
