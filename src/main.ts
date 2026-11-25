@@ -16,13 +16,6 @@ import { createModernMcpServer } from "./server/protocol/modern-adapter.js";
 import { startStdioTransport, startDualStdioTransport } from "./server/transports/stdio.js";
 import { startHttpTransport } from "./server/transports/http.js";
 import { startDashboard, isLoopbackHost } from "./dashboard/server.js";
-import { ResponsesStore } from "./openai/responses-store.js";
-import {
-  clearResponsesGatewayConfig,
-  loadResponsesGatewayConfig,
-  saveResponsesGatewayConfig,
-} from "./control/responses-gateway-store.js";
-import { createResponsesHttpHandler } from "./openai/responses-http.js";
 import { logger } from "./core/logger.js";
 import { readFolderForgeVersion } from "./core/version.js";
 import { executeDoctorCli } from "./doctor/index.js";
@@ -679,147 +672,6 @@ async function main(): Promise<void> {
       }), 1000, true)
     : () => {};
   const registry = buildRegistry(container);
-  const responsesStore = new ResponsesStore();
-  const persistedResponsesGateway = loadResponsesGatewayConfig(
-    container.projectRoot(),
-  );
-  let responsesDefaultWorkflowId =
-    process.env.FOLDERFORGE_RESPONSES_WORKFLOW_ID?.trim() ||
-    persistedResponsesGateway?.workflowId;
-  const responsesHandler = createResponsesHttpHandler({
-    store: responsesStore,
-    execute: async ({
-      ownerId,
-      principalContext,
-      request,
-      responseId,
-      signal,
-    }) => {
-      const principal = withExecutionContext(
-        {
-          ...STDIO_AGENT_PRINCIPAL,
-          id: ownerId,
-          ...(principalContext.clientId
-            ? { oauthClientId: principalContext.clientId }
-            : {}),
-          ...(principalContext.sessionId
-            ? { sessionId: principalContext.sessionId }
-            : {}),
-          ...(principalContext.taskId
-            ? { taskId: principalContext.taskId }
-            : {}),
-        },
-        container.projectRoot(),
-      );
-      const prompt =
-        typeof request.input === "string"
-          ? request.input
-          : request.input
-              .filter((item) => item.type === "message")
-              .map((item) =>
-                typeof item.content === "string" ? item.content : "",
-              )
-              .filter(Boolean)
-              .join("\\n");
-      responsesStore.update(responseId, ownerId, "in_progress");
-      const loop = container.agentLoops.create(
-        {
-          title: `Codex response ${responseId}`,
-          goal: [request.instructions, prompt].filter(Boolean).join("\\n\\n"),
-          acceptanceCriteria: [
-            "Complete the requested task and report governed evidence.",
-          ],
-          projectRoot: container.projectRoot(),
-        },
-        principal,
-      );
-      const cancelLoop = () => {
-        if (!signal.aborted) return;
-        try {
-          container.agentLoops.cancel(
-            loop.id,
-            principal,
-            "Response cancellation requested.",
-          );
-        } catch {
-          // The loop may already have reached a terminal state.
-        }
-      };
-      signal.addEventListener("abort", cancelLoop, { once: true });
-      const implementationWorkflowId =
-        principalContext.workflowId ?? responsesDefaultWorkflowId;
-      container.agentLoopRunner.start(
-        loop.id,
-        principal,
-        ...(implementationWorkflowId
-          ? [{ workflowId: implementationWorkflowId }]
-          : [{}]),
-        { signal },
-      );
-      const deadline = Date.now() + 30 * 60_000;
-      while (Date.now() < deadline) {
-        if (
-          signal.aborted ||
-          responsesStore.get(responseId, ownerId).record.status === "cancelled"
-        )
-          return;
-        const runnerStatus = container.agentLoopRunner.status(loop.id);
-        if (runnerStatus?.state === "finished") break;
-        if (runnerStatus?.state === "failed") {
-          throw new Error(
-            runnerStatus.error ?? `Agent Loop ${loop.id} failed.`,
-          );
-        }
-        await new Promise((resolve) => setTimeout(resolve, 500));
-      }
-      const runnerStatus = container.agentLoopRunner.status(loop.id);
-      if (runnerStatus?.state !== "finished") {
-        throw new Error(
-          `Agent Loop ${loop.id} did not reach a terminal state before the response deadline.`,
-        );
-      }
-      const completedRun = container.agentLoops.get(loop.id, principal);
-      if (completedRun.state !== "completed") {
-        const status =
-          completedRun.state === "cancelled" ? "cancelled" : "failed";
-        responsesStore.update(responseId, ownerId, status, {
-          error: {
-            code:
-              status === "cancelled"
-                ? "response_cancelled"
-                : "agent_loop_blocked",
-            message:
-              completedRun.pauseReason ??
-              completedRun.failure ??
-              `Agent Loop ${loop.id} ended in ${completedRun.state} state.`,
-          },
-        });
-        signal.removeEventListener("abort", cancelLoop);
-        return;
-      }
-      signal.removeEventListener("abort", cancelLoop);
-      const acknowledgement = `Agent Loop ${loop.id} completed the governed discovery, council, implementation, and verification cycle.`;
-      responsesStore.appendDelta(
-        responseId,
-        ownerId,
-        `msg_${responseId}`,
-        acknowledgement,
-      );
-      responsesStore.update(responseId, ownerId, "completed", {
-        output: [
-          {
-            type: "message",
-            id: `msg_${responseId}`,
-            status: "completed",
-            role: "assistant",
-            content: [{ type: "output_text", text: acknowledgement }],
-          },
-        ],
-        usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
-      });
-    },
-  });
-
   // Trim the advertised tool surface (config + CLI). Clients that cap the tool
   // list (e.g. ~50 tools) can run a focused preset like "vibe". CLI flags win
   // over the config file. Applied before the first tools/list.
@@ -931,30 +783,6 @@ async function main(): Promise<void> {
       ...(sshOperatorRuntime ? { sshOperatorBroker: sshOperatorRuntime.broker } : {}),
       port: config.server.dashboard.port,
       ...(token ? { token } : {}),
-      responsesGateway: {
-        enabled: config.server.transport === "http",
-        host: config.server.http.host,
-        port: config.server.http.port,
-        basePath: "/v1",
-        authMode:
-          config.server.http.auth?.mode ??
-          (config.server.http.token || config.server.http.apiKeys?.length
-            ? "token"
-            : "none"),
-        modelIds: ["folderforge-agent"],
-        ...(responsesDefaultWorkflowId
-          ? { workflowId: responsesDefaultWorkflowId }
-          : {}),
-        getWorkflowId: () => responsesDefaultWorkflowId,
-        setWorkflowId: (workflowId) => {
-          responsesDefaultWorkflowId = workflowId;
-          if (workflowId) {
-            saveResponsesGatewayConfig(container.projectRoot(), workflowId);
-          } else {
-            clearResponsesGatewayConfig(container.projectRoot());
-          }
-        },
-      },
     });
   }
 
@@ -1017,7 +845,6 @@ async function main(): Promise<void> {
       ...(config.server.http.sessionTtlMs !== undefined
         ? { sessionTtlMs: config.server.http.sessionTtlMs }
         : {}),
-      responsesHandler,
     });
   } else {
     if (config.server.mcpProtocol?.mode === 'dual') {
