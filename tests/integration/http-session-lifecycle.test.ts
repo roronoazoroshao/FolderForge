@@ -240,6 +240,44 @@ function toolPayload(message: Record<string, unknown> | undefined): Record<strin
 }
 
 describe('HTTP MCP session lifecycle', () => {
+  it('does not dispatch retired Responses routes even if a legacy caller supplies the old handler option', async () => {
+    const { registry, calls } = registryFixture();
+    let dispatches = 0;
+    const legacyOptions = {
+      responsesHandler: async () => {
+        dispatches += 1;
+        return false;
+      },
+    };
+    const server = await startHttpTransport(
+      principal => createMcpServer(registry, {
+        name: 'folderforge-retired-responses-test',
+        version: '0.0.0',
+        principal,
+      }),
+      { host: '127.0.0.1', port: 0, token: 'test-token', ...legacyOptions }
+    );
+    servers.push(server);
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('HTTP fixture did not bind');
+    const base = `http://127.0.0.1:${address.port}`;
+    const headers = { authorization: 'Bearer test-token', 'content-type': 'application/json' };
+    const models = await fetch(`${base}/v1/models`, { headers });
+    await models.text();
+    const response = await fetch(`${base}/v1/responses`, {
+      method: 'POST', headers, body: JSON.stringify({ input: 'retired fixture' }),
+    });
+    await response.text();
+    expect(models.status).toBe(404);
+    expect(response.status).toBe(404);
+    expect(dispatches).toBe(0);
+    expect(calls).toHaveLength(0);
+
+    const { sessionId } = await initialize(base, 'test-token');
+    const listed = await postRpc({ base, sessionId, token: 'test-token', id: 2, method: 'tools/list' });
+    expect(listed.response.status).toBe(200);
+  });
+
   it('keeps one initialized session alive while preserving legacy stateless calls', async () => {
     const fixture = await startFixture();
     const { sessionId, instanceId } = await initialize(fixture.base);
