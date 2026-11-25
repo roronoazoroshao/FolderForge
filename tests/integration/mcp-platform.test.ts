@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -168,16 +169,30 @@ describe('MCP platform protocol', () => {
     config.adapters.serena.enabled = false;
     config.adapters.playwright.enabled = false;
     config.adapters.desktopCommander.enabled = false;
+    const runId = 'loop_0123456789abcdef';
+    const runsDir = join(root, '.folderforge', 'agent-loops', 'runs');
+    mkdirSync(runsDir, { recursive: true });
+    const record = join(runsDir, `${runId}.json`);
+    // Independent on-disk legacy fixture: no retired code is needed to seed history.
+    const unsigned = {
+      schemaVersion: 1, id: runId, revision: 2, title: 'Historical loop',
+      goal: 'Retirement fixture', acceptanceCriteria: ['Preserve history'],
+      projectRoot: root, ownerId: 'agent:retired-loop-fixture',
+      experts: [{ id: 'architect', role: 'architecture', weight: 1 }, { id: 'qa', role: 'verification', weight: 1 }],
+      councilMinVotes: 2, councilThreshold: 0.7, maxIterations: 20, iteration: 1,
+      phase: 'discovery', state: 'running', createdAt: 1, updatedAt: 2, startedAt: 2,
+      proposals: [], votes: [], events: [
+        { seq: 1, type: 'created', phase: 'discovery', iteration: 1, message: 'Agent loop created.', recordedAt: 1 },
+        { seq: 2, type: 'started', phase: 'discovery', iteration: 1, message: 'Agent loop started.', recordedAt: 2 },
+      ],
+    };
+    const before = Buffer.from(JSON.stringify({ ...unsigned, integritySha256: createHash('sha256').update(JSON.stringify(unsigned)).digest('hex') }, null, 2) + '\n');
+    writeFileSync(record, before, { mode: 0o600 });
+    const filenames = readdirSync(runsDir).sort();
     const container = new Container(config);
     const principal = { id: 'agent:retired-loop-fixture', role: 'agent' as const, authMode: 'stdio' as const };
-    const run = container.agentLoops.create({
-      title: 'Historical loop', goal: 'Retirement fixture', acceptanceCriteria: ['Preserve history'],
-    }, principal);
-    container.agentLoops.start(run.id, principal);
-    const record = join(root, '.folderforge', 'agent-loops', 'runs', `${run.id}.json`);
-    const before = readFileSync(record);
-    // A retired execution driver must not be constructed or exposed at all.
     expect('agentLoopRunner' in container).toBe(false);
+    expect('agentLoops' in container).toBe(false);
     const registry = buildRegistry(container);
     const server = createMcpServer(registry, {
       name: 'folderforge-retirement-test', version: '0.0.0-test', roots: [root], principal, container,
@@ -192,12 +207,13 @@ describe('MCP platform protocol', () => {
       expect(names.filter(name => name.startsWith('agent_loop_'))).toEqual([]);
       expect(registry.listAll().filter(tool => tool.name.startsWith('agent_loop_'))).toEqual([]);
       for (const name of ['agent_loop_create', 'agent_loop_run', 'agent_loop_vote', 'agent_loop_decide', 'agent_loop_status']) {
-        const result = await client.callTool({ name, arguments: { id: run.id, title: 'retired', goal: 'retired', acceptanceCriteria: ['retired'] } });
+        const result = await client.callTool({ name, arguments: { id: runId, title: 'retired', goal: 'retired', acceptanceCriteria: ['retired'] } });
         expect(result.isError, name).toBe(true);
       }
       const read = await client.callTool({ name: 'file_read', arguments: { path: 'hello.txt' } });
       expect(read.isError).not.toBe(true);
       expect(JSON.stringify(read.content)).toContain('MCP task result');
+      expect(readdirSync(runsDir).sort()).toEqual(filenames);
       expect(readFileSync(record)).toEqual(before);
     } finally {
       await client.close().catch(() => undefined);
