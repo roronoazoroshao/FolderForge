@@ -17,7 +17,6 @@ import { formatTools } from './format-tools.js';
 import { coverageTools } from './coverage-tools.js';
 import { gameTools } from './game-tools.js';
 import { agentTools } from './agent-tools.js';
-import { agentLoopTools } from './agent-loop-tools.js';
 import { pluginTools } from './plugin-tools.js';
 import { workflowTools } from './workflow-tools.js';
 import { artifactTools } from './artifact-tools.js';
@@ -61,7 +60,6 @@ export function buildRegistry(container: Container): ToolRegistry {
     ...formatTools(),
     ...coverageTools(),
     ...agentTools(),
-    ...agentLoopTools(),
     ...pluginTools(),
     ...workflowTools(),
     ...artifactTools(),
@@ -77,9 +75,6 @@ export function buildRegistry(container: Container): ToolRegistry {
   // Expose the registry on the container so routing tools (workspace_route)
   // can switch the active tool subset at runtime.
   container.registry = registry;
-  // Reattach durable loops that were interrupted by a process restart only
-  // after the registry is ready to service discovery/verification calls.
-  container.agentLoopRunner.recover();
   return registry;
 }
 
