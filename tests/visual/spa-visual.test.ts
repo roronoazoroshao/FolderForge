@@ -188,6 +188,14 @@ function compare(name: string, viewportLabel: string, actual: Buffer): void {
   const result = diffPngs(readFileSync(baselinePath), actual);
   const pct = (result.ratio * 100).toFixed(3);
   if (!result.sameDimensions) {
+    // Temporary diagnostic: capture only the owned synthetic Tools fixture.
+    // Keep the original failure and every visual assertion intact.
+    if (name === 'tools' && viewportLabel === 'desktop' && SNAPSHOTS) {
+      const encoded = actual.toString('base64');
+      const parts = encoded.match(/.{1,2048}/g) ?? [];
+      console.log(`FF001C_PNG_META:${actual.length}:${actual.readUInt32BE(16)}:${actual.readUInt32BE(20)}:${parts.length}`);
+      for (const [index, part] of parts.entries()) console.log(`FF001C_PNG_PART:${index}:${part}`);
+    }
     writeFileSync(`/tmp/ff-visual-${name}.${viewportLabel}.actual.png`, actual);
     throw new Error(
       `Dimension mismatch for ${name}.${viewportLabel}: baseline is ${result.width}x${result.height} ` +
