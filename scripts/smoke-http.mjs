@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { makeHttpSmokeApiKey } from './smoke-http-auth.mjs';
 import { createServer } from 'node:net';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -255,6 +255,30 @@ try {
     throw new Error(
       `shell_exec structured failure smoke did not preserve wire evidence: ${JSON.stringify(failedShell)}`
     );
+  }
+
+  // PRODUCT-CLEANUP-001A: the production HTTP entrypoint must no longer
+  // accept requests for its proprietary Agent Loop execution gateway.
+  // This is a disposable project; do not touch any existing loop records.
+  const retiredModels = await fetch(`${base}/v1/models`, {
+    headers: { 'x-api-key': authValue },
+    signal: AbortSignal.timeout(15000),
+  });
+  await retiredModels.text();
+  const retiredResponse = await fetch(`${base}/v1/responses`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-api-key': authValue },
+    body: JSON.stringify({ model: 'folderforge-agent', input: 'retirement fixture' }),
+    signal: AbortSignal.timeout(15000),
+  });
+  await retiredResponse.text();
+  if (retiredModels.status !== 404 || retiredResponse.status !== 404) {
+    throw new Error(
+      `PRODUCT-CLEANUP-001A: retired Responses routes must return 404; models=${retiredModels.status}, responses=${retiredResponse.status}.`
+    );
+  }
+  if (existsSync(join(project, '.folderforge', 'agent-loops', 'runs'))) {
+    throw new Error('PRODUCT-CLEANUP-001A: retired gateway created Agent Loop state.');
   }
 
   console.log(
