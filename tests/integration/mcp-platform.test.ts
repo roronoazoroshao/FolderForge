@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import {
@@ -176,10 +176,8 @@ describe('MCP platform protocol', () => {
     container.agentLoops.start(run.id, principal);
     const record = join(root, '.folderforge', 'agent-loops', 'runs', `${run.id}.json`);
     const before = readFileSync(record);
-    // Observe the real recovery scan, but prevent any old runner from executing tools.
-    const startRunner = vi.spyOn(container.agentLoopRunner, 'start').mockReturnValue({
-      loopId: run.id, state: 'queued', startedAt: 0,
-    });
+    // A retired execution driver must not be constructed or exposed at all.
+    expect('agentLoopRunner' in container).toBe(false);
     const registry = buildRegistry(container);
     const server = createMcpServer(registry, {
       name: 'folderforge-retirement-test', version: '0.0.0-test', roots: [root], principal, container,
@@ -193,7 +191,6 @@ describe('MCP platform protocol', () => {
       expect(names).toContain('file_read');
       expect(names.filter(name => name.startsWith('agent_loop_'))).toEqual([]);
       expect(registry.listAll().filter(tool => tool.name.startsWith('agent_loop_'))).toEqual([]);
-      expect(startRunner).not.toHaveBeenCalled();
       for (const name of ['agent_loop_create', 'agent_loop_run', 'agent_loop_vote', 'agent_loop_decide', 'agent_loop_status']) {
         const result = await client.callTool({ name, arguments: { id: run.id, title: 'retired', goal: 'retired', acceptanceCriteria: ['retired'] } });
         expect(result.isError, name).toBe(true);
@@ -203,7 +200,6 @@ describe('MCP platform protocol', () => {
       expect(JSON.stringify(read.content)).toContain('MCP task result');
       expect(readFileSync(record)).toEqual(before);
     } finally {
-      startRunner.mockRestore();
       await client.close().catch(() => undefined);
       await server.close().catch(() => undefined);
     }

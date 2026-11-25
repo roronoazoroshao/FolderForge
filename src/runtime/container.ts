@@ -1,7 +1,5 @@
 import type {
   FolderForgeConfig,
-  ToolCallControl,
-  ToolResult,
   ToolRoutingRegistry,
 } from '../core/types.js';
 import { PolicyEngine } from '../policy/policy-engine.js';
@@ -41,7 +39,6 @@ import { RuntimeSettings } from '../operator/runtime-settings.js';
 import { RateLimitSettings } from '../operator/rate-limit-settings.js';
 import { VerificationManager } from '../verification/verification-manager.js';
 import { AgentLoopManager } from '../agent-loops/agent-loop-manager.js';
-import { AgentLoopRunner } from '../agent-loops/agent-loop-runner.js';
 
 /**
  * Dependency container shared by every tool handler.
@@ -75,7 +72,6 @@ export class Container {
   private dashboardRateLimitSettings?: RateLimitSettings;
   readonly verifications: VerificationManager;
   readonly agentLoops: AgentLoopManager;
-  readonly agentLoopRunner: AgentLoopRunner;
   workspaceStartupError: string | null = null;
   /**
    * Narrow routing contract assigned by `buildRegistry` after construction.
@@ -92,14 +88,6 @@ export class Container {
     );
     this.verifications = new VerificationManager(config.workspace.defaultProject);
     this.agentLoops = new AgentLoopManager(config.workspace.defaultProject);
-    this.agentLoopRunner = new AgentLoopRunner(
-      this.agentLoops,
-      async (name: string, args: Record<string, unknown>, control?: ToolCallControl): Promise<ToolResult> => {
-        const registry = this.registry as unknown as { callAgent?: (tool: string, input: Record<string, unknown>, callControl?: ToolCallControl) => Promise<ToolResult> } | null;
-        if (!registry?.callAgent) return { ok: false, error: 'Tool registry is not ready.' };
-        return registry.callAgent(name, args, control);
-      },
-    );
     this.rateLimiter = new RateLimiter(config.rateLimit);
     this.workspace = new WorkspaceManager(config.workspace.allowedDirectories);
     this.audit = new AuditLog(config.workspace.defaultProject, config.audit);
