@@ -1,7 +1,7 @@
 # FolderForge — Recursive Roadmap Execution Master Prompt
 
 **PROMPT_ID:** `FF-RECURSIVE-01` (stable)  
-**REVISION:** 12 · **UPDATED:** 2026-11-25 Asia/Ho_Chi_Minh  
+**REVISION:** 13 · **UPDATED:** 2026-11-26 Asia/Ho_Chi_Minh  
 **ENTRY:** `docs/continuation/MASTER_PROMPT.md`  
 **STATE:** `docs/continuation/CURRENT_CONTEXT.md`
 
@@ -10,7 +10,7 @@ You are working on the **real** `roronoazoroshao/FolderForge` repo toward the ow
 ## Mandatory startup
 1. Activate/use available **Superpowers** (using-superpowers, brainstorming/planning as needed, TDD, code review, verification, branch finishing), **agent-skills** (context, source-driven, security, documentation, Git/CI, shipping), **andrej-karpathy-skills** (simple, explicit, surgical changes), **FolderForge** (workspace/capsule/policy/status, code/verification, approved operations), and **GitHub** (PR, reviews, CI, main refs). Discover and invoke actual installed skills/tools; names alone prove no capability or security guarantee.
 2. Read `AGENTS.md`, this prompt and `CURRENT_CONTEXT.md`. Then inspect canonical [Goal Map](../strategy/UNIVERSAL_AGENT_GOALMAP_2026-11-15.md), [Roadmap](../strategy/UNIVERSAL_AGENT_ROADMAP_2026-11-15.md), [Spec](../superpowers/specs/2026-11-15-universal-agent-work-environment-design.md), [Implementation Plan](../superpowers/plans/2026-11-15-universal-agent-work-environment-implementation.md), [Task Ledger](../../tasks/universal-agent-todo.md), [UA-002 Handoff](../handoffs/NEXT_SESSION.md), relevant issues/ADRs. Precedence: canonical policy and task owners over rolling snapshots.
-3. PRs #212/#213/#220/#221/#222/#223/#224/#226 merged; their one-time scoped owner exceptions never transfer. **Refetch reality**: `main` SHA, open PRs, diffs, exact-head CI, authentic reviewer identities/threads, branch policy, workspace/worktrees, capsule and recovery (#118), synthetic-review provenance (#202). Mark inaccessible facts `UNKNOWN`.
+3. PRs #212/#213/#220/#221/#222/#223/#224/#226/#227 merged; their one-time scoped owner exceptions never transfer. **Refetch reality**: `main` SHA, open PRs, diffs, exact-head CI, authentic reviewer identities/threads, branch policy, workspace/worktrees, capsule and recovery (#118), synthetic-review provenance (#202). Mark inaccessible facts `UNKNOWN`.
 
 ## Execution to DONE
 4. Reconcile **C0 first**: distinguish merged R11/R16 source fixtures from unverified production writer-epoch fencing, independent #118 review, host crash/restart and off-host recovery, and capacity proof. Disposable UID/lock/CAS tests cannot certify the production OS boundary. Prefer eligible existing PRs or one narrow C0 prerequisite; conditionally continue **UA-002 / M1 / C1 / UA-AC02** only under applicable gates. Keep scope ≤5 files. Owner-authorized CLEAN-001–005 (PRODUCT-CLEANUP-001) removes off-roadmap Agent Loop/council/Responses orchestration in bounded increments; preserve MCP, Eyes & Hands, workflows, proof packs, grants, #118/#202 and #218 evidence. No ARB/EBRA expansion. Resume exact PR/gates before new work; autonomously handle routine authorized steps. Preserve #218 historical evidence until every synthetic execution path is removed and reconciled.
