@@ -1,20 +1,19 @@
 # FolderForge — Rolling Session Context
 
 **CONTEXT_ID:** `FF-RECURSIVE-01/STATE`  
-**CHECKED:** 2026-11-25 Asia/Ho_Chi_Minh  
-**GOAL:** `CLEAN-002A / detach retired Manager`  
-**STATUS:** `GREEN_CI_PENDING`; operational C0 HOLD  
+**CHECKED:** 2026-11-26 Asia/Ho_Chi_Minh  
+**GOAL:** `CLEAN-002B / remove orphan Manager and Council`  
+**STATUS:** `SOURCE_DELETION_CI_PENDING`; operational C0 HOLD  
 **MASTER:** [MASTER_PROMPT.md](MASTER_PROMPT.md)
 
 ## Verified checkpoint
-- CLEAN-001 #226 merged at main `79a37a9af6f92caea991ae4955ba7e8a6f8437da`, exact-head CI 45630684236 7/7, owner exception [receipt](https://github.com/roronoazoroshao/FolderForge/pull/226#issuecomment-7166322581); ancestry verified and branch ref 404. Runner source and eight obsolete tests removed. [Post-merge main CI](https://github.com/roronoazoroshao/FolderForge/actions/runs/45641492648) 6/7 success, macOS Node24 cancelled; do not claim all green.
-- CLEAN-002A [#227](https://github.com/roronoazoroshao/FolderForge/pull/227) RED `6c2819fbecf8744d8e839c41e9f4940dbc4c2112`, [actual Ubuntu Node24 log](https://github.com/roronoazoroshao/FolderForge/actions/runs/45641708650/job/139301815487): exactly two intended failures (Manager property true instead of false), 1585 passed/47 skipped. All four Unix test jobs failed as intended. Two retirement tests seed independent hashed schema-v1 historical running records before startup, retain authenticated MCP/HTTP denial, ordinary file_read/Mission Control, and byte/name equality.
-- GREEN candidate removes exactly three Manager import/property/construction lines from Container; five total paths including continuation. Manager source/tests remain orphan until CLEAN-002B. No production data deletion. Fresh final HEAD CI required.
-- Owner authorized sequential CLEAN-002–005; no transfer of previous exact-head exceptions. Preserve MCP, Eyes & Hands, Workflows, Proof Packs, grants, historical records and runtime config exclusions. #118/#202 OPEN; closed unmerged #218 evidence retained. No live host mutation, ARB/EBRA expansion, C0/UA promotion.
+- CLEAN-001 #226 merged, branch absent, post-merge CI 45641492648 attempt 2 SUCCESS 7/7. CLEAN-002A #227 merged at main `66be58c2d22be7a130e177bf88f41063d3c6977f`; exact-head [CI 45647764755 attempt 2](https://github.com/roronoazoroshao/FolderForge/actions/runs/45647764755/attempts/2) SUCCESS 7/7, Ubuntu 1587 passed/47 skipped, macOS 1584 passed/50 skipped, Chromium 25/25, MCP auth and historical record preservation PASS. [Scoped owner exception](https://github.com/roronoazoroshao/FolderForge/pull/227#issuecomment-7193381805), ancestry and branch ref 404 verified. [Post-merge CI](https://github.com/roronoazoroshao/FolderForge/actions/runs/45829372349) pending. Exceptions never transfer.
+- CLEAN-002B removes orphan Manager source (516 lines) and nine subsystem-only unit tests (279 lines), four paths including continuation. Prior #227 RED/GREEN proved runtime detachment; no new runtime behavior or new RED claimed. Remote main entrypoints checked, local search unavailable/inconclusive; full exact-head CI required to confirm dependency closure. Both independent retirement integration tests and workflow/proof/auth tests retained. Keep .folderforge historical records and runtime config exclusions unchanged.
+- #118/#202 OPEN; closed unmerged #218 evidence retained. No host mutation, ARB/EBRA expansion, security gate changes or C0/UA promotion.
 
 ## Next actions
-1. Finish #227 fresh exact-head CI, technical review and applicable authorization; merge, verify ancestry, delete integrated ref. Resolve cancelled main job evidence without concealing cancellation.
-2. CLEAN-002B remove orphan Manager and nine subsystem-only tests; CLEAN-003 retire Responses dashboard endpoints/config/modules, retain OpenAI MCP tunnel; CLEAN-004 remove legacy UI and verify pinned Chromium baselines; CLEAN-005 reconcile README/architecture/ledger/handoff. One branch at a time; ≤5 files per increment unless explicitly extended.
-3. SEC-VITE-001 read-only preflight then authorized remediation; DX-001 and #118 C0 evidence. UA-002 conditional on C0. Reuse closed PR history selectively, never restore old branches.
+1. Finish CLEAN-002B fresh exact-head CI, technical review, applicable authorization, merge/ancestry/branch absence.
+2. CLEAN-003 retire Responses Dashboard endpoints/config/modules, preserve OpenAI MCP tunnel. CLEAN-004 retire legacy UI and verify pinned Chromium baselines; CLEAN-005 reconcile README/architecture/ledger/handoff, preserve historical audits. One implementation branch at a time; ≤5 paths per increment unless explicitly extended.
+3. SEC-VITE-001 read-only preflight then authorized remediation; DX-001 and #118 C0 recovery/security evidence. UA-002 conditional on C0. Reuse closed PR history selectively, no restored old branches.
 
 **Precedence:** [AGENTS.md](../../AGENTS.md), [Goal Map](../strategy/UNIVERSAL_AGENT_GOALMAP_2026-11-15.md), [Roadmap](../strategy/UNIVERSAL_AGENT_ROADMAP_2026-11-15.md), [Task Ledger](../../tasks/universal-agent-todo.md), [UA-002 Handoff](../handoffs/NEXT_SESSION.md).
