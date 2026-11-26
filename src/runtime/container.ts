@@ -38,7 +38,6 @@ import { MissionControlState } from '../operator/mission-control.js';
 import { RuntimeSettings } from '../operator/runtime-settings.js';
 import { RateLimitSettings } from '../operator/rate-limit-settings.js';
 import { VerificationManager } from '../verification/verification-manager.js';
-import { AgentLoopManager } from '../agent-loops/agent-loop-manager.js';
 
 /**
  * Dependency container shared by every tool handler.
@@ -71,7 +70,6 @@ export class Container {
   readonly runtimeSettings: RuntimeSettings;
   private dashboardRateLimitSettings?: RateLimitSettings;
   readonly verifications: VerificationManager;
-  readonly agentLoops: AgentLoopManager;
   workspaceStartupError: string | null = null;
   /**
    * Narrow routing contract assigned by `buildRegistry` after construction.
@@ -87,7 +85,6 @@ export class Container {
       this.policy,
     );
     this.verifications = new VerificationManager(config.workspace.defaultProject);
-    this.agentLoops = new AgentLoopManager(config.workspace.defaultProject);
     this.rateLimiter = new RateLimiter(config.rateLimit);
     this.workspace = new WorkspaceManager(config.workspace.allowedDirectories);
     this.audit = new AuditLog(config.workspace.defaultProject, config.audit);
