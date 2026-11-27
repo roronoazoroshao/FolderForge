@@ -84,18 +84,6 @@ export interface DashboardOptions {
    * behavior: required only for non-loopback binds.
    */
   requireAuth?: boolean;
-  /** Public metadata for the OpenAI-compatible Responses gateway. */
-  responsesGateway?: {
-    enabled: boolean;
-    host: string;
-    port: number;
-    basePath: string;
-    authMode: string;
-    modelIds: string[];
-    workflowId?: string;
-    getWorkflowId?: () => string | undefined;
-    setWorkflowId?: (workflowId: string | undefined) => void;
-  };
 }
 
 const HTML_SESSION_COOKIE = 'ff_dashboard_html';
@@ -1370,80 +1358,6 @@ async function handle(
         total: registry.listAll().length,
       },
     });
-  }
-
-  if (method === "GET" && path === "/responses/status") {
-    const configured = opts.responsesGateway ?? {
-      enabled: false,
-      host: container.config.server.http.host,
-      port: container.config.server.http.port,
-      basePath: "/v1",
-      authMode: container.config.server.http.auth?.mode ?? "none",
-      modelIds: [],
-    };
-    const currentWorkflowId =
-      opts.responsesGateway?.getWorkflowId?.() ?? configured.workflowId;
-    const {
-      getWorkflowId: _getWorkflowId,
-      setWorkflowId: _setWorkflowId,
-      ...publicGateway
-    } = configured;
-    const workflows = container.workflows
-      .list(principal, 100)
-      .map((workflow) => ({
-        id: workflow.id,
-        name: workflow.name,
-        state: workflow.state,
-      }));
-    return sendJson(res, 200, {
-      gateway: {
-        ...publicGateway,
-        ...(currentWorkflowId ? { workflowId: currentWorkflowId } : {}),
-      },
-      implementationWorkflows: workflows,
-      compatibility: {
-        models: "/v1/models",
-        responses: "/v1/responses",
-        polling: "/v1/responses/:id",
-        cancellation: "/v1/responses/:id?action=cancel",
-      },
-    });
-  }
-
-  if (method === "POST" && path === "/responses/config") {
-    const body = (await readJsonBody(req)) ?? {};
-    const workflowId =
-      body.workflowId === null || body.workflowId === ""
-        ? undefined
-        : typeof body.workflowId === "string"
-          ? body.workflowId.trim()
-          : undefined;
-    if (workflowId && !/^wf_[A-Za-z0-9]+$/.test(workflowId)) {
-      return sendJson(res, 400, {
-        error: "invalid_workflow_id",
-        message: "workflowId must match wf_<alphanumeric>.",
-      });
-    }
-    if (workflowId) {
-      const exists = container.workflows
-        .list(principal, 100)
-        .some((workflow) => workflow.id === workflowId);
-      if (!exists)
-        return sendJson(res, 404, { error: "workflow_not_found", workflowId });
-    }
-    if (!opts.responsesGateway?.setWorkflowId) {
-      return sendJson(res, 409, {
-        error: "responses_config_unavailable",
-        message: "The Responses gateway is not managed by this process.",
-      });
-    }
-    opts.responsesGateway.setWorkflowId(workflowId);
-    container.audit.record({
-      type: "dashboard_action",
-      summary: `responses_workflow_configured:${workflowId ?? "none"}`,
-      detail: { actorId: principal.id, workflowId: workflowId ?? null },
-    });
-    return sendJson(res, 200, { workflowId: workflowId ?? null });
   }
 
   if (method === "GET" && path === "/mission-control") {
