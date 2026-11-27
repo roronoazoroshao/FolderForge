@@ -173,6 +173,13 @@ async function shoot(context: BrowserContext, url: string): Promise<Buffer> {
 }
 
 function compare(name: string, viewportLabel: string, actual: Buffer): void {
+  // Temporary evidence capture only; strict comparator below remains unchanged.
+  if (name === 'responses' && viewportLabel === 'desktop') {
+    const encoded = actual.toString('base64');
+    const chunks = encoded.match(/.{1,2048}/g) ?? [];
+    console.log(`FF003A_PNG_META:${actual.length}:${actual.readUInt32BE(16)}:${actual.readUInt32BE(20)}:${chunks.length}`);
+    chunks.forEach((chunk, index) => console.log(`FF003A_PNG_CHUNK:${index}:${chunk}`));
+  }
   const baselinePath = join(BASELINES, `${name}.${viewportLabel}.png`);
   if (UPDATE) {
     mkdirSync(BASELINES, { recursive: true });
