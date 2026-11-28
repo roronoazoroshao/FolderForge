@@ -250,6 +250,33 @@ describe.skipIf(!CHROMIUM)('Mission Control SPA visual regression (proposal 018)
     }
   }
 
+  it('retires the legacy Responses UI without invoking gateway APIs or exposing obsolete controls', { timeout: 30_000 }, async () => {
+    const page = await desktop.newPage();
+    const legacyRequests: string[] = [];
+    const pageErrors: string[] = [];
+    page.on('request', request => {
+      const path = new URL(request.url()).pathname;
+      if (path === '/responses/status' || path === '/responses/config') {
+        legacyRequests.push(request.method() + ' ' + path);
+      }
+    });
+    page.on('pageerror', error => pageErrors.push(error.message));
+    try {
+      await page.goto(`${harness.baseUrl}/app/responses`, { waitUntil: 'networkidle' });
+      expect(legacyRequests).toEqual([]);
+      expect(await page.getByRole('heading', { name: 'Responses gateway retired', exact: true }).isVisible()).toBe(true);
+      expect(await page.getByText(/folderforge-agent|Governed default for \/v1|Codex connection/).count()).toBe(0);
+      expect(await page.getByRole('button', { name: /Save workflow|Start HTTPS tunnel|Stop tunnel|Refresh tunnel/ }).count()).toBe(0);
+      expect(await page.getByRole('combobox').count()).toBe(0);
+      await page.getByRole('link', { name: 'Go to Fleet', exact: true }).click();
+      await page.getByText('AI workspace', { exact: true }).waitFor({ state: 'visible' });
+      expect(legacyRequests).toEqual([]);
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await page.close();
+    }
+  });
+
   it('shows the first-run AI setup link only without Fleet and preserves owner verification', { timeout: 30_000 }, async () => {
     const page = await desktop.newPage();
     try {
