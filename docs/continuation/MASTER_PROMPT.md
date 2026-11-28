@@ -1,7 +1,7 @@
 # FolderForge — Recursive Roadmap Execution Master Prompt
 
 **PROMPT_ID:** `FF-RECURSIVE-01` (stable)  
-**REVISION:** 16 · **UPDATED:** 2026-11-28 Asia/Ho_Chi_Minh  
+**REVISION:** 17 · **UPDATED:** 2026-11-28 Asia/Ho_Chi_Minh  
 **ENTRY:** `docs/continuation/MASTER_PROMPT.md`  
 **STATE:** `docs/continuation/CURRENT_CONTEXT.md`
 
