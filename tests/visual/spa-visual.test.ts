@@ -240,14 +240,6 @@ describe.skipIf(!CHROMIUM)('Mission Control SPA visual regression (proposal 018)
   for (const route of ROUTES) {
     (SNAPSHOTS ? it : it.skip)(`matches the baseline for ${route.name} (desktop)`, { timeout: 30_000 }, async () => {
       const shot = await shoot(desktop, `${harness.baseUrl}/app${route.path}`);
-      // Temporary diagnostic for the anonymous Responses fixture only. Keep strict comparison.
-      if (route.name === 'responses') {
-        const encoded = shot.toString('base64');
-        const chunks = encoded.match(/.{1,1200}/g) ?? [];
-        for (const [index, chunk] of chunks.entries()) {
-          console.log(`FF_RESPONSES_PNG ${index + 1}/${chunks.length} ${chunk}`);
-        }
-      }
       compare(route.name, 'desktop', shot);
     });
     if (MOBILE_ROUTES.has(route.name)) {
