@@ -1,20 +1,20 @@
 # FolderForge — Rolling Session Context
 
 **CONTEXT_ID:** `FF-RECURSIVE-01/STATE`  
-**CHECKED:** 2026-11-27 Asia/Ho_Chi_Minh  
+**CHECKED:** 2026-11-28 Asia/Ho_Chi_Minh  
 **GOAL:** `CLEAN-003A / retire Responses Dashboard API`  
-**STATUS:** `GREEN_CI_PENDING`; operational C0 HOLD  
+**STATUS:** `BLOCKED` (visual, review, scope); operational C0 HOLD  
 **MASTER:** [MASTER_PROMPT.md](MASTER_PROMPT.md)
 
 ## Verified checkpoint
-- CLEAN-001 #226 and CLEAN-002A #227 merged; branches absent; post-merge CI 7/7. CLEAN-002B #228 merged at main `1045c88564ce2c4ccd70a0e46a4355731320b100`, [exact-head CI](https://github.com/roronoazoroshao/FolderForge/actions/runs/45829563797) SUCCESS 7/7, Ubuntu 1578 passed/47 skipped, Chromium 25/25, authenticated MCP smoke and retirement tests pass. [Owner exception](https://github.com/roronoazoroshao/FolderForge/pull/228#issuecomment-7205309841), ancestry and ref 404 verified. [Post-merge CI](https://github.com/roronoazoroshao/FolderForge/actions/runs/45909284606) SUCCESS 7/7. No src/agent-loops source remains on main; historical records/exclusions retained. Exceptions never transfer.
-- CLEAN-003A [#229](https://github.com/roronoazoroshao/FolderForge/pull/229) RED `d6773759ffeb11008b311bbdffd8029c7e34ceb3`: [Ubuntu Node24 log](https://github.com/roronoazoroshao/FolderForge/actions/runs/45909375682/job/140213757957), one intended failure (GET /responses/status 200, POST /responses/config 409 instead of 404), 1578 passed/47 skipped. All four Unix test jobs fail as intended. Auth 401, Mission Control and OpenAI MCP tunnel status 200, historical config byte equality pass before final assertion.
-- GREEN removes only two retired Dashboard handlers and unused responsesGateway option; four final paths including independent regression and continuation. Real OpenAI MCP tunnel untouched. Fresh exact-head CI and applicable review required; orphan backend modules and legacy UI still remain for later increments.
-- #118/#202 OPEN; #218 closed unmerged historical evidence preserved. No live host mutation, ARB/EBRA expansion or C0/UA promotion.
+- Main `1045c88564ce2c4ccd70a0e46a4355731320b100`: #228 merged; remote branch absent. [Post-merge CI](https://github.com/roronoazoroshao/FolderForge/actions/runs/45909284606) SUCCESS 7/7. Only main and #229 branch listed. Exceptions for #226–228 never transfer.
+- [#229](https://github.com/roronoazoroshao/FolderForge/pull/229) OPEN/DRAFT. Historical RED `d6773759ffeb11008b311bbdffd8029c7e34ceb3`: [Ubuntu log](https://github.com/roronoazoroshao/FolderForge/actions/runs/45909375682/job/140213757957), intended retirement failure, 1578 passed/47 skipped. Source candidate `e1f3f44ceb6aa0dae9c3a17c05d32c222af791b0` removes two Dashboard handlers and options, preserves MCP tunnel/history.
+- Diagnostic HEAD `781f43e3a1c73c744384adf4660b4579a622344b`: [CI](https://github.com/roronoazoroshao/FolderForge/actions/runs/45921080321) FAILURE 6/7; [Ubuntu Node24](https://github.com/roronoazoroshao/FolderForge/actions/runs/45921080321/job/140251751644) 1579 passed/47 skipped, retirement PASS; owner consent visual SUCCESS. [Chromium](https://github.com/roronoazoroshao/FolderForge/actions/runs/45921080321/job/140251751603) recovered 109 indexed PNG chunks, 166684 bytes, 1280x1003 vs 1280x1270 baseline. Actual image inspected: not_found, stale Agent Loop/Codex gateway instructions and obsolete controls. Reject baseline normalization of broken UX. Restore visual test to main blob `c4dd10a7a25b2a5a4f35c48eab1676572c9d7e4e`; no comparator/threshold/baseline changes. This checkpoint invalidates prior exact-head CI; new checks required.
+- No submitted reviews, threads or requested reviewers; branch protection read 403, rulesets empty. FolderForge workspace/capsule/policy/status MCP 429: live capacity, worktrees, fence and recovery UNKNOWN. #118/#202 OPEN, #218 closed unmerged evidence retained. No host mutation or C0/UA promotion.
 
 ## Next actions
-1. Finish #229 fresh exact-head CI/review/authorized merge/ancestry/branch absence.
-2. CLEAN-003B remove orphan Responses HTTP/store/compat/config modules and their subsystem-only tests in dependency order, retain historical data and actual MCP tunnel. CLEAN-004 retire legacy UI, verify pinned Chromium baselines; CLEAN-005 reconcile README/architecture/ledger/handoff, retain historical audits. One implementation branch at a time, ≤5 paths per increment unless explicitly extended.
-3. SEC-VITE-001 read-only preflight then authorized remediation; DX-001 and #118 C0 recovery evidence. UA-002 conditional on C0. Reuse closed PR history selectively, no restored old branches.
+1. Resume #229, not a new branch. Re-slice API/UI retirement within five final paths or obtain explicit scope extension for a paired UI fix plus intentional visual evidence. Test retired route UX and preserve actual MCP tunnel, auth, history. Do not accept misleading legacy UI or skip visual assertions.
+2. Fresh final-head CI, genuine non-author review or eligible explicit scoped exception, authorized merge, ancestry and branch absence. Do not waive visual failure.
+3. CLEAN-003B orphan modules, CLEAN-004 legacy UI, CLEAN-005 docs/ledger; SEC-VITE-001 preflight, DX-001 and #118 C0 evidence. UA-002 conditional on C0.
 
 **Precedence:** [AGENTS.md](../../AGENTS.md), [Goal Map](../strategy/UNIVERSAL_AGENT_GOALMAP_2026-11-15.md), [Roadmap](../strategy/UNIVERSAL_AGENT_ROADMAP_2026-11-15.md), [Task Ledger](../../tasks/universal-agent-todo.md), [UA-002 Handoff](../handoffs/NEXT_SESSION.md).
