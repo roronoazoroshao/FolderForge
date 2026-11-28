@@ -3,18 +3,19 @@
 **CONTEXT_ID:** `FF-RECURSIVE-01/STATE`  
 **CHECKED:** 2026-11-28 Asia/Ho_Chi_Minh  
 **GOAL:** `CLEAN-003A/UI-first / retire misleading Responses screen`  
-**STATUS:** `RED_CI_PENDING`; operational C0 HOLD  
+**STATUS:** `BLOCKED` (candidate visual evidence, final CI, review); operational C0 HOLD  
 **MASTER:** [MASTER_PROMPT.md](MASTER_PROMPT.md)
 
 ## Verified checkpoint
-- Main `1045c88564ce2c4ccd70a0e46a4355731320b100` after #228; [post-merge CI](https://github.com/roronoazoroshao/FolderForge/actions/runs/45909284606) SUCCESS 7/7; ancestry/ref absence verified. Only main and active #229 branch. Exceptions for #226–228 never transfer.
-- [#229](https://github.com/roronoazoroshao/FolderForge/pull/229) historical API RED `d6773759ffeb11008b311bbdffd8029c7e34ceb3` and functional GREEN `e1f3f44ceb6aa0dae9c3a17c05d32c222af791b0` (1579 tests pass/47 skipped). [Diagnostic CI](https://github.com/roronoazoroshao/FolderForge/actions/runs/45921080321) 6/7; actual pinned screenshot 1280x1003 exposed stale Codex/Agent Loop instructions and not_found. Rejected broken UX baseline. Checkpoint `2a7d16aae73bd2861b07645b62d2e1c521c1593f` restored diagnostic test byte-for-byte; exact-head CI 46130956959 visual fails.
-- Re-slice same PR/branch UI-first to stay within five final paths. Restore Dashboard server to exact main blob and remove candidate-only API test from working tree, preserving both commits as ancestors for subsequent API retirement. No API restoration on main or new gateway behavior. New real browser RED asserts zero legacy gateway requests, truthful retirement heading, absent old controls, functional Fleet link. Expected RED legacy GET /responses/status. No production UI change until RED evidence. Planned GREEN static retirement notice using existing UI and link to Fleet, then inspect actual pinned screenshot, replace only Responses baseline, preserve comparator/threshold and all other baselines. Final paths: screen, browser test, Responses baseline, two continuation files.
-- #118/#202 OPEN; #218 closed unmerged evidence retained; live host/capsule/recovery UNKNOWN; no host mutation or C0/UA promotion.
+- Main `1045c88564ce2c4ccd70a0e46a4355731320b100` after #228; historical [post-merge CI](https://github.com/roronoazoroshao/FolderForge/actions/runs/45909284606) SUCCESS 7/7. Only main and active #229 branch returned. Exceptions #226–228 never transfer.
+- [#229](https://github.com/roronoazoroshao/FolderForge/pull/229) remains draft. Historical API RED `d6773759ffeb11008b311bbdffd8029c7e34ceb3`, source GREEN `e1f3f44ceb6aa0dae9c3a17c05d32c222af791b0` preserved as ancestors; rejected obsolete UI screenshot in CI 45921080321. API retirement intentionally deferred; Dashboard source equals main.
+- UI RED exact head `6f27b449224534ffb3c43f565454eb9f816f2cb4`: [Chromium log](https://github.com/roronoazoroshao/FolderForge/actions/runs/46131388604/job/140937152352) sole expected failure `GET /responses/status` vs empty, 25 passed/1 failed. Six platform jobs and separate owner consent visual PASS. Zero submitted reviews or threads.
+- UI GREEN candidate `d13953b00e5b1733f484c928ecb77e12c0cc167e` replaces legacy screen with static retirement notice and router Fleet link. Diagnostic `7c781b7e6b4f949a0334089ed2e2de2414eae803` emits indexed base64 PNG chunks from anonymous Responses fixture only; strict compare and other assertions unchanged. No verified GREEN or baseline yet. Four current paths; fifth reserved for actual reviewed Responses PNG. Remove temporary diagnostic before final CI.
+- #118/#202 OPEN; #218 historical evidence retained. FolderForge MCP 429; live host/capsule/recovery UNKNOWN. No host mutation, no C0/UA promotion or ARB/EBRA expansion.
 
 ## Next actions
-1. Verify exact-head RED; minimal UI GREEN, capture actual pinned PNG, inspect notice and Fleet link; final CI and applicable review/exception, merge/ancestry/ref absence.
-2. CLEAN-003A/API retire two Dashboard handlers using preserved RED/GREEN commits, retain auth/MCP tunnel/history. CLEAN-003B orphan modules, CLEAN-004 remove retired routes/navigation and visual baselines, CLEAN-005 docs/ledger. One branch at a time, ≤5 final paths unless explicitly extended.
-3. SEC-VITE-001 preflight, DX-001, #118 C0 evidence; UA-002 conditional on C0.
+1. Fetch current #229 HEAD and exact CI; verify browser retirement test passes; recover all indexed PNG chunks from pinned Chromium log, validate PNG, inspect actual image, update only responses.desktop.png. Restore visual test to RED blob `65bde1cb1ad905d4f56707791be79e1782188367` (retain regression). Refresh continuation, run final CI and genuine review/eligible explicit scoped exception, merge/ancestry/ref absence only when gated.
+2. CLEAN-003A/API reuse preserved RED/GREEN evidence with fresh verification, retain MCP tunnel/auth/history; CLEAN-003B orphan modules, CLEAN-004 retired routes/nav/UI, CLEAN-005 docs/ledger. One branch, ≤5 final paths unless authorized.
+3. SEC-VITE-001 read-only registry/advisory/integrity/native-binding preflight, then authorized remediation; #216 DX-001 closed unmerged, reconcile before reuse. #118 C0 evidence; UA-002 conditional.
 
 **Precedence:** [AGENTS.md](../../AGENTS.md), [Goal Map](../strategy/UNIVERSAL_AGENT_GOALMAP_2026-11-15.md), [Roadmap](../strategy/UNIVERSAL_AGENT_ROADMAP_2026-11-15.md), [Task Ledger](../../tasks/universal-agent-todo.md), [UA-002 Handoff](../handoffs/NEXT_SESSION.md).
